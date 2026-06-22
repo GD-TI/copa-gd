@@ -377,14 +377,54 @@ function Telao({ groups, campaign, onClose }) {
   )
 }
 
+// ── Individual Rankings ──────────────────────────────────────
+
+const BALL_LABELS  = ['Bola de Ouro', 'Bola de Prata', 'Bola de Bronze']
+const BALL_ICONS   = ['⚽', '⚽', '⚽']
+const BALL_CLS     = ['ir-gold', 'ir-silver', 'ir-bronze']
+const ASSIST_ICONS = ['🥇', '🥈', '🥉']
+
+function IndividualRankCard({ title, icon, items, formatValue, emptyMsg }) {
+  return (
+    <div className="ir-card">
+      <div className="ir-card-head">
+        <span className="ir-card-icon">{icon}</span>
+        <span className="ir-card-title">{title}</span>
+      </div>
+      {items.length === 0
+        ? <div className="ir-empty">{emptyMsg}</div>
+        : items.map((item, i) => (
+          <div key={item.vendedor_id} className={`ir-row ${BALL_CLS[i] || ''}`}>
+            <div className="ir-medal-col">
+              <span className={`ir-ball ${BALL_CLS[i] || ''}`}>{title.includes('Vendedor') ? BALL_ICONS[i] : ASSIST_ICONS[i]}</span>
+              <span className="ir-rank-lbl">{title.includes('Vendedor') ? BALL_LABELS[i] : `${i + 1}º lugar`}</span>
+            </div>
+            <div className="ir-name">{item.name}</div>
+            <div className="ir-value">{formatValue(item)}</div>
+          </div>
+        ))
+      }
+    </div>
+  )
+}
+
 // ── Main ShellRanking ────────────────────────────────────────
 
 export default function ShellRanking() {
-  const [groups, setGroups]       = useState([])
-  const [campaign, setCampaign]   = useState(null)
-  const [loading, setLoading]     = useState(true)
-  const [modalGroup, setModalGroup] = useState(null)
-  const [telaoOpen, setTelaoOpen] = useState(false)
+  const [groups, setGroups]           = useState([])
+  const [campaign, setCampaign]       = useState(null)
+  const [loading, setLoading]         = useState(true)
+  const [modalGroup, setModalGroup]   = useState(null)
+  const [telaoOpen, setTelaoOpen]     = useState(false)
+  const [indRankings, setIndRankings] = useState(null)
+  const [indLoading, setIndLoading]   = useState(true)
+
+  const loadInd = useCallback(() => {
+    api.get('/scores/individual-rankings')
+      .then(r => setIndRankings(r.data))
+      .catch(() => {})
+      .finally(() => setIndLoading(false))
+  }, [])
 
   const load = useCallback(() => {
     api.get('/groups/ranking').then(r => {
@@ -395,17 +435,18 @@ export default function ShellRanking() {
 
   useEffect(() => {
     load()
+    loadInd()
 
     // SSE: atualização instantânea quando o servidor recalcula pontos
     const es = new EventSource('/api/events/stream')
-    es.addEventListener('scores_updated', () => load())
+    es.addEventListener('scores_updated', () => { load(); loadInd() })
     es.onerror = () => {} // reconecta automaticamente
 
     // Fallback: recarrega a cada 5 min caso SSE caia
-    const t = setInterval(load, 300000)
+    const t = setInterval(() => { load(); loadInd() }, 300000)
 
     return () => { es.close(); clearInterval(t) }
-  }, [load])
+  }, [load, loadInd])
 
   const total = groups.reduce((a, g) => a + (Number(g.total_points) || 0), 0)
   const totalGoal = groups.reduce((a, g) => a + (Number(g.goal_points) || 0), 0)
@@ -516,6 +557,32 @@ export default function ShellRanking() {
           <div className="rth r">Status</div>
         </div>
         {groups.map((g, i) => <RankRow key={g.id} group={g} rank={i} onOpen={() => setModalGroup(g)} />)}
+      </div>
+
+      {/* Individual rankings */}
+      <div className="ir-section">
+        <div className="sec-label">🏅 Rankings Individuais</div>
+        {indLoading
+          ? <div className="ir-loading">Carregando rankings…</div>
+          : (
+            <div className="ir-grid">
+              <IndividualRankCard
+                title="Melhor Vendedor"
+                icon="⚽"
+                items={indRankings?.melhor_vendedor || []}
+                formatValue={item => `R$ ${item.total_valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+                emptyMsg="Nenhuma proposta paga no período"
+              />
+              <IndividualRankCard
+                title="Rei das Assistências"
+                icon="🤝"
+                items={indRankings?.rei_assistencias || []}
+                formatValue={item => `${item.indicacao_count} indicaç${item.indicacao_count === 1 ? 'ão' : 'ões'}`}
+                emptyMsg="Nenhuma proposta por indicação no período"
+              />
+            </div>
+          )
+        }
       </div>
     </>
   )

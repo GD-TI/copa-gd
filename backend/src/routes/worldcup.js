@@ -109,63 +109,95 @@ router.patch('/matches/:id', authMiddleware, adminOnly, async (req, res) => {
   }
 });
 
+const STAGE_MAP = {
+  GROUP_STAGE:   'group',
+  LAST_16:       'round_of_16',
+  QUARTER_FINALS:'quarter',
+  SEMI_FINALS:   'semi',
+  FINAL:         'final',
+  THIRD_PLACE:   'third_place',
+};
+const STAGE_LABEL = {
+  group:        'Fase de Grupos',
+  round_of_16:  'Oitavas de Final',
+  quarter:      'Quartas de Final',
+  semi:         'Semifinal',
+  final:        'Final',
+  third_place:  '3º Lugar',
+};
+
+// Converte data UTC da API para data local de Brasília (UTC-3)
+// Jogos noturnos nos EUA cruzam a meia-noite UTC — ex: 21:30 BRT = 00:30 UTC do dia seguinte
+function toBrazilDate(utcStr) {
+  const ms = new Date(utcStr).getTime() - 3 * 3600 * 1000;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+// Busca e salva jogos do Brasil da API football-data.org
+// Retorna { synced, changed } — changed=true se alguma linha foi inserida/alterada
+async function syncMatchesFromApi(apiKey) {
+  const response = await axios.get(
+    'https://api.football-data.org/v4/teams/764/matches',
+    {
+      params: { season: 2026, competitions: 'WC' },
+      headers: { 'X-Auth-Token': apiKey },
+      timeout: 15000,
+    }
+  );
+
+  const matches = response.data.matches || [];
+  let synced = 0;
+  let changed = 0;
+
+  for (const match of matches) {
+    const matchDate   = toBrazilDate(match.utcDate); // ← horário de Brasília (UTC-3)
+    const apiId       = match.id;
+    const isHome      = match.homeTeam.id === 764;
+    const opponent    = isHome ? match.awayTeam.name : match.homeTeam.name;
+    const stage       = STAGE_MAP[match.stage] || match.stage;
+    const label       = STAGE_LABEL[stage] || stage;
+    const desc        = `Brasil x ${opponent} · ${label}`;
+
+    // Remove orphan se o mesmo adversário+fase estiver em data diferente (ex: timezone shift)
+    await db.query(
+      `DELETE FROM brazil_matches WHERE opponent = $1 AND stage = $2 AND match_date != $3`,
+      [opponent, stage, matchDate]
+    );
+
+    const { rowCount } = await db.query(
+      `INSERT INTO brazil_matches (match_date, opponent, stage, description, double_points)
+       VALUES ($1, $2, $3, $4, true)
+       ON CONFLICT (match_date) DO UPDATE
+         SET opponent    = EXCLUDED.opponent,
+             stage       = EXCLUDED.stage,
+             description = EXCLUDED.description
+         WHERE brazil_matches.opponent     IS DISTINCT FROM EXCLUDED.opponent
+            OR brazil_matches.stage        IS DISTINCT FROM EXCLUDED.stage
+            OR brazil_matches.description  IS DISTINCT FROM EXCLUDED.description`,
+      [matchDate, opponent, stage, desc]
+    );
+    synced++;
+    if (rowCount > 0) changed++;
+  }
+
+  return { synced, changed };
+}
+
 // POST /api/worldcup/sync - sincronizar via API de futebol (admin)
 router.post('/sync', authMiddleware, adminOnly, async (req, res) => {
   const apiKey = process.env.FOOTBALL_API_KEY;
-
   if (!apiKey) {
-    return res.status(400).json({
-      error: 'FOOTBALL_API_KEY não configurada. Configure no arquivo .env para usar sincronização automática.',
-    });
+    return res.status(400).json({ error: 'FOOTBALL_API_KEY não configurada no .env' });
   }
 
   try {
-    // Brazil team ID na football-data.org = 764
-    const response = await axios.get(
-      'https://api.football-data.org/v4/teams/764/matches',
-      {
-        params: { season: 2026, competitions: 'WC' },
-        headers: { 'X-Auth-Token': apiKey },
-        timeout: 10000,
-      }
-    );
-
-    const matches = response.data.matches || [];
-    let synced = 0;
-
-    for (const match of matches) {
-      const matchDate = match.utcDate.split('T')[0];
-      const isHome = match.homeTeam.id === 764;
-      const opponent = isHome ? match.awayTeam.name : match.homeTeam.name;
-
-      const stageMap = {
-        'GROUP_STAGE': 'group',
-        'LAST_16': 'round_of_16',
-        'QUARTER_FINALS': 'quarter',
-        'SEMI_FINALS': 'semi',
-        'FINAL': 'final',
-        'THIRD_PLACE': 'third_place',
-      };
-
-      await db.query(
-        `INSERT INTO brazil_matches (match_date, opponent, stage, description, double_points)
-         VALUES ($1, $2, $3, $4, true)
-         ON CONFLICT (match_date) DO UPDATE
-           SET opponent = EXCLUDED.opponent,
-               stage = EXCLUDED.stage,
-               description = EXCLUDED.description`,
-        [
-          matchDate,
-          opponent,
-          stageMap[match.stage] || match.stage,
-          `Brasil x ${opponent} - ${match.stage}`,
-        ]
-      );
-      synced++;
-    }
-
-    triggerBrazilMatchRecalc(req.user.id);
-    res.json({ message: `${synced} jogos sincronizados`, count: synced });
+    const { synced, changed } = await syncMatchesFromApi(apiKey);
+    if (changed > 0) triggerBrazilMatchRecalc(req.user.id);
+    res.json({
+      message: `${synced} jogos sincronizados (${changed} alterações)`,
+      count: synced,
+      changed,
+    });
   } catch (err) {
     console.error('Erro sync Copa:', err.message);
     res.status(500).json({ error: `Erro ao sincronizar: ${err.message}` });
@@ -173,3 +205,4 @@ router.post('/sync', authMiddleware, adminOnly, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.syncMatchesFromApi = syncMatchesFromApi;

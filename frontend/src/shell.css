@@ -856,3 +856,61 @@ input[type="text"].field-input {
 }
 .telao-open-btn:hover { background:rgba(245,158,11,.18);border-color:rgba(245,158,11,.35); }
 [data-theme="dark"] .telao-open-btn { background:rgba(245,158,11,.07); }
+
+/* ── Individual Rankings ─────────────────────────────────── */
+.ir-section { padding:0 20px 32px; }
+.ir-loading { padding:28px 0; text-align:center; font-size:12px; color:var(--txt3); }
+.ir-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:12px; }
+@media(max-width:640px){ .ir-grid { grid-template-columns:1fr; } }
+
+.ir-card {
+  background:var(--surf); border:1px solid var(--border);
+  border-radius:var(--r); overflow:hidden;
+  box-shadow:var(--sh-sm);
+}
+.ir-card-head {
+  display:flex; align-items:center; gap:8px;
+  padding:12px 16px 10px;
+  border-bottom:1px solid var(--border);
+  background:var(--surf2);
+}
+.ir-card-icon { font-size:16px; line-height:1; }
+.ir-card-title { font:700 12px/1 var(--font); letter-spacing:.5px; text-transform:uppercase; color:var(--txt2); }
+
+.ir-empty { padding:24px 16px; text-align:center; font-size:12px; color:var(--txt3); }
+
+.ir-row {
+  display:grid;
+  grid-template-columns:auto 1fr auto;
+  align-items:center;
+  gap:10px;
+  padding:11px 16px;
+  border-bottom:1px solid var(--border);
+  transition:background .15s;
+}
+.ir-row:last-child { border-bottom:none; }
+.ir-row:hover { background:var(--hover); }
+
+.ir-medal-col { display:flex; flex-direction:column; align-items:center; gap:2px; min-width:54px; }
+.ir-ball { font-size:20px; line-height:1; filter:grayscale(0); }
+.ir-rank-lbl { font:600 9px/1 var(--font); letter-spacing:.3px; text-align:center; white-space:nowrap; }
+
+/* Gold / Silver / Bronze accent */
+.ir-gold   .ir-rank-lbl { color:var(--gold); }
+.ir-silver .ir-rank-lbl { color:var(--silver); }
+.ir-bronze .ir-rank-lbl { color:var(--bronze); }
+.ir-gold   { background:rgba(245,158,11,.04); }
+.ir-silver { background:rgba(156,163,175,.04); }
+.ir-bronze { background:rgba(180,83,9,.04); }
+[data-theme="dark"] .ir-gold   { background:rgba(245,158,11,.06); }
+[data-theme="dark"] .ir-silver { background:rgba(156,163,175,.06); }
+[data-theme="dark"] .ir-bronze { background:rgba(180,83,9,.06); }
+
+.ir-name {
+  font:600 13px/1.3 var(--font); color:var(--txt);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.ir-value {
+  font:700 12px/1 var(--mono); color:var(--gold);
+  white-space:nowrap; flex-shrink:0;
+}

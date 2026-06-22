@@ -31,7 +31,7 @@ function getWeekStart(date) {
   return d;
 }
 
-const DAILY_RULES = ['META_DIA', 'CONVERSAO', 'GOL_DE_PLACA', 'ARTILHEIRO', 'TORCIDA_ORGANIZADA'];
+const DAILY_RULES = ['META_DIA', 'META_DIA_PLUS30', 'META_DIA_PLUS50', 'META_DIA_PLUS100', 'CONVERSAO', 'GOL_DE_PLACA', 'ARTILHEIRO', 'TORCIDA_ORGANIZADA'];
 
 function sumValorRef(proposals) {
   return proposals.reduce((s, p) => s + parseFloat(p.proposta?.valor_referencia || 0), 0);
@@ -280,8 +280,41 @@ async function calculateScores(triggeredBy = null) {
           description: `Meta diária: R$ ${s.gValor.toFixed(2)} pagos / meta R$ ${dailyGoal.toFixed(2)}`,
           is_double: mult > 1,
         });
+
+        // Bônus por superação da meta — apenas o tier mais alto é concedido
+        const ratio = s.gValor / dailyGoal;
+        let bonusRule = null;
+        if (ratio >= 2.0) {
+          bonusRule = { rule_name: 'META_DIA_PLUS100', pts: rulePts.META_DIA_PLUS100 || 20, label: '+100%' };
+        } else if (ratio >= 1.5) {
+          bonusRule = { rule_name: 'META_DIA_PLUS50', pts: rulePts.META_DIA_PLUS50 || 15, label: '+50%' };
+        } else if (ratio >= 1.3) {
+          bonusRule = { rule_name: 'META_DIA_PLUS30', pts: rulePts.META_DIA_PLUS30 || 10, label: '+30%' };
+        }
+
+        // Limpar tiers inferiores que possam ter sido gravados em rodadas anteriores
+        const allBonusTiers = ['META_DIA_PLUS30', 'META_DIA_PLUS50', 'META_DIA_PLUS100'];
+        if (recalcDay) {
+          for (const tier of allBonusTiers) {
+            if (!bonusRule || tier !== bonusRule.rule_name) {
+              await deleteEvent(g.id, dateStr, tier);
+            }
+          }
+        }
+
+        if (bonusRule) {
+          dayEvents.push({
+            group_id: g.id, event_date: dateStr, rule_name: bonusRule.rule_name,
+            points: bonusRule.pts * mult,
+            description: `Bônus meta ${bonusRule.label}: R$ ${s.gValor.toFixed(2)} (${Math.round(ratio * 100 - 100)}% acima da meta)`,
+            is_double: mult > 1,
+          });
+        }
       } else if (recalcDay) {
         await deleteEvent(g.id, dateStr, 'META_DIA');
+        await deleteEvent(g.id, dateStr, 'META_DIA_PLUS30');
+        await deleteEvent(g.id, dateStr, 'META_DIA_PLUS50');
+        await deleteEvent(g.id, dateStr, 'META_DIA_PLUS100');
       }
 
       // CONVERSAO: taxa de pagamento do dia >= 80% (padrão)

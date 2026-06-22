@@ -36,11 +36,32 @@
 
 - JWT via cookies/localStorage: `copa_token` e `copa_user`
 - Admin padrão: `admin` / `admin2026`
-- Role `admin` (master) tem acesso a todos os endpoints
-- Role `team_admin` (sub-admin): acesso apenas às equipes em `admin_team_scopes` — gestão de jogadores, metas e ajustes de pontos dessas equipes
-- Endpoints de sub-admin: `GET/POST/PUT /api/admin/team-admins` (somente master)
-- Login do sub-admin: username + senha definidos pelo master (não usa NewCorban)
-- `GET /api/auth/me` retorna `managed_group_ids` para `team_admin`
+- Role `admin` (master) tem acesso a todos os endpoints e configurações globais
+- Role `team_admin` (sub-admin): acesso apenas às equipes em `admin_team_scopes`
+- Role `player`: ranking + meu grupo (leitura)
+
+### Sub-admins (`team_admin`)
+
+| Pode | Não pode |
+|------|----------|
+| Gerenciar jogadores das equipes atribuídas | Criar/desativar equipes |
+| Metas R$ e meta de pontos das suas equipes | Período da campanha |
+| Ajuste manual de pontos das suas equipes | Pontos das regras (`scoring_rules`) |
+| Upload/remover foto das suas equipes | Recalcular toda a campanha |
+| Cadastrar jogador (NewCorban) em equipe do escopo | Gerenciar outros sub-admins |
+| | Calendário Copa / `brazil_matches` |
+
+- Tabela `admin_team_scopes(user_id, group_id)` — PK composta
+- Migration: `backend/src/db/migrations.js` → `migrateTeamAdminSupport()`
+- Endpoints (master only): `GET/POST /api/admin/team-admins`, `PUT /api/admin/team-admins/:id`
+- Login: username + senha definidos pelo master (não usa NewCorban)
+- `GET /api/auth/me` retorna `managed_group_ids: number[]` para `team_admin`
+- Middleware: `configAdminOnly` (admin + team_admin), `adminOnly` (só master), `requireGroupAccess` (rotas com `:id` de equipe)
+- UI master: `ShellConfig` → seção **Sub-admins de Equipe**
+- UI sub-admin: menu **Minhas Equipes** (`Shell.jsx`); `ShellConfig` sem período, regras e recálculo
+- `PUT /api/settings/group-goals`: team_admin só atualiza equipes do seu escopo
+
+**SQL manual (se `users_role_check` bloquear `team_admin`):** ver seção [Banco](#inicialização-do-banco--schemasql-vs-seedjs).
 
 ### Login do consultor (NewCorban)
 
@@ -87,6 +108,9 @@
 
 ### Painel admin — `ShellConfig.jsx`
 
+**Master (`admin`):** todas as seções abaixo + Sub-admins de Equipe.  
+**Sub-admin (`team_admin`):** apenas Equipes e Jogadores, Metas por equipe e Ajuste Manual (filtrado pelo escopo).
+
 Seção **"Equipes e Jogadores"** (`ShellAdminTeams.jsx`):
 
 | Ação | UI | API |
@@ -123,8 +147,11 @@ Seção **"Equipes e Jogadores"** (`ShellAdminTeams.jsx`):
 | POST | `/api/admin/groups/:id/members` | `{ user_id }` | Adicionar/mover jogador |
 | DELETE | `/api/admin/groups/:id/members/:userId` | — | Remover jogador |
 | POST | `/api/admin/users` | `{ corban_username, group_id? }` | Cadastrar jogador (sem senha) |
+| GET/POST/PUT | `/api/admin/team-admins` | ver body abaixo | CRUD sub-admins (master) |
 | POST | `/api/admin/users/:id/move-group` | `{ group_id }` | Mover jogador (legado; UI usa members) |
 | PUT | `/api/settings/group-goals` | `{ goals: [{ group_id, daily_goal_value, weekly_goal_value, goal_points }] }` | Metas por equipe |
+
+**Body `POST /api/admin/team-admins`:** `{ username, password, display_name?, group_ids: [1,2,3] }`
 
 ---
 
@@ -145,9 +172,12 @@ base_points NUMERIC NOT NULL
 | rule_name | base_points | Observação |
 |-----------|-------------|------------|
 | META_DIA | 5 | × multiplier em dia de jogo |
+| META_DIA_PLUS30 | 10 | Bônus: ≥ 130% da meta diária (mutualmente exclusivo — tier mais alto vence) |
+| META_DIA_PLUS50 | 15 | Bônus: ≥ 150% da meta diária |
+| META_DIA_PLUS100 | 20 | Bônus: ≥ 200% da meta diária (dobro) |
 | META_SEMANA | 10 | × multiplier se semana tem dia de jogo |
 | CONVERSAO | 5 | |
-| INDICACAO | 10 | **por lote** de 5 contratos pagos |
+| INDICACAO | 10 | **por lote** de 5 contratos pagos com `origem` contendo "Indicação" |
 | CONTRATO_10K | 5 | **por contrato** > R$ 10.000 |
 | GOL_DE_PLACA | 15 | competitiva diária |
 | TORCIDA_ORGANIZADA | 20 | |
@@ -157,6 +187,7 @@ base_points NUMERIC NOT NULL
 
 - `backend/src/services/scoringRules.js` — `getRulePointsMap()` com cache 60s; `invalidateRuleCache()` após PUT
 - `scoring.js` usa `rulePts.META_DIA`, `rulePts.ARTILHEIRO`, etc. em vez de números fixos
+- `utils/proposals.js` — `isIndicacaoProposal()` verifica `origem` contém "Indicação"; `filterPaidIndicacoes` só dias úteis
 - Alterar pontos **não recalcula** eventos já gravados — admin deve disparar "Calcular" para reprocessar
 
 ### Endpoints
@@ -166,12 +197,15 @@ base_points NUMERIC NOT NULL
 | GET | `/api/settings/scoring-rules` | JWT | Lista regras com `base_points` |
 | PUT | `/api/settings/scoring-rules` | admin | `{ rules: [{ rule_name, base_points }] }` |
 | GET | `/api/scores/rules` | JWT | Mesma fonte (banco) + regra AJUSTE_ADMIN |
+| GET | `/api/scores/individual-rankings` | JWT | Top 3: `melhor_vendedor` (por `total_valor`) e `rei_assistencias` (por `indicacao_count`); lê propostas pagas da NewCorban no período da campanha |
 
-### Migrations (`seed.js`)
+### Migrations (`seed.js` + `migrations.js`)
 
-- `CREATE TABLE IF NOT EXISTS scoring_rules` + insert dos defaults com `ON CONFLICT DO NOTHING`
+- `CREATE TABLE IF NOT EXISTS scoring_rules` + insert dos defaults com `ON CONFLICT`
 - `ALTER TABLE users ADD COLUMN IF NOT EXISTS needs_password_setup`
-- `ALTER TABLE groups ADD COLUMN IF NOT EXISTS goal_points`
+- `ALTER TABLE groups ADD COLUMN IF NOT EXISTS daily_goal_value, weekly_goal_value, goal_points, photo_data, photo_mime`
+- `migrateTeamAdminSupport()` em `backend/src/db/migrations.js` — role `team_admin` + tabela `admin_team_scopes`
+- `CREATE TABLE IF NOT EXISTS campaign_settings` + campanha padrão se vazia
 
 ---
 
@@ -182,6 +216,7 @@ base_points NUMERIC NOT NULL
 - O `broadcast('scores_updated', {ts})` é chamado:
   - Após cada rodada do cron (`scheduler.js`)
   - Após cálculo manual pelo admin (`scores.js`)
+  - Após alteração de jogos do Brasil (`worldcup.js` → recálculo force)
 - Frontend: `EventSource('/api/events/stream')` em `ShellRanking.jsx` — reconecta automaticamente em caso de queda
 - Fallback: `setInterval` de 5 minutos caso SSE não funcione
 - Vite proxy: `timeout: 0` no `/api` para suportar conexões longas
@@ -252,7 +287,37 @@ Upsert idempotente. `event_date` varia por tipo de regra (ver seção Regras).
 - Rastreia quais datas já foram calculadas pelo cron
 - `UNIQUE(calculation_date)`
 - Usado por `scoring.js` para pular dias passados já processados (modo cron)
-- Admin "Calcular" define `triggered_by = userId` → recalcula tudo mesmo que já esteja em `daily_calculations`
+- **Exceção:** dias em `brazil_matches` com `double_points=true` são **reprocessados** mesmo já processados (pontuação ×2 retroativa)
+- Admin "Calcular" define `triggered_by = userId` → recalcula tudo (modo force)
+
+### `brazil_matches`
+- Calendário de jogos do Brasil (`match_date`, `opponent`, `stage`, `double_points`)
+- `double_points = true` → aquele dia entra no set `doubleDays` no `scoring.js`
+- Cadastro: `POST /api/worldcup/matches`, sync `POST /api/worldcup/sync` (master)
+- **Sync automático na startup** (`server.js` chama `syncMatchesFromApi` após seed — sem recálculo)
+- **Sync manual via botão admin** → recalcula apenas se houve mudanças (`changed > 0`)
+- **Alterar/remover jogos dispara recálculo force** automático (`triggerBrazilMatchRecalc` em `worldcup.js`)
+- API: football-data.org `GET /v4/teams/764/matches?season=2026&competitions=WC` (Brasil ID=764)
+- Descrição gerada: `"Brasil x Morocco · Fase de Grupos"` (português)
+- Stages mapeados: `GROUP_STAGE→group`, `LAST_16→round_of_16`, `QUARTER_FINALS→quarter`, `SEMI_FINALS→semi`, `FINAL→final`, `THIRD_PLACE→third_place`
+- `ON CONFLICT (match_date) DO UPDATE WHERE IS DISTINCT FROM` — só atualiza se dados mudaram (evita recálculo desnecessário)
+- **Anti-orphan:** antes de cada INSERT, deleta registros do mesmo `opponent+stage` em datas diferentes (evita duplicatas quando fuso horário corrige a data)
+- **BUG HISTÓRICO (corrigido):** football API retorna `utcDate` em UTC; jogos noturnos nos EUA cruzam meia-noite UTC → data ficava errada (ex: Haiti `2026-06-20T00:30Z` = `19/06 21:30 BRT`). Corrigido: `toBrazilDate(utcStr)` converte UTC → UTC-3 antes de extrair a data
+- Consultar dias ativos:
+  ```sql
+  SELECT match_date::text, opponent, double_points
+  FROM brazil_matches
+  WHERE match_date >= (SELECT start_date FROM campaign_settings ORDER BY id DESC LIMIT 1)
+  ORDER BY match_date;
+  ```
+
+### `admin_team_scopes`
+- `(user_id, group_id)` — equipes que cada `team_admin` pode gerenciar
+- Criada por `migrateTeamAdminSupport()` ou SQL manual (ver deploy)
+
+### `users.role`
+- Valores: `player`, `admin`, `team_admin`
+- Constraint: `users_role_check CHECK (role IN ('player', 'admin', 'team_admin'))`
 
 ### Inicialização do banco — `schema.sql` vs `seed.js`
 
@@ -316,20 +381,37 @@ Senha padrão `admin2026` — hash gerado por `bcrypt` no `seed.js` (10 rounds).
 
 ## Regras de Pontuação
 
+### Quais dias entram na campanha
+
+| Camada | Regra | Implementação |
+|--------|--------|---------------|
+| Período | `campaign_settings.start_date` → hoje | `scoring.js` + leaderboard |
+| Dias úteis | **Segunda a sexta** apenas | `backend/src/utils/businessDays.js` |
+| Fim de semana | Não pontua, propostas ignoradas | `isBusinessDay()`, `filterByWeekdayCadastro`, `isWeekdayPaid` |
+| ×2 Brasil | Datas em `brazil_matches` com `double_points=true` | Set `doubleDays` no `scoring.js` |
+
+**Proposta válida:** cadastro (`datas.cadastro` ou `inclusao`) em dia útil.  
+**Pago válido:** além disso, `datas.pagamento` também em dia útil.
+
+**Não há lista fixa de jogos no código** — só o que estiver em `brazil_matches` no banco.
+
 > Pontos base vêm de `scoring_rules.base_points` (editável pelo admin master).  
-> **Dias úteis:** somente **segunda a sexta** entram na campanha. Propostas digitadas ou pagas no sábado/domingo **não contam** (`backend/src/utils/businessDays.js`).  
 > **Pontos em dobro (×2)** em dias com jogo do Brasil (`brazil_matches.double_points = true`):
-> - Regras **diárias**: META_DIA, CONVERSAO, GOL_DE_PLACA, ARTILHEIRO, TORCIDA_ORGANIZADA
-> - **META_SEMANA**: dobra se **qualquer dia** da semana tiver jogo do Brasil
+> - Regras **diárias** (em dia útil): META_DIA, CONVERSAO, GOL_DE_PLACA, ARTILHEIRO, TORCIDA_ORGANIZADA
+> - **META_SEMANA**: ×2 se **qualquer dia útil** da semana tiver jogo do Brasil
 > - **INDICACAO** e **CONTRATO_10K** (campanha acumulada): **não** dobram
-> - Campo `score_events.is_double_points` + breakdown em `/api/groups/:id/members/points` (`base_points`, `multiplier`, `is_double_day`, `brazil_match`)
-> - **Retroativo:** dias em `brazil_matches` são recalculados mesmo após já processados; alterar jogos dispara recálculo force; META_SEMANA da semana também atualiza o ×2
+> - Campo `score_events.is_double_points` + breakdown em `/api/groups/:id/members/points`
+> - Breakdown UI: badge `🇧🇷 ×2` no dia, `base_points`, `multiplier`, `brazil_match` (adversário)
+> - **Retroativo:** dias em `brazil_matches` são recalculados mesmo após `daily_calculations`; alterar jogos ou "Recalcular campanha" aplica ×2 no passado; TORCIDA retroativa busca ranking histórico no force recalc
 
 | Regra | Pontos (padrão) | Tipo | event_date | Critério |
 |-------|-----------------|------|------------|----------|
 | META_DIA | 5 | Diária | `dateStr` (hoje) | Soma de `valor_referencia` dos contratos **pagos** hoje >= `daily_goal_value` |
+| META_DIA_PLUS30 | 10 | Diária (bônus) | `dateStr` | Bônus exclusivo: valor ≥ 130% da meta; tier mais alto vence (PLUS30 < PLUS50 < PLUS100) |
+| META_DIA_PLUS50 | 15 | Diária (bônus) | `dateStr` | Bônus exclusivo: valor ≥ 150% da meta |
+| META_DIA_PLUS100 | 20 | Diária (bônus) | `dateStr` | Bônus exclusivo: valor ≥ 200% da meta (dobro) |
 | META_SEMANA | 10 | Semanal | `max(weekStart, campaignStart)` | `valor_referencia` da semana >= `weekly_goal_value` |
-| CONVERSAO | 5 | Diária | `dateStr` | Taxa de pagamento hoje >= **80%** (env `CONVERSION_MIN_RATE`, default `0.80`) |
+| CONVERSAO | 5 | Diária | `dateStr` | Taxa de pagamento do dia >= **80%** (`CONVERSION_MIN_RATE`, default `0.80`) |
 | INDICACAO | 10/lote | Campanha acumulada | `campaignStart` | A cada **5 contratos pagos** em que o campo **`origem` contém "Indicação"** |
 | CONTRATO_10K | 5/contrato | Campanha acumulada | `campaignStart` | Por contrato com `valor_referencia > 10000` |
 | GOL_DE_PLACA | 15 | **Diária competitiva** | `dateStr` | Grupo com o maior contrato **pago** hoje entre todos os grupos |
@@ -350,25 +432,39 @@ Senha padrão `admin2026` — hash gerado por `bcrypt` no `seed.js` (10 rounds).
 
 ## Cálculo de Pontos (`scoring.js`)
 
-- **Dias úteis (seg–sex):** o loop diário ignora sábado/domingo; propostas com cadastro ou pagamento em fim de semana são excluídas. Após force/recalcular, eventos de fim de semana são removidos.
-- Roda a cada 15 minutos via cron (`scheduler.js`)
-- Carrega pontos das regras via `getRulePointsMap()` no início de cada execução
-- Busca propostas de **todo o período da campanha** (`campaignStart` → hoje) em **uma única chamada** (cacheada)
-- **Itera sobre cada dia da campanha** e aplica as regras para aquele dia específico
-- Dias passados: calculados apenas uma vez (skip via `daily_calculations`), exceto quando admin dispara force
-- Hoje: sempre recalculado (dinâmico)
-- Ao fim do dia: os dados ficam congelados naturalmente (o cron não atualiza dias passados no modo automático)
-- Admin "Calcular" ou **mudança de equipe** (`triggerRecalculate` em `admin.js`) usa `triggeredBy = userId` → modo **force**
-- **Modo force:** apaga `score_events` e `daily_calculations` do período da campanha antes de recalcular tudo (necessário quando vendedor muda de equipe — pontos históricos seguem o grupo atual)
-- Dispara `broadcast('scores_updated')` ao terminar (telão atualiza via SSE)
-- **UI admin:** botão **"🔄 Recalcular toda a campanha"** em `ShellConfig` → `POST /api/scores/calculate` (force, todos os dias)
-- Para competitivas diárias: deleta eventos do dia de grupos não-vencedores **antes** do upsert (apenas hoje)
+### Dias e propostas (`businessDays.js`)
 
-### Fluxo por dia
-1. Filtra propostas pelo `datas.cadastro` daquele dia
-2. Calcula META_DIA, CONVERSAO, GOL_DE_PLACA, ARTILHEIRO das propostas do dia
-3. TORCIDA_ORGANIZADA: só hoje (depende do ranking em tempo real)
-4. Após loop diário: META_SEMANA por semana; INDICACAO + CONTRATO_10K acumulado da campanha
+- `isBusinessDay(dateStr)` — seg–sex (UTC, meio-dia)
+- `filterByWeekdayCadastro(proposals)` — exclui cadastro em fim de semana
+- `isWeekdayPaid(proposal)` — cadastro e pagamento em dia útil
+- Loop diário: **pula sábado/domingo**; remove eventos de fim de semana no force
+- `members/stats`: retorna `is_business_day: false` e zeros em fins de semana
+
+### Cron vs force
+
+- **Cron** (`triggeredBy = null`): dias passados processados em `daily_calculations` são pulados, **exceto** dias em `doubleDays` (jogo do Brasil)
+- **Force** (`triggeredBy = userId`): apaga `score_events` + `daily_calculations` do período e recalcula tudo
+- Disparado por: botão admin, mudança de equipe (`admin.js`), alteração em `brazil_matches` (`worldcup.js`)
+
+### Fluxo geral
+
+- Roda a cada 15 minutos via cron (`scheduler.js`)
+- Carrega `getRulePointsMap()` no início
+- Uma chamada cacheada de propostas: `campaignStart` → hoje, filtradas por dia útil
+- Itera cada dia da campanha; aplica regras diárias em dias úteis
+- `mult = doubleDays.has(dateStr) ? 2 : 1` para regras diárias
+- `recalcDay = isToday || isForce || doubleDays.has(dateStr)` — limpa eventos obsoletos e regras competitivas
+- TORCIDA: hoje via ranking ao vivo; retroativo em dias de jogo no **force** (ranking histórico por data)
+- Após loop: META_SEMANA (recalcula semanas com jogo do Brasil), INDICACAO + CONTRATO_10K acumulados
+- Datas PostgreSQL: `pgDateStr()` evita shift de fuso em `match_date` e `event_date`
+- UI admin: **"🔄 Recalcular toda a campanha"** → `POST /api/scores/calculate` (master only, timeout 180s)
+
+### Fluxo por dia útil
+1. Filtra propostas com `getCadastroDateStr(p) === dateStr` (já só dias úteis)
+2. Pagos: `isWeekdayPaid` (cadastro + pagamento em dia útil)
+3. META_DIA, CONVERSAO, GOL_DE_PLACA, ARTILHEIRO × `mult`
+4. TORCIDA_ORGANIZADA: hoje ou retroativo (force + dia de jogo)
+5. Após loop: META_SEMANA; INDICACAO + CONTRATO_10K (sem ×2)
 
 ---
 
@@ -377,10 +473,18 @@ Senha padrão `admin2026` — hash gerado por `bcrypt` no `seed.js` (10 rounds).
 **Fonte de verdade: `score_events` no banco** (leitura direta, sem chamar NewCorban).
 
 - Retorna eventos agrupados por `event_date` em ordem decrescente
-- Cada dia tem: `date`, `events` (array de regras com ícone/label/pts/descrição), `daily_total`
-- Também retorna `adjustments` (ajustes manuais), `total_points`, `adj_total`, `grand_total`
+- Por dia: `date`, `events[]`, `daily_total`, `is_double_day`, `brazil_match` (`opponent`, `stage`)
+- Por evento: `rule_name`, `points`, `base_points`, `multiplier`, `is_double`, `icon`, `label`, `description`
+- Também: `adjustments`, `total_points`, `adj_total`, `grand_total`
 - **O total bate com o leaderboard** — ambos leem de `score_events`
-- O dia de hoje mostra tag "ao vivo" pois ainda pode mudar até o cron rodar
+- Dia de hoje: tag "ao vivo" no `MembersModal.jsx`
+- Dias de jogo: badge `🇧🇷 ×2` + texto `N pts base ×2 🇧🇷` quando `is_double`
+
+## Endpoint `/api/groups/:id/members/stats`
+
+- Propostas do dia por membro (NewCorban + ranking)
+- Respeita dias úteis: `is_business_day: false` em sábado/domingo
+- Query: `?date=YYYY-MM-DD`
 
 ---
 
@@ -420,7 +524,8 @@ O leaderboard **sempre filtra** `score_events` pelo período da campanha (`event
 |--------|------|---------|--------|
 | Ranking | todos | `ShellRanking.jsx` | Placar e telão |
 | Meu Grupo | `player` | `ShellMyGroup.jsx` | Visualização da equipe (somente leitura) |
-| Configuração | `admin` | `ShellConfig.jsx` | Período, equipes, metas, regras, ajustes |
+| Configuração | `admin` | `ShellConfig.jsx` | Painel master completo |
+| Minhas Equipes | `team_admin` | `ShellConfig.jsx` | Equipes do escopo apenas |
 
 ### Login (`pages/Login.jsx`)
 
@@ -430,18 +535,22 @@ O leaderboard **sempre filtra** `score_events` pelo período da campanha (`event
 
 ### Configuração admin (`ShellConfig.jsx`)
 
-Ordem das seções:
-1. **Equipes e Jogadores** — `ShellAdminTeams.jsx`
-2. **Pontos por Regra** — `ScoringRulesConfig` (inline)
-3. **Período da Campanha**
-4. **Metas de Valor Referência por Equipe (R$)** + Meta de Pontos
-5. **Ajuste Manual de Pontos** — `PointAdjustments`
+**Master (`admin`) — ordem das seções:**
+1. **Sub-admins de Equipe** — `SubAdminsConfig`
+2. **Equipes e Jogadores** — `ShellAdminTeams.jsx` (criar equipe habilitado)
+3. **Pontos por Regra** — `ScoringRulesConfig`
+4. **Recálculo de Pontuação** — `RecalculateCampaign` → `POST /api/scores/calculate`
+5. **Período da Campanha**
+6. **Metas de Valor Referência por Equipe (R$)** + Meta de Pontos
+7. **Ajuste Manual de Pontos** — `PointAdjustments`
+
+**Sub-admin (`team_admin`):** seções 2, 6 e 7 apenas (equipes filtradas por `managed_group_ids` / `GET /api/admin/groups`).
 
 ### Outros
 
 - `main.jsx`: **sem** `React.StrictMode` (causava double-mount e double requests em dev)
 - `useEffect` depende de `group?.id` (não do objeto `group`) para evitar re-renders por referência
-- `MembersModal.jsx`: tab "Pontos do Grupo" mostra breakdown por regra com atribuição por membro ou "Time todo"
+- `MembersModal.jsx`: abas Propostas (stats) e Pontos do Grupo; breakdown com ×2 Brasil; aviso em fim de semana
 
 ---
 
@@ -485,9 +594,12 @@ Se aparecer só `(API)`: falta `SERVE_STATIC=true` ou `frontend/dist` não foi g
 ### Fluxo de build
 
 1. `npm run install:all` — dependências de `backend/` e `frontend/`
-2. `npm run build --prefix frontend` — gera `frontend/dist`
+   - `install:frontend` usa `--include=dev` (Vite/Tailwind são devDependencies; sem isso o build falha com `vite: command not found` quando `NODE_ENV=production` no host)
+2. `npx vite build` em `frontend/` — gera `frontend/dist`
 3. `npm start` → `node backend/src/server.js`
 4. Com `NODE_ENV=production` ou `SERVE_STATIC=true`, Express serve `frontend/dist` na mesma porta
+
+**Hostinger:** **Output directory** do painel deve ficar **vazio** (não `frontend/dist`); o Express serve o `dist` internamente.
 
 ### Variáveis de ambiente (painel)
 
@@ -505,7 +617,8 @@ Se aparecer só `(API)`: falta `SERVE_STATIC=true` ou `frontend/dist` não foi g
 | `NEWCORBAN_API_PASSWORD` | **Sim** | Senha para `POST /api/propostas/` |
 | `CORS_ORIGIN` | Não | Só se API e front em domínios diferentes |
 | `HOST` | Não | Default `0.0.0.0` |
-| `FOOTBALL_API_KEY` | Não | Calendário Copa (football-data.org) |
+| `FOOTBALL_API_KEY` | Recomendado | football-data.org — sync automático na startup + `POST /api/worldcup/sync` |
+| `CONVERSION_MIN_RATE` | Não | Default `0.80` (80% de conversão no dia) |
 
 Template completo: `.env.example` na raiz.
 
@@ -536,6 +649,9 @@ Senha com `#`, `+`, `*` → URL encode (`#` → `%23`, `+` → `%2B`, `*` → `%
 | `password authentication failed` | Usuário/senha errados ou encode incorreto |
 | `relation "users" does not exist` | Falta `schema.sql` |
 | `column g.daily_goal_value does not exist` | Falta migrations do `seed.js` |
+| `users_role_check` ao criar sub-admin | Rodar SQL de `team_admin` como owner do banco |
+| `vite: command not found` no build Hostinger | `install:frontend` com `--include=dev` no `package.json` raiz |
+| `503` / app não sobe | Erro de sintaxe em `scoring.js`, `DATABASE_URL` inválida, ou Output directory errado no painel |
 | `ENOTFOUND host` | `DATABASE_URL` ainda com placeholder do `.env.example` |
 
 ### Banco na primeira subida
@@ -545,7 +661,8 @@ Senha com `#`, `+`, `*` → URL encode (`#` → `%23`, `+` → `%2B`, `*` → `%
 3. Configurar `DATABASE_URL` no painel e redeploy
 4. Na subida, **`seed.js`** automaticamente:
    - Cria admin `admin` / `admin2026`
-   - Migrations: colunas em `groups`/`users`, `scoring_rules`, `campaign_settings`
+   - Migrations: colunas em `groups`/`users`, `scoring_rules`, `campaign_settings`, `team_admin`
+   - `migrateTeamAdminSupport()` — pode falhar se `copa_app` não for owner; usar SQL manual
    - Campanha e regras de pontos padrão
 
 **Docker local:** passo 2 é automático (`schema.sql` em `docker-entrypoint-initdb.d`).
@@ -668,3 +785,12 @@ VITE_API_URL=http://localhost:3001
 | Jun/26 | `/api/health` pouco diagnóstico | Retorna `serveStatic`, `distExists`, `distPath`, `nodeEnv` |
 | Jun/26 | Confusão schema vs credenciais Postgres | Documentado: `schema.sql` = tabelas; credenciais vêm do provedor/Docker |
 | Jun/26 | `git push main` não enviava código novo | Código em `master` ≠ `main`; usar `git push origin master:main` |
+| Jun/26 | `scoring.js` syntax error (`toDateStr` quebrado) | Causava 503 em produção; restaurar `function toDateStr` |
+| Jun/26 | Build Hostinger `vite: command not found` | `install:frontend --include=dev`; `npx vite build` |
+| Jun/26 | Sub-admins `users_role_check` | Migration `migrations.js`; SQL manual como postgres |
+| Jun/26 | INDICACAO/CONTRATO_10K dobravam no dia de hoje | Removido ×2 de regras acumuladas de campanha |
+| Jun/26 | Fim de semana contava na campanha | `businessDays.js`; seg–sex apenas |
+| Jun/26 | ×2 Brasil não retroativo | Reprocessar dias em `doubleDays`; recalc ao alterar `brazil_matches` |
+| Jun/26 | Breakdown ×2 pouco visível | `MembersModal`: badge 🇧🇷, `base_points`, adversário |
+| Jun/26 | Sub-admins sem UI de gestão | `SubAdminsConfig` + role `team_admin` + `admin_team_scopes` |
+| Jun/26 | META_DIA sem bônus por superação | `META_DIA_PLUS30/50/100` (+10/+15/+20 pts); tier mais alto vence; ×2 em dia de jogo |

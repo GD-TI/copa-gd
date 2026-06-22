@@ -12,6 +12,7 @@ const groupRoutes = require('./routes/groups');
 const scoreRoutes = require('./routes/scores');
 const adminRoutes = require('./routes/admin');
 const worldcupRoutes = require('./routes/worldcup');
+const { syncMatchesFromApi } = require('./routes/worldcup');
 const settingsRoutes = require('./routes/settings');
 const { router: eventsRouter } = require('./routes/events');
 const { startScheduler } = require('./services/scheduler');
@@ -120,6 +121,14 @@ app.listen(PORT, HOST, async () => {
       startScheduler();
     } catch (e) {
       console.error('[Server] Erro no seed/scheduler:', e.message);
+    }
+
+    // Sincroniza jogos do Brasil na startup (silencioso — não recalcula pontos)
+    const footballKey = process.env.FOOTBALL_API_KEY;
+    if (footballKey) {
+      syncMatchesFromApi(footballKey)
+        .then(({ synced }) => console.log(`[Server] Jogos do Brasil sincronizados: ${synced}`))
+        .catch(e => console.warn('[Server] Sync jogos (não crítico):', e.message));
     }
   }, 2000);
 });

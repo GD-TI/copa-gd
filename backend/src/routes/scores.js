@@ -4,6 +4,8 @@ const { authMiddleware } = require('../middleware/auth');
 const { calculateScores } = require('../services/scoring');
 const { broadcast } = require('./events');
 const { getRulesList } = require('../services/scoringRules');
+const { getProposals } = require('../services/externalApi');
+const { isIndicacaoProposal } = require('../utils/proposals');
 
 // GET /api/scores/leaderboard - placar geral
 router.get('/leaderboard', authMiddleware, async (req, res) => {
@@ -110,6 +112,69 @@ router.get('/rules', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao buscar regras' });
+  }
+});
+
+// GET /api/scores/individual-rankings - top 3 melhor vendedor e rei das assistências
+router.get('/individual-rankings', authMiddleware, async (req, res) => {
+  try {
+    const { rows: cs } = await db.query(
+      'SELECT start_date, end_date FROM campaign_settings ORDER BY id DESC LIMIT 1'
+    );
+    if (!cs[0]) return res.json({ melhor_vendedor: [], rei_assistencias: [] });
+
+    const startDate = new Date(cs[0].start_date).toISOString().slice(0, 10);
+    const endRaw    = new Date(cs[0].end_date).toISOString().slice(0, 10);
+    const today     = new Date().toISOString().slice(0, 10);
+    const endDate   = endRaw < today ? endRaw : today;
+
+    const proposalsMap = await getProposals(startDate, endDate);
+    const proposals    = Object.values(proposalsMap || {});
+
+    // Apenas propostas pagas no período (cadastro já filtrado pela API)
+    const paid = proposals.filter(p => p?.datas?.pagamento);
+
+    // Agrupa por vendedor_id
+    const byVendor = {};
+    for (const p of paid) {
+      const vid = String(p.vendedor_id);
+      if (!byVendor[vid]) byVendor[vid] = { vendedor_id: vid, total_valor: 0, indicacao_count: 0 };
+      byVendor[vid].total_valor    += parseFloat(p.proposta?.valor_referencia || 0);
+      if (isIndicacaoProposal(p)) byVendor[vid].indicacao_count++;
+    }
+
+    const vendorList = Object.values(byVendor);
+
+    const topVendor       = [...vendorList].sort((a, b) => b.total_valor - a.total_valor).slice(0, 3);
+    const topAssistencias = vendorList.filter(v => v.indicacao_count > 0)
+                              .sort((a, b) => b.indicacao_count - a.indicacao_count).slice(0, 3);
+
+    // Resolve nomes via DB (corban_id → display_name)
+    const allVids = [...new Set([...topVendor, ...topAssistencias].map(v => v.vendedor_id))];
+    const nameMap = {};
+    if (allVids.length > 0) {
+      const { rows: uRows } = await db.query(
+        'SELECT corban_id, display_name, corban_username FROM users WHERE corban_id = ANY($1) AND active = true',
+        [allVids]
+      );
+      uRows.forEach(u => { nameMap[String(u.corban_id)] = u.display_name || u.corban_username; });
+    }
+
+    const enrich = (v, rank) => ({
+      rank: rank + 1,
+      name: nameMap[v.vendedor_id] || `Vendedor ${v.vendedor_id}`,
+      vendedor_id: v.vendedor_id,
+      total_valor: Math.round(v.total_valor * 100) / 100,
+      indicacao_count: v.indicacao_count,
+    });
+
+    res.json({
+      melhor_vendedor:   topVendor.map(enrich),
+      rei_assistencias:  topAssistencias.map(enrich),
+    });
+  } catch (err) {
+    console.error('[IndividualRankings]', err.message);
+    res.status(500).json({ error: 'Erro ao buscar rankings individuais' });
   }
 });
 
