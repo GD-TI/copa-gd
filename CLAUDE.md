@@ -323,6 +323,7 @@ Senha padrão `admin2026` — hash gerado por `bcrypt` no `seed.js` (10 rounds).
 > - **META_SEMANA**: dobra se **qualquer dia** da semana tiver jogo do Brasil
 > - **INDICACAO** e **CONTRATO_10K** (campanha acumulada): **não** dobram
 > - Campo `score_events.is_double_points` + breakdown em `/api/groups/:id/members/points` (`base_points`, `multiplier`, `is_double_day`, `brazil_match`)
+> - **Retroativo:** dias em `brazil_matches` são recalculados mesmo após já processados; alterar jogos dispara recálculo force; META_SEMANA da semana também atualiza o ×2
 
 | Regra | Pontos (padrão) | Tipo | event_date | Critério |
 |-------|-----------------|------|------------|----------|

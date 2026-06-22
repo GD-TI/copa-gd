@@ -2,6 +2,15 @@ const router = require('express').Router();
 const axios = require('axios');
 const db = require('../config/db');
 const { authMiddleware, adminOnly } = require('../middleware/auth');
+const { calculateScores } = require('../services/scoring');
+const { broadcast } = require('./events');
+
+function triggerBrazilMatchRecalc(adminId) {
+  console.log('[WorldCup] Disparando recálculo (jogos do Brasil alterados)...');
+  calculateScores(adminId)
+    .then(() => broadcast('scores_updated', { ts: Date.now() }))
+    .catch(e => console.error('[WorldCup] Erro no recálculo:', e.message));
+}
 
 // GET /api/worldcup/matches - listar jogos do Brasil
 router.get('/matches', authMiddleware, async (req, res) => {
@@ -64,6 +73,7 @@ router.post('/matches', authMiddleware, adminOnly, async (req, res) => {
        RETURNING *`,
       [match_date, opponent || null, stage || null, description || null, double_points !== false]
     );
+    triggerBrazilMatchRecalc(req.user.id);
     res.status(201).json(rows[0]);
   } catch (err) {
     console.error(err);
@@ -75,6 +85,7 @@ router.post('/matches', authMiddleware, adminOnly, async (req, res) => {
 router.delete('/matches/:id', authMiddleware, adminOnly, async (req, res) => {
   try {
     await db.query('DELETE FROM brazil_matches WHERE id = $1', [req.params.id]);
+    triggerBrazilMatchRecalc(req.user.id);
     res.json({ message: 'Jogo removido' });
   } catch (err) {
     console.error(err);
@@ -90,6 +101,7 @@ router.patch('/matches/:id', authMiddleware, adminOnly, async (req, res) => {
       'UPDATE brazil_matches SET double_points = $1 WHERE id = $2 RETURNING *',
       [double_points, req.params.id]
     );
+    triggerBrazilMatchRecalc(req.user.id);
     res.json(rows[0]);
   } catch (err) {
     console.error(err);
@@ -152,6 +164,7 @@ router.post('/sync', authMiddleware, adminOnly, async (req, res) => {
       synced++;
     }
 
+    triggerBrazilMatchRecalc(req.user.id);
     res.json({ message: `${synced} jogos sincronizados`, count: synced });
   } catch (err) {
     console.error('Erro sync Copa:', err.message);

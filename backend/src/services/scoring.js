@@ -17,6 +17,13 @@ function toDateStr(date) {
   return date.toISOString().split('T')[0];
 }
 
+/** Data PostgreSQL → YYYY-MM-DD sem shift de fuso. */
+function pgDateStr(val) {
+  if (!val) return null;
+  if (val instanceof Date) return val.toISOString().slice(0, 10);
+  return String(val).slice(0, 10);
+}
+
 function getWeekStart(date) {
   const d = new Date(date);
   const day = d.getDay();
@@ -132,9 +139,10 @@ async function calculateScores(triggeredBy = null) {
      WHERE match_date BETWEEN $1 AND $2 AND double_points = true`,
     [campaignStart, todayStr]
   );
-  const doubleDays = new Set(
-    matchRows.map(m => new Date(m.match_date).toISOString().slice(0, 10))
-  );
+  const doubleDays = new Set(matchRows.map(m => pgDateStr(m.match_date)));
+  if (doubleDays.size > 0) {
+    console.log(`[Scoring] ${doubleDays.size} dia(s) com pontos em dobro (jogo do Brasil)`);
+  }
 
   // ── 6. Dias passados já calculados (skip em modo cron) ───────────────────
   const processedDays = new Set();
@@ -149,6 +157,26 @@ async function calculateScores(triggeredBy = null) {
 
   const campaignDays = getDaysInRange(campaignStart, todayStr);
   let totalEvents = [];
+
+  // Ranking histórico para TORCIDA em dias de jogo passados (recálculo retroativo)
+  const vendorMapByDate = {};
+  if (isForce && doubleDays.size > 0) {
+    for (const d of doubleDays) {
+      if (!isBusinessDay(d) || d === todayStr) continue;
+      try {
+        const rd = await externalApi.getRanking(d, d);
+        const vm = {};
+        if (rd?.result) {
+          Object.values(rd.result).forEach(v => {
+            if (v.filter_value) vm[String(v.filter_value)] = v;
+          });
+        }
+        vendorMapByDate[d] = vm;
+      } catch (e) {
+        console.warn(`[Scoring] Ranking ${d} indisponível (TORCIDA retroativa):`, e.message);
+      }
+    }
+  }
 
   // ── 7. Regras diárias: para cada dia da campanha ─────────────────────────
   for (const dateStr of campaignDays) {
@@ -173,10 +201,11 @@ async function calculateScores(triggeredBy = null) {
       continue;
     }
 
-    // Dias passados já processados: pular (exceto em force)
-    if (!isToday && processedDays.has(dateStr)) continue;
+    // Dias passados já processados: pular, exceto force ou dia de jogo do Brasil (retroativo)
+    if (!isToday && !isForce && processedDays.has(dateStr) && !doubleDays.has(dateStr)) continue;
 
     const mult = doubleDays.has(dateStr) ? 2 : 1;
+    const recalcDay = isToday || isForce || doubleDays.has(dateStr);
 
     // Propostas deste dia específico (cadastro em dia útil)
     const dayProps = allProposals.filter(p => getCadastroDateStr(p) === dateStr);
@@ -221,8 +250,8 @@ async function calculateScores(triggeredBy = null) {
       if (top) artConsultor[g.id] = corbanToName[top[0]] || null;
     }
 
-    // Hoje: limpar perdedores das regras competitivas (podem mudar durante o dia)
-    if (isToday) {
+    // Limpar perdedores das regras competitivas (hoje ou recálculo retroativo de dia de jogo)
+    if (recalcDay) {
       if (golWinners.length > 0) {
         await db.query(
           `DELETE FROM score_events WHERE rule_name='GOL_DE_PLACA' AND event_date=$1 AND group_id <> ALL($2::int[])`,
@@ -251,7 +280,7 @@ async function calculateScores(triggeredBy = null) {
           description: `Meta diária: R$ ${s.gValor.toFixed(2)} pagos / meta R$ ${dailyGoal.toFixed(2)}`,
           is_double: mult > 1,
         });
-      } else if (isToday) {
+      } else if (recalcDay) {
         await deleteEvent(g.id, dateStr, 'META_DIA');
       }
 
@@ -264,7 +293,7 @@ async function calculateScores(triggeredBy = null) {
           description: `Conversão ${Math.round(rate * 100)}%: ${s.gPaid.length}/${s.gDay.length} pagos (meta ${Math.round(CONVERSION_MIN_RATE * 100)}%)`,
           is_double: mult > 1,
         });
-      } else if (isToday || isForce) {
+      } else if (recalcDay) {
         await deleteEvent(g.id, dateStr, 'CONVERSAO');
       }
 
@@ -290,16 +319,17 @@ async function calculateScores(triggeredBy = null) {
         });
       }
 
-      // TORCIDA_ORGANIZADA: só hoje (depende do ranking em tempo real)
-      if (isToday) {
-        if (g.member_count >= 5 && s.cids.every(cid => (vendorMap[cid]?.qtd_propostas || 0) > 10)) {
+      // TORCIDA_ORGANIZADA: hoje (ranking ao vivo) ou retroativo em dia de jogo (force)
+      const torcidaMap = isToday ? vendorMap : vendorMapByDate[dateStr];
+      if (isToday || (isForce && doubleDays.has(dateStr) && torcidaMap)) {
+        if (g.member_count >= 5 && s.cids.every(cid => (torcidaMap[cid]?.qtd_propostas || 0) > 10)) {
           dayEvents.push({
             group_id: g.id, event_date: dateStr, rule_name: 'TORCIDA_ORGANIZADA',
             points: rulePts.TORCIDA_ORGANIZADA * mult,
-            description: `Todos os ${g.member_count} integrantes com >10 propostas hoje`,
+            description: `Todos os ${g.member_count} integrantes com >10 propostas${mult > 1 ? ' (jogo do Brasil ×2)' : ''}`,
             is_double: mult > 1,
           });
-        } else {
+        } else if (recalcDay) {
           await deleteEvent(g.id, dateStr, 'TORCIDA_ORGANIZADA');
         }
       }
@@ -333,12 +363,14 @@ async function calculateScores(triggeredBy = null) {
     const weDate = new Date(wsDate.getTime() + 6 * 86400000);
     const weStr  = toDateStr(weDate) > todayStr ? todayStr : toDateStr(weDate);
     const isCurrentWeek = wsStr <= todayStr && todayStr <= weStr;
+    const weekBusinessDays = getBusinessDaysInRange(wsStr, weStr);
+    const weekHasDouble = weekBusinessDays.some(d => doubleDays.has(d));
 
-    // Para semanas passadas processadas: só recalcular em force
-    if (!isCurrentWeek && !isForce && processedDays.has(wsStr)) continue;
+    // Semanas passadas: recalcular se force, semana atual ou semana com jogo do Brasil (retroativo)
+    if (!isCurrentWeek && !isForce && !weekHasDouble) continue;
 
     // Multiplier: dobro se algum dia útil da semana foi dia de jogo
-    const weekMult = getBusinessDaysInRange(wsStr, weStr).some(d => doubleDays.has(d)) ? 2 : 1;
+    const weekMult = weekHasDouble ? 2 : 1;
 
     const weekProps = allProposals.filter(p => {
       const d = getCadastroDateStr(p);
@@ -353,8 +385,10 @@ async function calculateScores(triggeredBy = null) {
 
       if (weeklyGoal > 0 && gValorWeek >= weeklyGoal) {
         await upsertEvent(g.id, wsStr, 'META_SEMANA', rulePts.META_SEMANA * weekMult,
-          `Meta semanal: R$ ${gValorWeek.toFixed(2)} / meta R$ ${weeklyGoal.toFixed(2)} (${wsStr}→${weStr})`,
+          `Meta semanal: R$ ${gValorWeek.toFixed(2)} / meta R$ ${weeklyGoal.toFixed(2)} (${wsStr}→${weStr})${weekMult > 1 ? ' · jogo do Brasil na semana ×2' : ''}`,
           weekMult > 1);
+      } else if (isCurrentWeek || isForce || weekHasDouble) {
+        await deleteEvent(g.id, wsStr, 'META_SEMANA');
       }
     }
   }
