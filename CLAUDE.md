@@ -289,6 +289,21 @@ ALTER TABLE groups ADD COLUMN IF NOT EXISTS photo_mime VARCHAR(50);
 ```
 Erro típico: `column g.daily_goal_value does not exist`.
 
+**Sub-admins (`team_admin`) — erro `users_role_check`:**
+```sql
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+ALTER TABLE users ADD CONSTRAINT users_role_check
+  CHECK (role IN ('player', 'admin', 'team_admin'));
+
+CREATE TABLE IF NOT EXISTS admin_team_scopes (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  PRIMARY KEY (user_id, group_id)
+);
+```
+Rodar como **owner** do banco (`postgres` ou dono da tabela `users`). O usuário `copa_app` pode não ter permissão para `ALTER TABLE` — nesse caso use o superusuário na VPS.
+
 **Admin manual (se seed não rodou):**
 ```sql
 INSERT INTO users (username, password_hash, role, display_name, needs_password_setup)

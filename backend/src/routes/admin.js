@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const db = require('../config/db');
 const { authMiddleware, adminOnly, configAdminOnly, attachManagedGroups, requireGroupAccess, canAccessGroup, isMasterAdmin } = require('../middleware/auth');
 const { setManagedGroups, getManagedGroupIds } = require('../services/adminScopes');
+const { migrateTeamAdminSupport } = require('../db/migrations');
 const { findUserByUsername } = require('../services/externalApi');
 const { calculateScores } = require('../services/scoring');
 const { broadcast } = require('./events');
@@ -60,6 +61,7 @@ router.post('/team-admins', adminOnly, async (req, res) => {
   }
 
   try {
+    await migrateTeamAdminSupport();
     const hash = await bcrypt.hash(password, 10);
     const login = username.trim().toLowerCase();
     const { rows } = await db.query(
@@ -73,6 +75,11 @@ router.post('/team-admins', adminOnly, async (req, res) => {
     res.status(201).json({ ...user, group_ids: scopes });
   } catch (err) {
     if (err.code === '23505') return res.status(400).json({ error: 'Nome de usuário já existe' });
+    if (err.code === '23514') {
+      return res.status(503).json({
+        error: 'Banco não migrado para sub-admins. Execute no PostgreSQL: ALTER TABLE users DROP CONSTRAINT users_role_check; ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN (\'player\', \'admin\', \'team_admin\'));',
+      });
+    }
     console.error(err);
     res.status(500).json({ error: 'Erro ao criar sub-admin' });
   }
