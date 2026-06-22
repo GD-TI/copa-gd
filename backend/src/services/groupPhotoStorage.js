@@ -69,11 +69,32 @@ async function serveGroupPhoto(req, res) {
   }
 }
 
+function uploadPhoto(fieldName = 'photo') {
+  return (req, res, next) => {
+    upload.single(fieldName)(req, res, (err) => {
+      if (err) return res.status(400).json({ error: err.message || 'Erro no upload da imagem' });
+      next();
+    });
+  };
+}
+
+function photoSaveError(err, res) {
+  if (err.code === '42703') {
+    return res.status(500).json({
+      error: 'Banco sem colunas photo_data/photo_mime. Execute as migrations do seed ou rode o SQL no PostgreSQL.',
+    });
+  }
+  console.error('[GroupPhoto]', err);
+  return res.status(500).json({ error: 'Erro ao salvar foto da equipe' });
+}
+
 module.exports = {
   upload,
+  uploadPhoto,
   GROUP_PUBLIC_COLUMNS,
   photoApiPath,
   saveGroupPhoto,
   stripPhotoBlob,
   serveGroupPhoto,
+  photoSaveError,
 };

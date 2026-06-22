@@ -6,9 +6,10 @@ const { findUserByUsername } = require('../services/externalApi');
 const { calculateScores } = require('../services/scoring');
 const { broadcast } = require('./events');
 const {
-  upload,
+  uploadPhoto,
   GROUP_PUBLIC_COLUMNS,
   saveGroupPhoto,
+  photoSaveError,
 } = require('../services/groupPhotoStorage');
 
 const PLACEHOLDER_HASH = '$2a$10$PLACEHOLDER.NEVER.USED.FOR.LOGIN.xxxxxxxxxxxx';
@@ -252,7 +253,7 @@ router.get('/groups', async (req, res) => {
 });
 
 // POST /api/admin/groups - criar equipe
-router.post('/groups', upload.single('photo'), async (req, res) => {
+router.post('/groups', uploadPhoto('photo'), async (req, res) => {
   const { name } = req.body;
 
   if (!name || name.trim().length < 2) {
@@ -266,13 +267,61 @@ router.post('/groups', upload.single('photo'), async (req, res) => {
     );
     const group = rows[0];
     if (req.file) {
-      await saveGroupPhoto(group.id, req.file.buffer, req.file.mimetype);
-      group.photo_url = `/api/groups/${group.id}/photo`;
+      try {
+        await saveGroupPhoto(group.id, req.file.buffer, req.file.mimetype);
+        group.photo_url = `/api/groups/${group.id}/photo`;
+      } catch (err) {
+        return photoSaveError(err, res);
+      }
     }
     res.status(201).json(group);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao criar equipe' });
+  }
+});
+
+// PUT /api/admin/groups/:id/photo — atualizar só a foto (admin)
+router.put('/groups/:id/photo', uploadPhoto('photo'), async (req, res) => {
+  const { id } = req.params;
+  if (!req.file) {
+    return res.status(400).json({ error: 'Selecione uma imagem (campo photo)' });
+  }
+  try {
+    const { rows: exists } = await db.query(
+      'SELECT id FROM groups WHERE id = $1 AND active = true',
+      [id]
+    );
+    if (!exists.length) return res.status(404).json({ error: 'Equipe não encontrada' });
+
+    await saveGroupPhoto(id, req.file.buffer, req.file.mimetype);
+    const { rows } = await db.query(
+      `SELECT ${GROUP_PUBLIC_COLUMNS} FROM groups WHERE id = $1`,
+      [id]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    if (err.code === '42703') return photoSaveError(err, res);
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao atualizar foto' });
+  }
+});
+
+// DELETE /api/admin/groups/:id/photo — remove foto corrompida/antiga
+router.delete('/groups/:id/photo', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rows } = await db.query(
+      `UPDATE groups SET photo_data = NULL, photo_mime = NULL, photo_url = NULL, updated_at = NOW()
+       WHERE id = $1 AND active = true
+       RETURNING ${GROUP_PUBLIC_COLUMNS}`,
+      [id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Equipe não encontrada' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao remover foto' });
   }
 });
 

@@ -20,6 +20,36 @@ function ini(name = '') {
   return p.length >= 2 ? (p[0][0] + p[p.length - 1][0]).toUpperCase() : name.slice(0, 2).toUpperCase()
 }
 
+function photoSrc(group) {
+  if (!group?.photo_url) return null
+  const v = group.updated_at ? new Date(group.updated_at).getTime() : Date.now()
+  return group.photo_url.startsWith('/api/') ? `${group.photo_url}?v=${v}` : group.photo_url
+}
+
+function TeamAvatar({ group, size = 40, onClick, disabled, title }) {
+  const [broken, setBroken] = useState(false)
+  const src = photoSrc(group)
+  const showImg = src && !broken
+
+  return (
+    <button
+      type="button"
+      className="s-av"
+      style={{
+        width: size, height: size, flexShrink: 0, cursor: onClick ? 'pointer' : 'default',
+        padding: 0, border: 'none', background: 'none',
+      }}
+      title={title}
+      disabled={disabled}
+      onClick={onClick ? (e) => { e.stopPropagation(); onClick(e) } : undefined}
+    >
+      {showImg
+        ? <img src={src} alt="" onError={() => setBroken(true)} />
+        : ini(group.name)}
+    </button>
+  )
+}
+
 // ── Cadastrar jogador pelo login NewCorban ───────────────────────────────────
 function AddPlayerForm({ groups, onAdded }) {
   const [query, setQuery] = useState('')
@@ -166,7 +196,7 @@ export default function ShellAdminTeams({ groups, onRefresh }) {
       const formData = new FormData()
       formData.append('name', newTeamName.trim())
       if (newTeamPhoto) formData.append('photo', newTeamPhoto)
-      await api.post('/admin/groups', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+      await api.post('/admin/groups', formData)
       showToast('Equipe criada!')
       setNewTeamName('')
       setNewTeamPhoto(null)
@@ -188,7 +218,7 @@ export default function ShellAdminTeams({ groups, onRefresh }) {
     try {
       const formData = new FormData()
       formData.append('photo', file)
-      await api.put(`/groups/${groupId}`, formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+      await api.put(`/admin/groups/${groupId}/photo`, formData)
       showToast('Foto atualizada!')
       onRefresh()
     } catch (e) {
@@ -196,6 +226,24 @@ export default function ShellAdminTeams({ groups, onRefresh }) {
     } finally {
       setBusy(null)
     }
+  }
+
+  const handlePhotoClear = async (groupId) => {
+    if (!window.confirm('Remover a foto desta equipe? Você poderá enviar uma nova em seguida.')) return
+    setBusy(`photo-clear-${groupId}`)
+    try {
+      await api.delete(`/admin/groups/${groupId}/photo`)
+      showToast('Foto removida')
+      onRefresh()
+    } catch (e) {
+      showToast(e.response?.data?.error || 'Erro ao remover foto', false)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const pickPhoto = (groupId) => {
+    document.getElementById(`team-photo-${groupId}`)?.click()
   }
 
   const handleDelete = async (g) => {
@@ -303,19 +351,13 @@ export default function ShellAdminTeams({ groups, onRefresh }) {
             style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', cursor: 'pointer' }}
             onClick={() => toggleExpand(g.id)}
           >
-            <button
-              type="button"
-              className="s-av"
-              style={{ width: 40, height: 40, flexShrink: 0, cursor: 'pointer', padding: 0, border: 'none', background: 'none' }}
+            <TeamAvatar
+              group={g}
+              size={40}
               title="Alterar foto da equipe"
               disabled={busy === `photo-${g.id}`}
-              onClick={e => {
-                e.stopPropagation()
-                document.getElementById(`team-photo-${g.id}`)?.click()
-              }}
-            >
-              {g.photo_url ? <img src={g.photo_url} alt="" /> : ini(g.name)}
-            </button>
+              onClick={() => pickPhoto(g.id)}
+            />
             <input
               id={`team-photo-${g.id}`}
               type="file"
@@ -348,6 +390,29 @@ export default function ShellAdminTeams({ groups, onRefresh }) {
 
           {expanded === g.id && (
             <div style={{ borderTop: '1px solid var(--border)', padding: '14px 18px' }}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ fontSize: 11 }}
+                  disabled={busy === `photo-${g.id}`}
+                  onClick={() => pickPhoto(g.id)}
+                >
+                  {busy === `photo-${g.id}` ? 'Enviando…' : '📷 Enviar nova foto'}
+                </button>
+                {g.photo_url && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ fontSize: 11, color: 'var(--txt3)' }}
+                    disabled={busy === `photo-clear-${g.id}`}
+                    onClick={() => handlePhotoClear(g.id)}
+                  >
+                    Remover foto antiga
+                  </button>
+                )}
+              </div>
+
               {loadingMembers === g.id && (
                 <div style={{ color: 'var(--txt3)', fontSize: 12, padding: '8px 0' }}>Carregando membros…</div>
               )}

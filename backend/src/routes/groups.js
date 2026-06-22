@@ -2,10 +2,11 @@ const router = require('express').Router();
 const db = require('../config/db');
 const { authMiddleware } = require('../middleware/auth');
 const {
-  upload,
+  uploadPhoto,
   GROUP_PUBLIC_COLUMNS,
   saveGroupPhoto,
   serveGroupPhoto,
+  photoSaveError,
 } = require('../services/groupPhotoStorage');
 
 // GET /api/groups - listar todos os grupos com pontuação
@@ -355,7 +356,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
 });
 
 // POST /api/groups - criar grupo (apenas admin)
-router.post('/', authMiddleware, upload.single('photo'), async (req, res) => {
+router.post('/', authMiddleware, uploadPhoto('photo'), async (req, res) => {
   if (req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Apenas o administrador pode criar equipes' });
   }
@@ -374,8 +375,12 @@ router.post('/', authMiddleware, upload.single('photo'), async (req, res) => {
 
     const group = rows[0];
     if (req.file) {
-      await saveGroupPhoto(group.id, req.file.buffer, req.file.mimetype);
-      group.photo_url = `/api/groups/${group.id}/photo`;
+      try {
+        await saveGroupPhoto(group.id, req.file.buffer, req.file.mimetype);
+        group.photo_url = `/api/groups/${group.id}/photo`;
+      } catch (err) {
+        return photoSaveError(err, res);
+      }
     }
 
     res.status(201).json(group);
@@ -396,7 +401,7 @@ router.post('/:id/leave', authMiddleware, async (req, res) => {
 });
 
 // PUT /api/groups/:id - atualizar grupo
-router.put('/:id', authMiddleware, upload.single('photo'), async (req, res) => {
+router.put('/:id', authMiddleware, uploadPhoto('photo'), async (req, res) => {
   try {
     const { id } = req.params;
     const { name } = req.body;
@@ -419,7 +424,11 @@ router.put('/:id', authMiddleware, upload.single('photo'), async (req, res) => {
       );
     }
     if (req.file) {
-      await saveGroupPhoto(id, req.file.buffer, req.file.mimetype);
+      try {
+        await saveGroupPhoto(id, req.file.buffer, req.file.mimetype);
+      } catch (err) {
+        return photoSaveError(err, res);
+      }
     }
 
     if (!name && !req.file) return res.status(400).json({ error: 'Nada para atualizar' });

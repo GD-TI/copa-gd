@@ -89,7 +89,8 @@ Seção **"Equipes e Jogadores"** (`ShellAdminTeams.jsx`):
 |------|-----|-----|
 | Cadastrar jogador | Busca login NewCorban + equipe opcional | `POST /api/admin/users` |
 | Criar equipe | Nome + foto opcional (📷) | `POST /api/admin/groups` (multipart) |
-| Alterar foto da equipe | Clique no avatar na lista | `PUT /api/groups/:id` (multipart, admin) |
+| Alterar foto da equipe | Clique no avatar ou **📷 Enviar nova foto** (expandir equipe) | `PUT /api/admin/groups/:id/photo` (multipart) |
+| Remover foto corrompida | **Remover foto antiga** na equipe expandida | `DELETE /api/admin/groups/:id/photo` |
 | Desativar equipe | 🗑️ na lista | `DELETE /api/admin/groups/:id` |
 | Ver/adicionar/remover membros | Expandir equipe na lista | `GET/POST/DELETE /api/admin/groups/:id/members` |
 | Metas R$ por equipe | Tabela "Metas de Valor Referência" | `PUT /api/settings/group-goals` |
@@ -101,14 +102,17 @@ Seção **"Equipes e Jogadores"** (`ShellAdminTeams.jsx`):
 - Fotos das equipes em **`groups.photo_data`** (BYTEA no PostgreSQL) — persistem no redeploy da Hostinger
 - URL pública: `/api/groups/:id/photo` (gravada em `photo_url`)
 - Upload via multer em memória (`groupPhotoStorage.js`); máx. 5 MB, só imagens
-- Fotos antigas em `/uploads/groups/` (disco) ainda funcionam em dev; em produção reenviar após deploy
+- Fotos antigas em `/uploads/groups/` (disco) — reenviar após deploy; ou `DELETE /api/admin/groups/:id/photo` + nova foto
+- **Upload:** não definir `Content-Type` manualmente no axios com `FormData` (quebra o boundary do multipart)
 
 ### Endpoints admin — equipes e usuários
 
 | Método | Rota | Body | Descrição |
 |--------|------|------|-----------|
 | POST | `/api/admin/groups` | `name` + `photo` (multipart) | Criar equipe |
-| PUT | `/api/groups/:id` | `photo` (multipart) | Atualizar foto (admin ou capitão) |
+| PUT | `/api/admin/groups/:id/photo` | `photo` (multipart) | Atualizar foto (admin) |
+| DELETE | `/api/admin/groups/:id/photo` | — | Limpar foto corrompida/antiga |
+| PUT | `/api/groups/:id` | `name` / `photo` (multipart) | Atualizar grupo (admin ou capitão) |
 | DELETE | `/api/admin/groups/:id` | — | Desativar equipe (`active = false`) |
 | GET | `/api/admin/groups/:id/members` | — | Listar membros |
 | POST | `/api/admin/groups/:id/members` | `{ user_id }` | Adicionar/mover jogador |
@@ -621,7 +625,7 @@ VITE_API_URL=http://localhost:3001
 | Jun/26 | Deploy Hostinger sem monorepo | `package.json` raiz, `server.js` serve `frontend/dist`, `website-builder.json` |
 | Jun/26 | `DATABASE_URL` com placeholder `host` | `validateDb.js` + mensagens no `seed.js`; doc em `.env.example` |
 | Jun/26 | `Invalid URL` com senha contendo `#` | URL-encode na `DATABASE_URL`; doc em CLAUDE.md |
-| Jun/26 | Fotos de equipe sumiam no redeploy Hostinger | Armazenamento em `groups.photo_data` (PostgreSQL) + `GET /api/groups/:id/photo` |
+| Jun/26 | Upload de foto falhava silenciosamente | axios com `FormData` sem header `Content-Type` manual; endpoint `PUT /admin/groups/:id/photo` |
 | Jun/26 | `GET /api/groups/:id` members sem `corban_username` | Adicionado `u.corban_username` ao SELECT de membros em `groups.js` |
 | Jun/26 | `GET /api/groups/:id` score não filtrado por `campaign.start_date` | Adicionado filtro `event_date >= (SELECT start_date FROM campaign_settings ...)` |
 | Jun/26 | `GET /api/groups/:id` query à tabela legacy `group_goals` (vazia) | Removida query e campo `goal` da resposta; metas já estão em `...group` (grupos.daily/weekly_goal_value) |

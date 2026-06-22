@@ -47,7 +47,7 @@ export default function MyGroup() {
       formData.append('name', form.name.trim())
       if (photo) formData.append('photo', photo)
 
-      await api.post('/groups', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+      await api.post('/groups', formData)
       toast.success('Grupo criado! 🏆')
       await refreshUser()
     } catch (err) {
