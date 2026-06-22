@@ -98,8 +98,10 @@ Seção **"Equipes e Jogadores"** (`ShellAdminTeams.jsx`):
 - Máximo **5 membros** por equipe (validado no backend)
 - Adicionar membro faz upsert em `group_memberships` — move jogador de outra equipe se necessário
 - Jogador com `needs_password_setup = true` aparece com tag "aguardando 1º acesso" na lista de membros
-- Fotos salvas em `backend/uploads/groups/` — servidas em `/uploads/groups/...` (multer, máx. 5 MB, só imagens)
-- **Hostinger:** pasta `uploads/` pode não persistir entre redeploys — considerar volume ou storage externo se fotos sumirem
+- Fotos das equipes em **`groups.photo_data`** (BYTEA no PostgreSQL) — persistem no redeploy da Hostinger
+- URL pública: `/api/groups/:id/photo` (gravada em `photo_url`)
+- Upload via multer em memória (`groupPhotoStorage.js`); máx. 5 MB, só imagens
+- Fotos antigas em `/uploads/groups/` (disco) ainda funcionam em dev; em produção reenviar após deploy
 
 ### Endpoints admin — equipes e usuários
 
@@ -272,7 +274,8 @@ Upsert idempotente. `event_date` varia por tipo de regra (ver seção Regras).
 ALTER TABLE groups ADD COLUMN IF NOT EXISTS daily_goal_value  NUMERIC DEFAULT 0;
 ALTER TABLE groups ADD COLUMN IF NOT EXISTS weekly_goal_value NUMERIC DEFAULT 0;
 ALTER TABLE groups ADD COLUMN IF NOT EXISTS goal_points       INTEGER DEFAULT 0;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS needs_password_setup BOOLEAN DEFAULT false;
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS photo_data BYTEA;
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS photo_mime VARCHAR(50);
 -- + scoring_rules, campaign_settings (ver seed.js)
 ```
 Erro típico: `column g.daily_goal_value does not exist`.
@@ -618,7 +621,7 @@ VITE_API_URL=http://localhost:3001
 | Jun/26 | Deploy Hostinger sem monorepo | `package.json` raiz, `server.js` serve `frontend/dist`, `website-builder.json` |
 | Jun/26 | `DATABASE_URL` com placeholder `host` | `validateDb.js` + mensagens no `seed.js`; doc em `.env.example` |
 | Jun/26 | `Invalid URL` com senha contendo `#` | URL-encode na `DATABASE_URL`; doc em CLAUDE.md |
-| Jun/26 | Admin sem UI para foto de equipe | `ShellAdminTeams`: upload na criação (📷) + clique no avatar (`PUT /api/groups/:id`) |
+| Jun/26 | Fotos de equipe sumiam no redeploy Hostinger | Armazenamento em `groups.photo_data` (PostgreSQL) + `GET /api/groups/:id/photo` |
 | Jun/26 | `GET /api/groups/:id` members sem `corban_username` | Adicionado `u.corban_username` ao SELECT de membros em `groups.js` |
 | Jun/26 | `GET /api/groups/:id` score não filtrado por `campaign.start_date` | Adicionado filtro `event_date >= (SELECT start_date FROM campaign_settings ...)` |
 | Jun/26 | `GET /api/groups/:id` query à tabela legacy `group_goals` (vazia) | Removida query e campo `goal` da resposta; metas já estão em `...group` (grupos.daily/weekly_goal_value) |

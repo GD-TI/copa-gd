@@ -1,29 +1,12 @@
 const router = require('express').Router();
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 const db = require('../config/db');
 const { authMiddleware } = require('../middleware/auth');
-
-// Configuração do multer para fotos de grupos
-const uploadDir = path.join(__dirname, '../../uploads/groups');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: uploadDir,
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `group_${Date.now()}${ext}`);
-  },
-});
-const upload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) cb(null, true);
-    else cb(new Error('Apenas imagens são permitidas'));
-  },
-});
+const {
+  upload,
+  GROUP_PUBLIC_COLUMNS,
+  saveGroupPhoto,
+  serveGroupPhoto,
+} = require('../services/groupPhotoStorage');
 
 // GET /api/groups - listar todos os grupos com pontuação
 router.get('/', authMiddleware, async (req, res) => {
@@ -293,13 +276,16 @@ router.get('/:id/members/stats', authMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/groups/:id/photo — imagem da equipe (público; armazenada no PostgreSQL)
+router.get('/:id/photo', serveGroupPhoto);
+
 // GET /api/groups/:id - detalhes do grupo
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
 
     const { rows: groupRows } = await db.query(
-      'SELECT * FROM groups WHERE id = $1 AND active = true',
+      `SELECT ${GROUP_PUBLIC_COLUMNS} FROM groups WHERE id = $1 AND active = true`,
       [id]
     );
     if (groupRows.length === 0) return res.status(404).json({ error: 'Grupo não encontrado' });
@@ -381,16 +367,18 @@ router.post('/', authMiddleware, upload.single('photo'), async (req, res) => {
   }
 
   try {
-    const photoUrl = req.file
-      ? `/uploads/groups/${req.file.filename}`
-      : null;
-
     const { rows } = await db.query(
-      'INSERT INTO groups (name, photo_url, created_by) VALUES ($1, $2, $3) RETURNING *',
-      [name.trim(), photoUrl, req.user.id]
+      `INSERT INTO groups (name, created_by) VALUES ($1, $2) RETURNING ${GROUP_PUBLIC_COLUMNS}`,
+      [name.trim(), req.user.id]
     );
 
-    res.status(201).json(rows[0]);
+    const group = rows[0];
+    if (req.file) {
+      await saveGroupPhoto(group.id, req.file.buffer, req.file.mimetype);
+      group.photo_url = `/api/groups/${group.id}/photo`;
+    }
+
+    res.status(201).json(group);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao criar grupo' });
@@ -424,20 +412,23 @@ router.put('/:id', authMiddleware, upload.single('photo'), async (req, res) => {
       }
     }
 
-    const updates = [];
-    const values = [];
-    let paramIdx = 1;
+    if (name) {
+      await db.query(
+        'UPDATE groups SET name = $1, updated_at = NOW() WHERE id = $2',
+        [name.trim(), id]
+      );
+    }
+    if (req.file) {
+      await saveGroupPhoto(id, req.file.buffer, req.file.mimetype);
+    }
 
-    if (name) { updates.push(`name = $${paramIdx++}`); values.push(name.trim()); }
-    if (req.file) { updates.push(`photo_url = $${paramIdx++}`); values.push(`/uploads/groups/${req.file.filename}`); }
+    if (!name && !req.file) return res.status(400).json({ error: 'Nada para atualizar' });
 
-    if (updates.length === 0) return res.status(400).json({ error: 'Nada para atualizar' });
-
-    values.push(id);
     const { rows } = await db.query(
-      `UPDATE groups SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramIdx} RETURNING *`,
-      values
+      `SELECT ${GROUP_PUBLIC_COLUMNS} FROM groups WHERE id = $1`,
+      [id]
     );
+    if (!rows.length) return res.status(404).json({ error: 'Grupo não encontrado' });
 
     res.json(rows[0]);
   } catch (err) {

@@ -18,6 +18,8 @@ async function seed() {
       `ALTER TABLE groups ADD COLUMN IF NOT EXISTS daily_goal_value  NUMERIC DEFAULT 0`,
       `ALTER TABLE groups ADD COLUMN IF NOT EXISTS weekly_goal_value NUMERIC DEFAULT 0`,
       `ALTER TABLE groups ADD COLUMN IF NOT EXISTS goal_points       INTEGER DEFAULT 0`,
+      `ALTER TABLE groups ADD COLUMN IF NOT EXISTS photo_data       BYTEA`,
+      `ALTER TABLE groups ADD COLUMN IF NOT EXISTS photo_mime       VARCHAR(50)`,
       `ALTER TABLE users  ADD COLUMN IF NOT EXISTS needs_password_setup BOOLEAN DEFAULT false`,
     ];
     for (const sql of migrations) {

@@ -1,42 +1,23 @@
 const router = require('express').Router();
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const db = require('../config/db');
 const { authMiddleware, adminOnly } = require('../middleware/auth');
 const { findUserByUsername } = require('../services/externalApi');
 const { calculateScores } = require('../services/scoring');
 const { broadcast } = require('./events');
+const {
+  upload,
+  GROUP_PUBLIC_COLUMNS,
+  saveGroupPhoto,
+} = require('../services/groupPhotoStorage');
 
 const PLACEHOLDER_HASH = '$2a$10$PLACEHOLDER.NEVER.USED.FOR.LOGIN.xxxxxxxxxxxx';
 
-// Dispara recálculo completo em background após mudança de membros
 function triggerRecalculate(adminId) {
   calculateScores(adminId)
     .then(() => broadcast('scores_updated', { ts: Date.now() }))
     .catch(e => console.error('[Admin] Erro no recálculo pós-membership:', e.message));
 }
-
-// Upload de fotos de grupos (admin)
-const uploadDir = path.join(__dirname, '../../uploads/groups');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: uploadDir,
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `group_${Date.now()}${ext}`);
-  },
-});
-const upload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) cb(null, true);
-    else cb(new Error('Apenas imagens são permitidas'));
-  },
-});
 
 router.use(authMiddleware, adminOnly);
 
@@ -254,7 +235,8 @@ router.post('/users/:id/move-group', async (req, res) => {
 router.get('/groups', async (req, res) => {
   try {
     const { rows } = await db.query(`
-      SELECT g.*,
+      SELECT g.id, g.name, g.photo_url, g.created_by, g.active, g.created_at, g.updated_at,
+             g.daily_goal_value, g.weekly_goal_value, g.goal_points,
              COUNT(DISTINCT gm.user_id) as member_count
       FROM groups g
       LEFT JOIN group_memberships gm ON g.id = gm.group_id
@@ -278,12 +260,16 @@ router.post('/groups', upload.single('photo'), async (req, res) => {
   }
 
   try {
-    const photoUrl = req.file ? `/uploads/groups/${req.file.filename}` : null;
     const { rows } = await db.query(
-      'INSERT INTO groups (name, photo_url, created_by) VALUES ($1, $2, $3) RETURNING *',
-      [name.trim(), photoUrl, req.user.id]
+      `INSERT INTO groups (name, created_by) VALUES ($1, $2) RETURNING ${GROUP_PUBLIC_COLUMNS}`,
+      [name.trim(), req.user.id]
     );
-    res.status(201).json(rows[0]);
+    const group = rows[0];
+    if (req.file) {
+      await saveGroupPhoto(group.id, req.file.buffer, req.file.mimetype);
+      group.photo_url = `/api/groups/${group.id}/photo`;
+    }
+    res.status(201).json(group);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao criar equipe' });
