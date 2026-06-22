@@ -1,0 +1,5 @@
+.env
+CLAUDE.MD
+retorno_endpoint_coiso.json
+retorno_endpoint_propostasindividuais.json
+retorno_endpoint_ranking.json

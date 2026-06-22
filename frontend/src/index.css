@@ -1,0 +1,111 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    @apply bg-copa-navy text-white font-sans;
+    min-height: 100vh;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-copa-navy;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-copa-blue rounded;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-copa-green hover:bg-copa-green-dark text-white font-semibold py-2.5 px-5 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply bg-copa-blue hover:bg-copa-blue-dark text-white font-semibold py-2.5 px-5 rounded-lg transition-all duration-200;
+  }
+
+  .btn-yellow {
+    @apply bg-copa-yellow hover:bg-copa-yellow-dark text-copa-navy font-bold py-2.5 px-5 rounded-lg transition-all duration-200;
+  }
+
+  .btn-danger {
+    @apply bg-red-600 hover:bg-red-700 text-white font-semibold py-2.5 px-5 rounded-lg transition-all duration-200;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent border border-white/20 hover:bg-white/10 text-white font-semibold py-2.5 px-5 rounded-lg transition-all duration-200;
+  }
+
+  .card {
+    @apply bg-copa-card border border-white/10 rounded-xl p-5;
+  }
+
+  .input-field {
+    @apply w-full bg-copa-navy-light border border-white/20 rounded-lg px-4 py-2.5 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-copa-green focus:border-transparent transition-all;
+  }
+
+  .label {
+    @apply block text-sm font-medium text-white/70 mb-1.5;
+  }
+
+  .badge-green {
+    @apply inline-flex items-center gap-1 bg-copa-green/20 text-copa-green text-xs font-semibold px-2 py-0.5 rounded-full;
+  }
+
+  .badge-yellow {
+    @apply inline-flex items-center gap-1 bg-copa-yellow/20 text-copa-yellow text-xs font-semibold px-2 py-0.5 rounded-full;
+  }
+
+  .badge-blue {
+    @apply inline-flex items-center gap-1 bg-copa-blue/40 text-blue-300 text-xs font-semibold px-2 py-0.5 rounded-full;
+  }
+
+  .badge-red {
+    @apply inline-flex items-center gap-1 bg-red-500/20 text-red-400 text-xs font-semibold px-2 py-0.5 rounded-full;
+  }
+
+  .rank-badge-1 {
+    @apply bg-copa-yellow text-copa-navy;
+  }
+  .rank-badge-2 {
+    @apply bg-gray-300 text-gray-800;
+  }
+  .rank-badge-3 {
+    @apply bg-amber-600 text-white;
+  }
+}
+
+/* Animação de entrada */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.3s ease-out forwards;
+}
+
+/* Brilho nas posições 1, 2, 3 */
+.glow-gold { box-shadow: 0 0 20px rgba(255, 223, 0, 0.25); }
+.glow-silver { box-shadow: 0 0 16px rgba(192, 192, 192, 0.2); }
+.glow-bronze { box-shadow: 0 0 16px rgba(205, 127, 50, 0.2); }
+
+/* Efeito de fundo verde/amarelo nos cards de destaque */
+.bg-brazil-gradient {
+  background: linear-gradient(135deg, rgba(0, 156, 59, 0.15) 0%, rgba(255, 223, 0, 0.1) 100%);
+}
+
+/* Match day banner */
+.match-day-banner {
+  background: linear-gradient(135deg, #002776, #009c3b);
+  animation: pulse 2s ease-in-out infinite;
+}

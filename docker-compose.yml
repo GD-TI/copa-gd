@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: copa_gd
+      POSTGRES_USER: copa_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-copa_pass_2026}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/src/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U copa_user -d copa_gd"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3001
+      DATABASE_URL: postgresql://copa_user:${DB_PASSWORD:-copa_pass_2026}@postgres:5432/copa_gd
+      JWT_SECRET: ${JWT_SECRET:-copa_jwt_secret_2026_mude_isso}
+      NEWCORBAN_USERNAME: ${NEWCORBAN_USERNAME:-}
+      NEWCORBAN_PASSWORD: ${NEWCORBAN_PASSWORD:-}
+      NEWCORBAN_SUBDOMAIN: ${NEWCORBAN_SUBDOMAIN:-grupodigital}
+      FOOTBALL_API_KEY: ${FOOTBALL_API_KEY:-}
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend/src:/app/src
+      - uploads_data:/app/uploads
+      - /app/node_modules
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:3001}
+      BACKEND_URL: http://backend:3001
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend/src:/app/src
+      - /app/node_modules
+
+volumes:
+  postgres_data:
+  uploads_data:
