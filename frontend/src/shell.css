@@ -25,6 +25,7 @@
   --hover:   rgba(0,0,0,.03); --active: rgba(217,119,6,.06);
   --border:  rgba(0,0,0,.07); --border2: rgba(0,0,0,.12);
   --txt:     #111118; --txt2:#52525B; --txt3:#A1A1AA; --txt4:#D4D4D8;
+  --input-bg: #FFFFFF; --input-border: rgba(0,0,0,.14); --input-placeholder: #A1A1AA;
   --sb-bg:   #FFFFFF; --sb-border:rgba(0,0,0,.06);
   --top-bg:  rgba(255,255,255,.85); --top-blur:blur(20px);
   --sh-xs:   0 1px 2px rgba(0,0,0,.04);
@@ -40,6 +41,7 @@
   --hover:   rgba(255,255,255,.04); --active: rgba(245,158,11,.08);
   --border:  rgba(255,255,255,.07); --border2: rgba(255,255,255,.12);
   --txt:     #F4F4F8; --txt2:#8C8CA0; --txt3:#52526A; --txt4:#30303C;
+  --input-bg: #1C1C23; --input-border: rgba(255,255,255,.14); --input-placeholder: #52526A;
   --sb-bg:   #0E0E15; --sb-border:rgba(255,255,255,.05);
   --top-bg:  rgba(10,10,15,.85); --top-blur:blur(20px);
   --sh-xs:   0 1px 2px rgba(0,0,0,.4);
@@ -166,8 +168,86 @@
 .field-group { display:flex;flex-direction:column;gap:6px; }
 .field-label { font-size:11px;font-weight:600;color:var(--txt2);letter-spacing:.3px; }
 .field-hint  { font-size:11px;color:var(--txt3);line-height:1.5;margin-top:2px; }
-.field-input { background:var(--bg);border:1.5px solid var(--border);color:var(--txt);border-radius:var(--r-sm);padding:10px 14px;font:500 13px/1 var(--font);outline:none;width:100%;transition:border-color .15s,box-shadow .15s; }
-.field-input:focus { border-color:var(--gold-mid);box-shadow:0 0 0 3px rgba(245,158,11,.1); }
+.field-input {
+  background: var(--input-bg);
+  border: 1.5px solid var(--input-border);
+  color: var(--txt);
+  border-radius: var(--r-sm);
+  padding: 10px 14px;
+  font: 500 13px/1.4 var(--font);
+  outline: none;
+  width: 100%;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.field-input::placeholder { color: var(--input-placeholder); opacity: 1; }
+.field-input:focus {
+  border-color: var(--gold-mid);
+  box-shadow: 0 0 0 3px rgba(245,158,11,.12);
+  background: var(--input-bg);
+}
+.field-input:disabled { opacity: .55; cursor: not-allowed; }
+select.field-input {
+  cursor: pointer;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2352525B' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px;
+}
+[data-theme="dark"] select.field-input {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238C8CA0' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E");
+}
+select.field-input option {
+  background: var(--surf);
+  color: var(--txt);
+}
+input[type="date"].field-input,
+input[type="number"].field-input,
+input[type="text"].field-input {
+  color-scheme: inherit;
+}
+[data-theme="light"] input[type="date"].field-input::-webkit-calendar-picker-indicator {
+  filter: none;
+  opacity: .55;
+}
+[data-theme="dark"] input[type="date"].field-input::-webkit-calendar-picker-indicator {
+  filter: invert(0.75);
+  opacity: .7;
+}
+[data-theme="light"] .field-input:-webkit-autofill,
+[data-theme="light"] .field-input:-webkit-autofill:hover,
+[data-theme="light"] .field-input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #FFFFFF inset;
+  -webkit-text-fill-color: #111118;
+  caret-color: #111118;
+  border-color: var(--input-border);
+}
+[data-theme="dark"] .field-input:-webkit-autofill,
+[data-theme="dark"] .field-input:-webkit-autofill:hover,
+[data-theme="dark"] .field-input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #1C1C23 inset;
+  -webkit-text-fill-color: #F4F4F8;
+  caret-color: #F4F4F8;
+}
+/* Tabelas da config — inputs inline com contraste no modo claro */
+[data-theme="light"] .sync-table .field-input {
+  background: #FFFFFF;
+  border-color: rgba(0,0,0,.16);
+  box-shadow: var(--sh-xs);
+}
+[data-theme="light"] .sync-table .field-input:focus {
+  border-color: var(--gold-mid);
+  box-shadow: 0 0 0 3px rgba(245,158,11,.12), var(--sh-xs);
+}
+[data-theme="light"] .card .field-input {
+  background: #FFFFFF;
+  border-color: rgba(0,0,0,.12);
+}
+[data-theme="dark"] .card .field-input {
+  background: var(--input-bg);
+}
 
 .pill { display:inline-flex;align-items:center;gap:4px;border-radius:20px;padding:3px 9px;font-size:10px;font-weight:700;letter-spacing:.3px; }
 .pill-hit   { background:var(--green-soft);color:var(--green); }

@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import ShellRanking from '../pages/ShellRanking'
 import ShellConfig from '../pages/ShellConfig'
 import ShellMyGroup from '../pages/ShellMyGroup'
+import { applyTheme, writeThemeCookie } from '../utils/theme'
 import '../shell.css'
 
 const PAGE_TITLES = { ranking: 'Ranking', config: 'Configuração', meugrupo: 'Meu Grupo' }
@@ -29,11 +30,12 @@ export default function Shell() {
     return () => clearInterval(t)
   }, [])
 
-  // Theme management on <html>
+  // Theme — cookie aplicado no index.html antes do React (evita flash)
   const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || 'light')
   const toggleTheme = useCallback(() => {
     const next = theme === 'light' ? 'dark' : 'light'
-    document.documentElement.dataset.theme = next
+    applyTheme(next)
+    writeThemeCookie(next)
     setTheme(next)
   }, [theme])
 

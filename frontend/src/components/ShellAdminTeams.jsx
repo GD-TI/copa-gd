@@ -83,7 +83,7 @@ function AddPlayerForm({ groups, onAdded }) {
       </div>
 
       {corban && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'var(--surf2)', borderRadius: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'var(--surf2)', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 12, flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 160 }}>
             <div style={{ font: '600 13px/1 var(--font)', color: 'var(--txt)' }}>{corban.name}</div>
             <div style={{ font: '400 11px/1 var(--font)', color: 'var(--txt3)', marginTop: 3 }}>@{corban.username}</div>
