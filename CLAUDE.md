@@ -99,6 +99,7 @@ Seção **"Equipes e Jogadores"** (`ShellAdminTeams.jsx`):
 - Máximo **5 membros** por equipe (validado no backend)
 - Adicionar membro faz upsert em `group_memberships` — move jogador de outra equipe se necessário
 - Jogador com `needs_password_setup = true` aparece com tag "aguardando 1º acesso" na lista de membros
+- **Mudança de equipe → recálculo automático:** ao cadastrar jogador em equipe, adicionar/remover/mover membro ou desativar jogador, o backend dispara `calculateScores(adminId)` em background (force) — recalcula **todos os dias da campanha** com a composição atual das equipes
 - Fotos das equipes em **`groups.photo_data`** (BYTEA no PostgreSQL) — persistem no redeploy da Hostinger
 - URL pública: `/api/groups/:id/photo` (gravada em `photo_url`)
 - Upload via multer em memória (`groupPhotoStorage.js`); máx. 5 MB, só imagens
@@ -331,7 +332,9 @@ Senha padrão `admin2026` — hash gerado por `bcrypt` no `seed.js` (10 rounds).
 - Dias passados: calculados apenas uma vez (skip via `daily_calculations`), exceto quando admin dispara force
 - Hoje: sempre recalculado (dinâmico)
 - Ao fim do dia: os dados ficam congelados naturalmente (o cron não atualiza dias passados no modo automático)
-- Admin "Calcular" usa `triggeredBy = userId` → força recalcular todos os dias
+- Admin "Calcular" ou **mudança de equipe** (`triggerRecalculate` em `admin.js`) usa `triggeredBy = userId` → modo **force**
+- **Modo force:** apaga `score_events` e `daily_calculations` do período da campanha antes de recalcular tudo (necessário quando vendedor muda de equipe — pontos históricos seguem o grupo atual)
+- Dispara `broadcast('scores_updated')` ao terminar (telão atualiza via SSE)
 - Para competitivas diárias: deleta eventos do dia de grupos não-vencedores **antes** do upsert (apenas hoje)
 
 ### Fluxo por dia
@@ -625,7 +628,7 @@ VITE_API_URL=http://localhost:3001
 | Jun/26 | Deploy Hostinger sem monorepo | `package.json` raiz, `server.js` serve `frontend/dist`, `website-builder.json` |
 | Jun/26 | `DATABASE_URL` com placeholder `host` | `validateDb.js` + mensagens no `seed.js`; doc em `.env.example` |
 | Jun/26 | `Invalid URL` com senha contendo `#` | URL-encode na `DATABASE_URL`; doc em CLAUDE.md |
-| Jun/26 | Upload de foto falhava silenciosamente | axios com `FormData` sem header `Content-Type` manual; endpoint `PUT /admin/groups/:id/photo` |
+| Jun/26 | Pontos não atualizavam ao mover vendedor de equipe | `triggerRecalculate` em todos os endpoints de membership; force apaga e recalcula campanha inteira |
 | Jun/26 | `GET /api/groups/:id` members sem `corban_username` | Adicionado `u.corban_username` ao SELECT de membros em `groups.js` |
 | Jun/26 | `GET /api/groups/:id` score não filtrado por `campaign.start_date` | Adicionado filtro `event_date >= (SELECT start_date FROM campaign_settings ...)` |
 | Jun/26 | `GET /api/groups/:id` query à tabela legacy `group_goals` (vazia) | Removida query e campo `goal` da resposta; metas já estão em `...group` (grupos.daily/weekly_goal_value) |

@@ -53,6 +53,28 @@ async function calculateScores(triggeredBy = null) {
 
   console.log(`[Scoring] Calculando até ${todayStr} (force=${isForce})...`);
 
+  // Campanha (precisa antes do wipe em modo force)
+  const { rows: campRows } = await db.query(
+    'SELECT start_date FROM campaign_settings ORDER BY id DESC LIMIT 1'
+  );
+  const campaignStart = campRows[0] ? toDateStr(new Date(campRows[0].start_date)) : todayStr;
+
+  // Force (admin): apaga eventos e marcações de dias para recalcular toda a campanha
+  if (isForce) {
+    console.log('[Scoring] Force: recalculando campanha inteira (mudança de equipe/membro)...');
+    await db.query(
+      `DELETE FROM score_events
+       WHERE group_id IN (SELECT id FROM groups WHERE active = true)
+         AND event_date >= $1::date AND event_date <= $2::date`,
+      [campaignStart, todayStr]
+    );
+    await db.query(
+      `DELETE FROM daily_calculations
+       WHERE calculation_date >= $1::date AND calculation_date <= $2::date`,
+      [campaignStart, todayStr]
+    );
+  }
+
   // ── 1. Grupos e membros ──────────────────────────────────────────────────
   const { rows: groups } = await db.query(`
     SELECT
@@ -66,7 +88,10 @@ async function calculateScores(triggeredBy = null) {
     GROUP BY g.id, g.name, g.daily_goal_value, g.weekly_goal_value
   `);
 
-  if (groups.length === 0) { console.log('[Scoring] Nenhum grupo ativo.'); return []; }
+  if (groups.length === 0) {
+    console.log('[Scoring] Nenhum grupo com membros ativos.');
+    return [];
+  }
 
   const rulePts = await getRulePointsMap();
 
@@ -80,13 +105,7 @@ async function calculateScores(triggeredBy = null) {
   const allCorbanIds = [...new Set(groups.flatMap(g => g.corban_ids || []))];
   if (allCorbanIds.length === 0) { console.log('[Scoring] Nenhum corban_id configurado.'); return []; }
 
-  // ── 2. Campanha ──────────────────────────────────────────────────────────
-  const { rows: campRows } = await db.query(
-    'SELECT start_date FROM campaign_settings ORDER BY id DESC LIMIT 1'
-  );
-  const campaignStart = campRows[0] ? toDateStr(new Date(campRows[0].start_date)) : todayStr;
-
-  // ── 3. Ranking de hoje (TORCIDA_ORGANIZADA) ──────────────────────────────
+  // ── 2. Ranking de hoje (TORCIDA_ORGANIZADA) ──────────────────────────────
   const vendorMap = {};
   try {
     const rd = await externalApi.getRanking(todayStr, todayStr);
@@ -274,7 +293,7 @@ async function calculateScores(triggeredBy = null) {
       await db.query(
         `INSERT INTO daily_calculations (calculation_date, triggered_by)
          VALUES ($1, $2) ON CONFLICT (calculation_date) DO UPDATE SET calculated_at = NOW(), triggered_by = $2`,
-        [dateStr, null]
+        [dateStr, isForce ? triggeredBy : null]
       );
     }
 

@@ -15,6 +15,7 @@ const {
 const PLACEHOLDER_HASH = '$2a$10$PLACEHOLDER.NEVER.USED.FOR.LOGIN.xxxxxxxxxxxx';
 
 function triggerRecalculate(adminId) {
+  console.log('[Admin] Disparando recálculo completo da campanha (mudança de equipe)...');
   calculateScores(adminId)
     .then(() => broadcast('scores_updated', { ts: Date.now() }))
     .catch(e => console.error('[Admin] Erro no recálculo pós-membership:', e.message));
@@ -133,6 +134,7 @@ router.post('/users', async (req, res) => {
         'INSERT INTO group_memberships (user_id, group_id, is_captain) VALUES ($1, $2, false)',
         [user.id, group_id]
       );
+      triggerRecalculate(req.user.id);
     }
 
     res.status(201).json(user);
@@ -186,9 +188,9 @@ router.post('/users/:id/deactivate', async (req, res) => {
   const { id } = req.params;
   try {
     await db.query('UPDATE users SET active = false WHERE id = $1', [id]);
-    // Remover do grupo
     await db.query('DELETE FROM group_memberships WHERE user_id = $1', [id]);
     res.json({ message: 'Jogador removido da competição' });
+    triggerRecalculate(req.user.id);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao desativar jogador' });
@@ -202,8 +204,8 @@ router.post('/users/:id/move-group', async (req, res) => {
 
   try {
     if (!group_id) {
-      // Remover do grupo atual
       await db.query('DELETE FROM group_memberships WHERE user_id = $1', [id]);
+      triggerRecalculate(req.user.id);
       return res.json({ message: 'Jogador removido do grupo' });
     }
 
@@ -223,6 +225,7 @@ router.post('/users/:id/move-group', async (req, res) => {
        ON CONFLICT (user_id) DO UPDATE SET group_id = $2, is_captain = false`,
       [id, group_id]
     );
+    triggerRecalculate(req.user.id);
     res.json({ message: 'Jogador movido com sucesso' });
   } catch (err) {
     console.error(err);
