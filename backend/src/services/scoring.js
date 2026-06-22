@@ -4,6 +4,8 @@ const { getRulePointsMap } = require('./scoringRules');
 const { filterPaidIndicacoes } = require('../utils/proposals');
 
 const CONVERSION_MIN_RATE = parseFloat(process.env.CONVERSION_MIN_RATE || '0.80');
+
+function toDateStr(date) {
   return date.toISOString().split('T')[0];
 }
 
