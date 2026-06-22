@@ -229,6 +229,44 @@ function PointAdjustments({ groups }) {
   )
 }
 
+// ── Recálculo manual da campanha ────────────────────────────────────────────
+function RecalculateCampaign() {
+  const [busy, setBusy] = useState(false)
+
+  const handleRecalculate = async () => {
+    if (!window.confirm(
+      'Recalcular TODOS os dias da campanha com as regras e equipes atuais?\n\n' +
+      'Isso pode levar alguns minutos. Os pontos históricos serão atualizados.'
+    )) return
+
+    setBusy(true)
+    try {
+      const { data } = await api.post('/scores/calculate', {}, { timeout: 180000 })
+      const n = data?.events_count ?? 0
+      showToast(`Recálculo concluído! ${n} evento(s) diário(s) processado(s).`)
+    } catch (e) {
+      showToast(e.response?.data?.error || 'Erro ao recalcular pontuações', false)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: 28, padding: '16px 18px' }}>
+      <div style={{ font: '700 11px/1 var(--font)', color: 'var(--txt3)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 8 }}>
+        Recálculo de Pontuação
+      </div>
+      <p style={{ font: '400 12px/1.5 var(--font)', color: 'var(--txt2)', margin: '0 0 14px' }}>
+        Reprocessa <strong>todos os dias</strong> da campanha (propostas NewCorban + regras atuais).
+        Use após mudar equipes, metas ou pontos das regras.
+      </p>
+      <button type="button" className="btn btn-gold" onClick={handleRecalculate} disabled={busy}>
+        {busy ? '⏳ Recalculando…' : '🔄 Recalcular toda a campanha'}
+      </button>
+    </div>
+  )
+}
+
 // ── Pontos por regra ────────────────────────────────────────────────────────
 function ScoringRulesConfig() {
   const [rules, setRules] = useState([])
@@ -411,6 +449,7 @@ export default function ShellConfig() {
       {/* ── Pontos das regras ── */}
       <div className="sec-label">🏅 Pontos por Regra</div>
       <ScoringRulesConfig />
+      <RecalculateCampaign />
 
       {/* ── Período ── */}
       <div className="sec-label">📅 Período da Campanha</div>

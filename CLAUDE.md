@@ -304,7 +304,7 @@ Senha padrão `admin2026` — hash gerado por `bcrypt` no `seed.js` (10 rounds).
 |-------|-----------------|------|------------|----------|
 | META_DIA | 5 | Diária | `dateStr` (hoje) | Soma de `valor_referencia` dos contratos **pagos** hoje >= `daily_goal_value` |
 | META_SEMANA | 10 | Semanal | `max(weekStart, campaignStart)` | `valor_referencia` da semana >= `weekly_goal_value` |
-| CONVERSAO | 5 | Diária | `dateStr` | Taxa de pagamento hoje >= 25% |
+| CONVERSAO | 5 | Diária | `dateStr` | Taxa de pagamento hoje >= **80%** (env `CONVERSION_MIN_RATE`, default `0.80`) |
 | INDICACAO | 10/lote | Campanha acumulada | `campaignStart` | A cada **5 contratos pagos** em que o campo **`origem` contém "Indicação"** |
 | CONTRATO_10K | 5/contrato | Campanha acumulada | `campaignStart` | Por contrato com `valor_referencia > 10000` |
 | GOL_DE_PLACA | 15 | **Diária competitiva** | `dateStr` | Grupo com o maior contrato **pago** hoje entre todos os grupos |
@@ -335,6 +335,7 @@ Senha padrão `admin2026` — hash gerado por `bcrypt` no `seed.js` (10 rounds).
 - Admin "Calcular" ou **mudança de equipe** (`triggerRecalculate` em `admin.js`) usa `triggeredBy = userId` → modo **force**
 - **Modo force:** apaga `score_events` e `daily_calculations` do período da campanha antes de recalcular tudo (necessário quando vendedor muda de equipe — pontos históricos seguem o grupo atual)
 - Dispara `broadcast('scores_updated')` ao terminar (telão atualiza via SSE)
+- **UI admin:** botão **"🔄 Recalcular toda a campanha"** em `ShellConfig` → `POST /api/scores/calculate` (force, todos os dias)
 - Para competitivas diárias: deleta eventos do dia de grupos não-vencedores **antes** do upsert (apenas hoje)
 
 ### Fluxo por dia
@@ -629,7 +630,8 @@ VITE_API_URL=http://localhost:3001
 | Jun/26 | `DATABASE_URL` com placeholder `host` | `validateDb.js` + mensagens no `seed.js`; doc em `.env.example` |
 | Jun/26 | `Invalid URL` com senha contendo `#` | URL-encode na `DATABASE_URL`; doc em CLAUDE.md |
 | Jun/26 | Pontos não atualizavam ao mover vendedor de equipe | `triggerRecalculate` em todos os endpoints de membership; force apaga e recalcula campanha inteira |
-| Jun/26 | INDICACAO não pontuava com origem "Indicação" | `utils/proposals.js`: `origem` deve **conter** "Indicação"; 10 pts a cada 5 pagos (configurável) |
+| Jun/26 | INDICACAO não pontuava com origem "Indicação" | `utils/proposals.js`: `origem` deve **conter** "Indicação" |
+| Jun/26 | CONVERSAO exigia 25% de pagos | Meta alterada para **80%**; botão de recálculo total em `ShellConfig` |
 | Jun/26 | `GET /api/groups/:id` members sem `corban_username` | Adicionado `u.corban_username` ao SELECT de membros em `groups.js` |
 | Jun/26 | `GET /api/groups/:id` score não filtrado por `campaign.start_date` | Adicionado filtro `event_date >= (SELECT start_date FROM campaign_settings ...)` |
 | Jun/26 | `GET /api/groups/:id` query à tabela legacy `group_goals` (vazia) | Removida query e campo `goal` da resposta; metas já estão em `...group` (grupos.daily/weekly_goal_value) |
