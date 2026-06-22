@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "copa-gd",
+  "description": "Parâmetros para deploy em Website Builder Node.js (app única)",
+  "runtime": {
+    "type": "nodejs",
+    "version": "20"
+  },
+  "commands": {
+    "install": "npm run install:all",
+    "build": "npm run build",
+    "start": "npm start"
+  },
+  "network": {
+    "portEnv": "PORT",
+    "bind": "0.0.0.0",
+    "healthCheck": "/api/health"
+  },
+  "paths": {
+    "root": ".",
+    "entrypoint": "backend/src/server.js",
+    "staticBuild": "frontend/dist"
+  },
+  "environment": {
+    "required": [
+      "NODE_ENV",
+      "PORT",
+      "DATABASE_URL",
+      "JWT_SECRET",
+      "NEWCORBAN_USERNAME",
+      "NEWCORBAN_PASSWORD"
+    ],
+    "optional": [
+      "NEWCORBAN_SUBDOMAIN",
+      "NEWCORBAN_API_USERNAME",
+      "NEWCORBAN_API_PASSWORD",
+      "CORS_ORIGIN",
+      "SERVE_STATIC",
+      "FOOTBALL_API_KEY"
+    ],
+    "defaults": {
+      "NODE_ENV": "production",
+      "SERVE_STATIC": "true",
+      "NEWCORBAN_SUBDOMAIN": "grupodigital",
+      "NEWCORBAN_API_USERNAME": "botapi",
+      "NEWCORBAN_API_PASSWORD": "api@bot321"
+    }
+  }
+}
