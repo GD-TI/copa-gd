@@ -13,13 +13,16 @@ async function seed() {
     );
     console.log('[Seed] Admin padrão criado (usuário: admin, senha: admin2026)');
 
-    // Colunas de meta em R$ por grupo (migration idempotente)
-    await db.query(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS daily_goal_value  NUMERIC DEFAULT 0`);
-    await db.query(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS weekly_goal_value NUMERIC DEFAULT 0`);
-    await db.query(`ALTER TABLE groups ADD COLUMN IF NOT EXISTS goal_points       INTEGER DEFAULT 0`);
-
-    // Primeiro acesso: consultor define senha após cadastro pelo admin
-    await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS needs_password_setup BOOLEAN DEFAULT false`);
+    // Migrations idempotentes — executadas individualmente para não bloquear as demais
+    const migrations = [
+      `ALTER TABLE groups ADD COLUMN IF NOT EXISTS daily_goal_value  NUMERIC DEFAULT 0`,
+      `ALTER TABLE groups ADD COLUMN IF NOT EXISTS weekly_goal_value NUMERIC DEFAULT 0`,
+      `ALTER TABLE groups ADD COLUMN IF NOT EXISTS goal_points       INTEGER DEFAULT 0`,
+      `ALTER TABLE users  ADD COLUMN IF NOT EXISTS needs_password_setup BOOLEAN DEFAULT false`,
+    ];
+    for (const sql of migrations) {
+      try { await db.query(sql); } catch (_) { /* coluna já existe ou sem permissão de owner */ }
+    }
 
     // Pontos configuráveis por regra
     await db.query(`

@@ -308,20 +308,22 @@ router.get('/:id', authMiddleware, async (req, res) => {
 
     // Membros
     const { rows: members } = await db.query(
-      `SELECT u.id, u.username, u.display_name, u.corban_id, u.corban_name, gm.is_captain, gm.joined_at
+      `SELECT u.id, u.username, u.corban_username, u.display_name, u.corban_id, u.corban_name, gm.is_captain, gm.joined_at
        FROM group_memberships gm
        JOIN users u ON gm.user_id = u.id
        WHERE gm.group_id = $1 AND u.active = true`,
       [id]
     );
 
-    // Pontuação total e hoje
+    // Pontuação total e hoje (filtrado pelo período da campanha)
     const { rows: scoreRows } = await db.query(
       `SELECT
         COALESCE(SUM(points), 0) as total_points,
         COALESCE(SUM(CASE WHEN event_date = CURRENT_DATE THEN points ELSE 0 END), 0) as today_points,
         COALESCE(SUM(CASE WHEN event_date >= date_trunc('week', CURRENT_DATE) THEN points ELSE 0 END), 0) as week_points
-       FROM score_events WHERE group_id = $1`,
+       FROM score_events
+       WHERE group_id = $1
+         AND event_date >= (SELECT start_date FROM campaign_settings ORDER BY id DESC LIMIT 1)`,
       [id]
     );
 
@@ -346,14 +348,6 @@ router.get('/:id', authMiddleware, async (req, res) => {
       [id]
     );
 
-    // Meta atual
-    const { rows: goalRows } = await db.query(
-      `SELECT * FROM group_goals
-       WHERE group_id = $1 AND valid_from <= CURRENT_DATE AND (valid_until IS NULL OR valid_until >= CURRENT_DATE)
-       ORDER BY created_at DESC LIMIT 1`,
-      [id]
-    );
-
     const score = scoreRows[0];
     const totalPoints = parseFloat(score.total_points) + parseFloat(adjRows[0].adj_total);
 
@@ -367,7 +361,6 @@ router.get('/:id', authMiddleware, async (req, res) => {
       },
       events,
       adjustments,
-      goal: goalRows[0] || null,
     });
   } catch (err) {
     console.error(err);

@@ -559,11 +559,13 @@ FOOTBALL_API_KEY=     # opcional
 HOST=0.0.0.0
 ```
 
-**Docker Compose local:**
+**Docker Compose local (.env na raiz):**
 
 ```env
 DB_PASSWORD=copa_pass_2026
-DATABASE_URL=postgresql://copa_user:copa_pass_2026@localhost:5432/copa_gd
+# Se DATABASE_URL não definida, docker-compose usa postgres local (fallback automático)
+# Para apontar ao banco de produção (Hostinger) em dev, definir:
+# DATABASE_URL=postgresql://copa_app:SenhaReal@191.252.159.244:55432/copa_gd
 JWT_SECRET=...
 NEWCORBAN_USERNAME=...
 NEWCORBAN_PASSWORD=...
@@ -617,6 +619,11 @@ VITE_API_URL=http://localhost:3001
 | Jun/26 | `DATABASE_URL` com placeholder `host` | `validateDb.js` + mensagens no `seed.js`; doc em `.env.example` |
 | Jun/26 | `Invalid URL` com senha contendo `#` | URL-encode na `DATABASE_URL`; doc em CLAUDE.md |
 | Jun/26 | Admin sem UI para foto de equipe | `ShellAdminTeams`: upload na criação (📷) + clique no avatar (`PUT /api/groups/:id`) |
+| Jun/26 | `GET /api/groups/:id` members sem `corban_username` | Adicionado `u.corban_username` ao SELECT de membros em `groups.js` |
+| Jun/26 | `GET /api/groups/:id` score não filtrado por `campaign.start_date` | Adicionado filtro `event_date >= (SELECT start_date FROM campaign_settings ...)` |
+| Jun/26 | `GET /api/groups/:id` query à tabela legacy `group_goals` (vazia) | Removida query e campo `goal` da resposta; metas já estão em `...group` (grupos.daily/weekly_goal_value) |
+| Jun/26 | Seed falhava ao `ALTER TABLE` quando `copa_app` não é owner | Cada migration agora em try-catch individual — silencia permissão se colunas já existem |
+| Jun/26 | `docker-compose.yml` DATABASE_URL hardcoded (sem override por .env) | Mudado para `${DATABASE_URL:-...}` para permitir apontar para Hostinger em dev |
 | Jun/26 | `column daily_goal_value does not exist` após schema manual | Migrations do `seed.js` não rodaram; SQL manual ou redeploy após schema |
 | Jun/26 | `/api/health` pouco diagnóstico | Retorna `serveStatic`, `distExists`, `distPath`, `nodeEnv` |
 | Jun/26 | Confusão schema vs credenciais Postgres | Documentado: `schema.sql` = tabelas; credenciais vêm do provedor/Docker |
