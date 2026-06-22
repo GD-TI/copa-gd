@@ -6,8 +6,17 @@ const bcrypt = require('bcryptjs');
 const db = require('../config/db');
 const { authMiddleware, adminOnly } = require('../middleware/auth');
 const { findUserByUsername } = require('../services/externalApi');
+const { calculateScores } = require('../services/scoring');
+const { broadcast } = require('./events');
 
 const PLACEHOLDER_HASH = '$2a$10$PLACEHOLDER.NEVER.USED.FOR.LOGIN.xxxxxxxxxxxx';
+
+// Dispara recálculo completo em background após mudança de membros
+function triggerRecalculate(adminId) {
+  calculateScores(adminId)
+    .then(() => broadcast('scores_updated', { ts: Date.now() }))
+    .catch(e => console.error('[Admin] Erro no recálculo pós-membership:', e.message));
+}
 
 // Upload de fotos de grupos (admin)
 const uploadDir = path.join(__dirname, '../../uploads/groups');
@@ -339,6 +348,7 @@ router.post('/groups/:id/members', async (req, res) => {
     );
 
     res.json({ message: 'Jogador adicionado à equipe' });
+    triggerRecalculate(req.user.id);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao adicionar membro' });
@@ -355,6 +365,7 @@ router.delete('/groups/:id/members/:userId', async (req, res) => {
     );
     if (rowCount === 0) return res.status(404).json({ error: 'Membro não encontrado nesta equipe' });
     res.json({ message: 'Jogador removido da equipe' });
+    triggerRecalculate(req.user.id);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao remover membro' });
