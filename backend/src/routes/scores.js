@@ -3,13 +3,14 @@ const db = require('../config/db');
 const { authMiddleware } = require('../middleware/auth');
 const { calculateScores } = require('../services/scoring');
 const { broadcast } = require('./events');
+const { getRulesList } = require('../services/scoringRules');
 
 // GET /api/scores/leaderboard - placar geral
 router.get('/leaderboard', authMiddleware, async (req, res) => {
   try {
     const { rows } = await db.query(`
       SELECT
-        g.id, g.name, g.photo_url,
+        g.id, g.name, g.photo_url, g.goal_points,
         COUNT(DISTINCT gm.user_id) as member_count,
         COALESCE(se_agg.event_points, 0) as event_points,
         COALESCE(pa_agg.adj_points, 0) as adj_points,
@@ -37,7 +38,7 @@ router.get('/leaderboard', authMiddleware, async (req, res) => {
         WHERE pa.group_id = g.id
       ) pa_agg ON true
       WHERE g.active = true
-      GROUP BY g.id, g.name, g.photo_url,
+      GROUP BY g.id, g.name, g.photo_url, g.goal_points,
                se_agg.event_points, se_agg.today_points, se_agg.week_points,
                pa_agg.adj_points
       ORDER BY total_points DESC, today_points DESC
@@ -92,18 +93,24 @@ router.get('/history/:groupId', authMiddleware, async (req, res) => {
   }
 });
 
-// GET /api/scores/rules - regras de pontuação
-router.get('/rules', authMiddleware, (req, res) => {
-  res.json([
-    { name: 'META_DIA', label: 'Meta do Dia', points: 5, description: 'Grupo atinge a meta diária de propostas', icon: '🎯' },
-    { name: 'META_SEMANA', label: 'Meta da Semana', points: 10, description: 'Grupo atinge a meta semanal de propostas', icon: '📅' },
-    { name: 'INDICACAO', label: 'Vendas por Indicação', points: '10 / 5 contratos', description: 'A cada 5 contratos pagos de indicação', icon: '👥' },
-    { name: 'CONTRATO_10K', label: 'Contrato Acima de 10K', points: 5, description: 'Por contrato com valor de referência acima de R$ 10.000', icon: '💰' },
-    { name: 'GOL_DE_PLACA', label: 'Gol de Placa', points: 15, description: 'Grupo com o maior contrato individual do dia', icon: '⚽' },
-    { name: 'TORCIDA_ORGANIZADA', label: 'Torcida Organizada', points: 20, description: 'Todos os 5 integrantes fecharam mais de 10 propostas no dia', icon: '🎉' },
-    { name: 'ARTILHEIRO', label: 'Artilheiro da Rodada', points: 15, description: 'Grupo com o maior número de contratos pagos no dia', icon: '🏆' },
-    { name: 'AJUSTE_ADMIN', label: 'Ajuste do Administrador', points: 'variável', description: 'Pontos atribuídos ou removidos manualmente pelo admin', icon: '⚙️' },
-  ]);
+// GET /api/scores/rules - regras de pontuação (lê do banco)
+router.get('/rules', authMiddleware, async (req, res) => {
+  try {
+    const rules = await getRulesList();
+    res.json([
+      ...rules.map(r => ({
+        name: r.name,
+        label: r.label,
+        points: r.points,
+        description: r.description,
+        icon: r.icon,
+      })),
+      { name: 'AJUSTE_ADMIN', label: 'Ajuste do Administrador', points: 'variável', description: 'Pontos atribuídos ou removidos manualmente pelo admin', icon: '⚙️' },
+    ]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao buscar regras' });
+  }
 });
 
 // POST /api/scores/calculate - disparar cálculo manual (admin)

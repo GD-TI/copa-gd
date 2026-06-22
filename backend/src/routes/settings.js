@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const db = require('../config/db');
 const { authMiddleware, adminOnly } = require('../middleware/auth');
+const { getRulesList, invalidateRuleCache } = require('../services/scoringRules');
 
 function fmtDate(d) {
   if (!d) return null;
@@ -86,15 +87,56 @@ router.put('/group-goals', authMiddleware, adminOnly, async (req, res) => {
     for (const g of goals) {
       const daily  = parseFloat(g.daily_goal_value  || 0) || 0;
       const weekly = parseFloat(g.weekly_goal_value || 0) || 0;
+      const goal   = parseInt(g.goal_points || 0) || 0;
       await db.query(
-        'UPDATE groups SET daily_goal_value = $1, weekly_goal_value = $2, updated_at = NOW() WHERE id = $3',
-        [daily, weekly, g.group_id]
+        'UPDATE groups SET daily_goal_value = $1, weekly_goal_value = $2, goal_points = $3, updated_at = NOW() WHERE id = $4',
+        [daily, weekly, goal, g.group_id]
       );
     }
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao salvar metas' });
+  }
+});
+
+// GET /api/settings/scoring-rules — público (autenticado)
+router.get('/scoring-rules', authMiddleware, async (req, res) => {
+  try {
+    const rules = await getRulesList();
+    res.json(rules);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao buscar regras' });
+  }
+});
+
+// PUT /api/settings/scoring-rules — admin only
+// Body: { rules: [{ rule_name, base_points }] }
+router.put('/scoring-rules', authMiddleware, adminOnly, async (req, res) => {
+  const { rules } = req.body;
+
+  if (!Array.isArray(rules) || rules.length === 0) {
+    return res.status(400).json({ error: 'Lista de regras obrigatória' });
+  }
+
+  try {
+    for (const r of rules) {
+      const pts = parseFloat(r.base_points);
+      if (!r.rule_name || isNaN(pts) || pts < 0) {
+        return res.status(400).json({ error: `Pontos inválidos para regra ${r.rule_name}` });
+      }
+      await db.query(
+        'UPDATE scoring_rules SET base_points = $1, updated_at = NOW() WHERE rule_name = $2',
+        [pts, r.rule_name]
+      );
+    }
+    invalidateRuleCache();
+    const updated = await getRulesList();
+    res.json({ ok: true, rules: updated });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao salvar regras' });
   }
 });
 

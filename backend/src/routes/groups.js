@@ -30,7 +30,7 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const { rows } = await db.query(`
       SELECT
-        g.id, g.name, g.photo_url, g.created_at, g.daily_goal_value, g.weekly_goal_value,
+        g.id, g.name, g.photo_url, g.created_at, g.daily_goal_value, g.weekly_goal_value, g.goal_points,
         COUNT(DISTINCT gm.user_id) as member_count,
         COALESCE(se_agg.total_points, 0) + COALESCE(pa_agg.adj_points, 0) as total_points,
         COALESCE(se_agg.today_points, 0) as today_points
@@ -54,7 +54,7 @@ router.get('/', authMiddleware, async (req, res) => {
         WHERE pa.group_id = g.id
       ) pa_agg ON true
       WHERE g.active = true
-      GROUP BY g.id, g.name, g.photo_url, g.created_at, g.daily_goal_value, g.weekly_goal_value,
+      GROUP BY g.id, g.name, g.photo_url, g.created_at, g.daily_goal_value, g.weekly_goal_value, g.goal_points,
                se_agg.total_points, se_agg.today_points, pa_agg.adj_points
       ORDER BY total_points DESC
     `);
@@ -89,7 +89,7 @@ router.get('/ranking', async (req, res) => {
 
     const { rows } = await db.query(`
       SELECT
-        g.id, g.name, g.photo_url, g.daily_goal_value, g.weekly_goal_value,
+        g.id, g.name, g.photo_url, g.daily_goal_value, g.weekly_goal_value, g.goal_points,
         COUNT(DISTINCT gm.user_id)::int AS member_count,
         COALESCE((
           SELECT SUM(se.points) FROM score_events se
@@ -101,7 +101,7 @@ router.get('/ranking', async (req, res) => {
       FROM groups g
       LEFT JOIN group_memberships gm ON g.id = gm.group_id
       WHERE g.active = true
-      GROUP BY g.id, g.name, g.photo_url, g.daily_goal_value, g.weekly_goal_value
+      GROUP BY g.id, g.name, g.photo_url, g.daily_goal_value, g.weekly_goal_value, g.goal_points
       ORDER BY total_points DESC
     `, [start, end]);
 
@@ -127,348 +127,88 @@ router.get('/ranking', async (req, res) => {
   }
 });
 
-// GET /api/groups/:id/members/points — contribuição individual em pontos por regra
-// Tudo calculado a partir das propostas atuais — sem score_events
+// GET /api/groups/:id/members/points — pontos acumulados por dia (lê de score_events)
 router.get('/:id/members/points', authMiddleware, async (req, res) => {
   const { id } = req.params;
-  const todayStr = new Date().toISOString().split('T')[0];
-
-  const round2 = v => Math.round((v || 0) * 100) / 100;
-  const sumVR  = ps => ps.reduce((s, p) => s + parseFloat(p.proposta?.valor_referencia || 0), 0);
-  const fmtBRL = v  => `R$ ${Math.round(v || 0).toLocaleString('pt-BR')}`;
 
   try {
-    // --- Grupo e metas ---
+    // Grupo
     const { rows: grRows } = await db.query(
-      'SELECT id, name, photo_url, daily_goal_value, weekly_goal_value FROM groups WHERE id = $1 AND active = true',
-      [id]
+      'SELECT id, name FROM groups WHERE id = $1 AND active = true', [id]
     );
     if (!grRows.length) return res.status(404).json({ error: 'Grupo não encontrado' });
-    const group = grRows[0];
-    const dailyGoal  = parseFloat(group.daily_goal_value  || 0);
-    const weeklyGoal = parseFloat(group.weekly_goal_value || 0);
 
-    // --- Membros do grupo ---
-    const { rows: members } = await db.query(
-      `SELECT u.id, u.display_name, u.corban_id, gm.is_captain
-       FROM group_memberships gm JOIN users u ON gm.user_id = u.id
-       WHERE gm.group_id = $1 AND u.active = true`,
-      [id]
-    );
-
-    // --- Campanha e semana ---
+    // Período da campanha
     const { rows: campRows } = await db.query(
       'SELECT start_date FROM campaign_settings ORDER BY id DESC LIMIT 1'
     );
     const campaignStart = campRows[0]
-      ? new Date(campRows[0].start_date).toISOString().split('T')[0]
-      : todayStr;
+      ? new Date(campRows[0].start_date).toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
 
-    const dNow = new Date();
-    const wd = dNow.getDay();
-    const weekStart = new Date(new Date().setDate(dNow.getDate() - wd + (wd === 0 ? -6 : 1))).toISOString().split('T')[0];
-
-    // --- Multiplicador dia de jogo ---
-    const { rows: matchRows } = await db.query(
-      'SELECT id FROM brazil_matches WHERE match_date = $1 AND double_points = true', [todayStr]
+    // score_events do grupo desde o início da campanha
+    const { rows: events } = await db.query(
+      `SELECT event_date, rule_name, points, description, is_double_points
+       FROM score_events
+       WHERE group_id = $1 AND event_date >= $2
+       ORDER BY event_date DESC, rule_name`,
+      [id, campaignStart]
     );
-    const multiplier = matchRows.length > 0 ? 2 : 1;
 
-    // --- Todos os grupos ativos (para regras competitivas) ---
-    const { rows: allGroupsRows } = await db.query(`
-      SELECT g.id,
-        ARRAY_AGG(u.corban_id) FILTER (WHERE u.corban_id IS NOT NULL) as corban_ids
-      FROM groups g
-      JOIN group_memberships gm ON g.id = gm.group_id
-      JOIN users u ON gm.user_id = u.id
-      WHERE g.active = true AND u.active = true
-      GROUP BY g.id
-    `);
-    const allCorbanIds = [...new Set(allGroupsRows.flatMap(g => g.corban_ids || []))];
-
-    // --- Propostas de toda a campanha (cache compartilhado com o scoring) ---
-    const externalApi = require('../services/externalApi');
-    let globalProposals = [];
-    let vendorMap = {};
-
-    try {
-      const ranking = await externalApi.getRanking(todayStr, todayStr);
-      if (ranking?.result) {
-        Object.values(ranking.result).forEach(v => {
-          if (v.filter_value) vendorMap[String(v.filter_value)] = v;
-        });
-      }
-    } catch (_) {}
-
-    try {
-      const pData = await externalApi.getProposals(campaignStart, todayStr, allCorbanIds);
-      globalProposals = pData ? Object.values(pData) : [];
-    } catch (_) {}
-
-    // --- Propostas filtradas para o grupo atual ---
-    const withCorban = members.filter(m => m.corban_id);
-    const corbanIds  = withCorban.map(m => String(m.corban_id));
-
-    const allProposals = globalProposals.filter(p => corbanIds.includes(String(p.vendedor_id)));
-    const todayProps   = allProposals.filter(p => (p.datas?.cadastro || '').startsWith(todayStr));
-    const weeklyProps  = allProposals.filter(p => (p.datas?.cadastro || '') >= weekStart);
-
-    const gToday  = todayProps;
-    const gWeekly = weeklyProps;
-    const gAll    = allProposals;
-
-    const gPaidTodayArr    = gToday.filter(p => p.datas?.pagamento);
-    const gValorToday      = sumVR(gPaidTodayArr);
-    const gValorWeek       = sumVR(gWeekly);
-    const gPaidToday       = gPaidTodayArr.length;
-    const gPaidAll         = gAll.filter(p => p.datas?.pagamento).length;
-    const gRefAll          = gAll.filter(p => p.datas?.pagamento && p.proposta?.indicacao_id != null).length;
-    const gHVAll           = gAll.filter(p => parseFloat(p.proposta?.valor_referencia || 0) > 10000).length;
-    const gMaxContractToday = gToday.filter(p => p.datas?.pagamento).reduce((mx, p) => Math.max(mx, parseFloat(p.proposta?.valor_referencia || 0)), 0);
-
-    // --- Regras não-competitivas: verificadas direto das propostas ---
-    const metaDiaHit = dailyGoal  > 0 && gValorToday >= dailyGoal;
-    const metaSemHit = weeklyGoal > 0 && gValorWeek  >= weeklyGoal;
-    const convHit    = gToday.length > 0 && gPaidToday / gToday.length >= 0.25;
-    const torcidaHit = withCorban.length >= 5 &&
-      withCorban.every(m => parseInt(vendorMap[String(m.corban_id)]?.qtd_propostas || 0) > 10);
-    const refBatches = Math.floor(gRefAll / 5);
-
-    // --- Regras competitivas diárias: comparar apenas propostas de HOJE entre grupos ---
-    let globalMaxContractToday = 0;
-    let globalMaxPaidToday     = 0;
-    allGroupsRows.forEach(g => {
-      const cids      = (g.corban_ids || []).map(String);
-      const gTodayAll  = globalProposals.filter(p =>
-        cids.includes(String(p.vendedor_id)) && (p.datas?.cadastro || '').startsWith(todayStr)
-      );
-      const gPaidToday = gTodayAll.filter(p => p.datas?.pagamento);
-      const mx   = gPaidToday.reduce((m, p) => Math.max(m, parseFloat(p.proposta?.valor_referencia || 0)), 0);
-      const paid = gPaidToday.length;
-      if (mx   > globalMaxContractToday) globalMaxContractToday = mx;
-      if (paid > globalMaxPaidToday)     globalMaxPaidToday     = paid;
-    });
-    const golDePlacaHit = globalMaxContractToday > 0 && gMaxContractToday === globalMaxContractToday;
-    const artilheiroHit = globalMaxPaidToday > 0 && gPaidToday === globalMaxPaidToday;
-
-    // --- Pontos do time calculados das propostas (sem score_events) ---
-    const teamPoints = {
-      META_DIA:           metaDiaHit      ? 5  * multiplier : 0,
-      META_SEMANA:        metaSemHit      ? 10 * multiplier : 0,
-      CONVERSAO:          convHit         ? 5  * multiplier : 0,
-      INDICACAO:          refBatches * 10 * multiplier,
-      CONTRATO_10K:       gHVAll * 5 * multiplier,
-      GOL_DE_PLACA:       golDePlacaHit   ? 15 * multiplier : 0,
-      TORCIDA_ORGANIZADA: torcidaHit      ? 20 * multiplier : 0,
-      ARTILHEIRO:         artilheiroHit   ? 15 * multiplier : 0,
-    };
-
-    // --- Métricas por membro (proporção) ---
-    const metrics = members.map(m => {
-      const cid = m.corban_id ? String(m.corban_id) : null;
-      const mToday  = cid ? todayProps.filter(p => String(p.vendedor_id) === cid)  : [];
-      const mWeekly = cid ? weeklyProps.filter(p => String(p.vendedor_id) === cid) : [];
-      const mAll    = cid ? allProposals.filter(p => String(p.vendedor_id) === cid): [];
-      return {
-        cid,
-        mValorToday:        sumVR(mToday.filter(p => p.datas?.pagamento)),
-        mValorWeek:         sumVR(mWeekly),
-        mPaidToday:         mToday.filter(p => p.datas?.pagamento).length,
-        mPaidAll:           mAll.filter(p => p.datas?.pagamento).length,
-        mRefAll:            mAll.filter(p => p.datas?.pagamento && p.proposta?.indicacao_id != null).length,
-        mHVCount:           mAll.filter(p => parseFloat(p.proposta?.valor_referencia || 0) > 10000).length,
-        mMaxContractToday:  mToday.filter(p => p.datas?.pagamento).reduce((mx, p) => Math.max(mx, parseFloat(p.proposta?.valor_referencia || 0)), 0),
-        mQtdToday:          cid ? parseInt(vendorMap[cid]?.qtd_propostas || 0) : 0,
-      };
-    });
-
-    function distribute(weights, totalPts) {
-      const sum = weights.reduce((a, b) => a + b, 0);
-      if (sum === 0) return weights.map(() => round2(totalPts / Math.max(members.length, 1)));
-      return weights.map(w => round2((w / sum) * totalPts));
-    }
+    // Ajustes manuais
+    const { rows: adjs } = await db.query(
+      `SELECT adjustment_date::text AS date, points, reason
+       FROM point_adjustments WHERE group_id = $1 ORDER BY adjustment_date DESC`,
+      [id]
+    );
 
     const RULE_META = {
-      META_DIA:           { label: 'Meta do Dia',          icon: '🎯' },
-      META_SEMANA:        { label: 'Meta da Semana',        icon: '📅' },
-      CONVERSAO:          { label: 'Conversão de Vendas',   icon: '🔄' },
-      INDICACAO:          { label: 'Vendas por Indicação',  icon: '👥' },
-      CONTRATO_10K:       { label: 'Contrato Acima de 10K', icon: '💰' },
-      GOL_DE_PLACA:       { label: 'Gol de Placa',          icon: '⚽' },
-      TORCIDA_ORGANIZADA: { label: 'Torcida Organizada',    icon: '🎉' },
-      ARTILHEIRO:         { label: 'Artilheiro da Rodada',  icon: '🏆' },
+      META_DIA:           { icon: '🎯', label: 'Meta do Dia' },
+      META_SEMANA:        { icon: '📅', label: 'Meta da Semana' },
+      CONVERSAO:          { icon: '📈', label: 'Taxa de Conversão' },
+      INDICACAO:          { icon: '👥', label: 'Indicações' },
+      CONTRATO_10K:       { icon: '💰', label: 'Contratos 10K' },
+      GOL_DE_PLACA:       { icon: '⚽', label: 'Gol de Placa' },
+      TORCIDA_ORGANIZADA: { icon: '🎉', label: 'Torcida Organizada' },
+      ARTILHEIRO:         { icon: '🏆', label: 'Artilheiro' },
     };
 
-    const memberRules  = members.map(() => []);
-    const memberTotals = members.map(() => 0);
-
-    for (const [ruleName, totalPts] of Object.entries(teamPoints)) {
-      if (totalPts <= 0) continue;
-      const meta = RULE_META[ruleName];
-      if (!meta) continue;
-
-      let weights, details;
-      switch (ruleName) {
-        case 'META_DIA':
-          weights = metrics.map(m => m.mValorToday);
-          details = metrics.map(m => `${fmtBRL(m.mValorToday)} de ${fmtBRL(gValorToday)} do grupo hoje`);
-          break;
-        case 'META_SEMANA':
-          weights = metrics.map(m => m.mValorWeek);
-          details = metrics.map(m => `${fmtBRL(m.mValorWeek)} de ${fmtBRL(gValorWeek)} da semana`);
-          break;
-        case 'CONVERSAO':
-          weights = metrics.map(m => m.mPaidToday);
-          details = metrics.map(m => `${m.mPaidToday} de ${gPaidToday} pagos hoje`);
-          break;
-        case 'INDICACAO':
-          weights = metrics.map(m => m.mRefAll);
-          details = metrics.map(m => `${m.mRefAll} contratos pagos por indicação`);
-          break;
-        case 'CONTRATO_10K':
-          weights = metrics.map(m => m.mHVCount);
-          details = metrics.map(m => `${m.mHVCount} contrato(s) acima de R$ 10.000`);
-          break;
-        case 'GOL_DE_PLACA':
-          weights = metrics.map(m => m.mMaxContractToday === gMaxContractToday && gMaxContractToday > 0 ? 1 : 0);
-          details = metrics.map(m => `Maior contrato hoje: ${fmtBRL(m.mMaxContractToday)}`);
-          break;
-        case 'TORCIDA_ORGANIZADA':
-          weights = metrics.map(() => 1);
-          details = metrics.map(m => `${m.mQtdToday} propostas hoje`);
-          break;
-        case 'ARTILHEIRO':
-          weights = metrics.map(m => m.mPaidToday);
-          details = metrics.map(m => `${m.mPaidToday} de ${gPaidToday} pagos hoje`);
-          break;
-        default:
-          weights = metrics.map(() => 1);
-          details = metrics.map(() => '');
-      }
-
-      const pts    = distribute(weights, totalPts);
-      const totalW = weights.reduce((a, b) => a + b, 0);
-
-      members.forEach((_, i) => {
-        if (pts[i] <= 0) return;
-        memberRules[i].push({
-          rule_name: ruleName,
-          label: meta.label,
-          icon: meta.icon,
-          points: pts[i],
-          share_pct: totalW > 0 ? Math.round((weights[i] / totalW) * 100) : Math.round(100 / members.length),
-          detail: details[i],
-        });
-        memberTotals[i] = round2(memberTotals[i] + pts[i]);
+    // Agrupar por data
+    const dayMap = new Map();
+    for (const e of events) {
+      const d = new Date(e.event_date).toISOString().slice(0, 10);
+      if (!dayMap.has(d)) dayMap.set(d, []);
+      dayMap.get(d).push({
+        rule_name:  e.rule_name,
+        points:     Number(e.points),
+        description: e.description,
+        is_double:  e.is_double_points,
+        icon:       RULE_META[e.rule_name]?.icon  || '⭐',
+        label:      RULE_META[e.rule_name]?.label || e.rule_name,
       });
     }
 
-    const result = members.map((m, i) => ({
-      id: m.id,
-      display_name: m.display_name,
-      corban_id: m.corban_id || null,
-      is_captain: m.is_captain,
-      total_points: memberTotals[i],
-      rules: memberRules[i],
-    }));
+    const days = [...dayMap.entries()]
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([date, evs]) => ({
+        date,
+        events: evs,
+        daily_total: evs.reduce((s, e) => s + e.points, 0),
+      }));
 
-    result.sort((a, b) => b.total_points - a.total_points);
+    const total_points = events.reduce((s, e) => s + Number(e.points), 0);
+    const adj_total    = adjs.reduce((s, a) => s + Number(a.points), 0);
 
-    const teamTotal = round2(Object.values(teamPoints).reduce((s, v) => s + v, 0));
-
-    // Breakdown do grupo: cada regra com a atribuição (time todo ou membro específico)
-    const breakdown = [];
-    for (const [ruleName, totalPts] of Object.entries(teamPoints)) {
-      if (totalPts <= 0) continue;
-      const meta = RULE_META[ruleName];
-      if (!meta) continue;
-
-      let attribution = 'Time todo';
-      let detail = '';
-
-      switch (ruleName) {
-        case 'META_DIA':
-          attribution = 'Time todo';
-          detail = `${fmtBRL(gValorToday)} / Meta ${fmtBRL(dailyGoal)}`;
-          break;
-        case 'META_SEMANA':
-          attribution = 'Time todo';
-          detail = `${fmtBRL(gValorWeek)} / Meta ${fmtBRL(weeklyGoal)}`;
-          break;
-        case 'CONVERSAO': {
-          const rate = gToday.length > 0 ? Math.round(gPaidToday / gToday.length * 100) : 0;
-          attribution = 'Time todo';
-          detail = `${gPaidToday} de ${gToday.length} propostas pagas (${rate}% de conversão)`;
-          break;
-        }
-        case 'INDICACAO': {
-          const contribs = [];
-          metrics.forEach((m, i) => { if (m.mRefAll > 0) contribs.push(`${members[i].display_name} (${m.mRefAll})`); });
-          attribution = contribs.length > 0 ? contribs.join(', ') : 'Time todo';
-          detail = `${gRefAll} indicações · ${refBatches} lote(s) de 5`;
-          break;
-        }
-        case 'CONTRATO_10K': {
-          const contribs = [];
-          metrics.forEach((m, i) => { if (m.mHVCount > 0) contribs.push(`${members[i].display_name} (${m.mHVCount})`); });
-          attribution = contribs.length > 0 ? contribs.join(', ') : 'Time todo';
-          detail = `${gHVAll} contrato(s) acima de R$ 10.000`;
-          break;
-        }
-        case 'GOL_DE_PLACA': {
-          const wi = metrics.findIndex(m => m.mMaxContractToday === gMaxContractToday && gMaxContractToday > 0);
-          attribution = wi >= 0 ? members[wi].display_name : 'Time todo';
-          detail = `Maior contrato hoje: ${fmtBRL(gMaxContractToday)}`;
-          break;
-        }
-        case 'TORCIDA_ORGANIZADA':
-          attribution = 'Time todo';
-          detail = `Todos os ${withCorban.length} membros com mais de 10 propostas hoje`;
-          break;
-        case 'ARTILHEIRO': {
-          const topPaid = Math.max(...metrics.map(m => m.mPaidToday), 0);
-          const winners = [];
-          metrics.forEach((m, i) => { if (m.mPaidToday === topPaid && topPaid > 0) winners.push(members[i].display_name); });
-          attribution = winners.length > 0 ? winners.join(', ') : 'Time todo';
-          detail = `${gPaidToday} pagos hoje`;
-          break;
-        }
-        default:
-          attribution = 'Time todo';
-      }
-
-      breakdown.push({ rule_name: ruleName, label: meta.label, icon: meta.icon, points: totalPts, attribution, detail });
-    }
-
-    const team_stats = {
-      daily_goal:       dailyGoal,
-      weekly_goal:      weeklyGoal,
-      valor_today:      gValorToday,
-      valor_week:       gValorWeek,
-      paid_today:       gPaidToday,
-      total_today:      gToday.length,
-      conversion_rate:  gToday.length > 0 ? round2(gPaidToday / gToday.length) : 0,
-      paid_all:         gPaidAll,
-      high_value_count: gHVAll,
-      referrals_count:  gRefAll,
-      max_contract_today: gMaxContractToday,
-      total_points:       teamTotal,
-      rules: {
-        META_DIA:           { hit: metaDiaHit,    current: gValorToday, goal: dailyGoal },
-        META_SEMANA:        { hit: metaSemHit,    current: gValorWeek,  goal: weeklyGoal },
-        CONVERSAO:          { hit: convHit,       rate: gToday.length > 0 ? round2(gPaidToday / gToday.length) : 0, paid: gPaidToday, total: gToday.length },
-        CONTRATO_10K:       { hit: gHVAll > 0,    count: gHVAll },
-        INDICACAO:          { hit: gRefAll >= 5,  count: gRefAll },
-        GOL_DE_PLACA:       { hit: golDePlacaHit, max_contract: gMaxContractToday },
-        ARTILHEIRO:         { hit: artilheiroHit, paid_today: gPaidToday },
-        TORCIDA_ORGANIZADA: { hit: torcidaHit },
-      },
-    };
-
-    res.json({ group, team_stats, breakdown, members: result });
+    res.json({
+      days,
+      adjustments: adjs.map(a => ({ ...a, date: String(a.date).slice(0, 10) })),
+      total_points,
+      adj_total,
+      grand_total: total_points + adj_total,
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Erro ao calcular pontos individuais' });
+    res.status(500).json({ error: 'Erro ao buscar pontos' });
   }
 });
 
@@ -635,8 +375,12 @@ router.get('/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// POST /api/groups - criar grupo (jogador)
+// POST /api/groups - criar grupo (apenas admin)
 router.post('/', authMiddleware, upload.single('photo'), async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Apenas o administrador pode criar equipes' });
+  }
+
   const { name } = req.body;
 
   if (!name || name.trim().length < 2) {
@@ -644,17 +388,6 @@ router.post('/', authMiddleware, upload.single('photo'), async (req, res) => {
   }
 
   try {
-    // Verificar se jogador já está em um grupo
-    if (req.user.role === 'player') {
-      const { rows: existing } = await db.query(
-        'SELECT id FROM group_memberships WHERE user_id = $1',
-        [req.user.id]
-      );
-      if (existing.length > 0) {
-        return res.status(400).json({ error: 'Você já pertence a um grupo' });
-      }
-    }
-
     const photoUrl = req.file
       ? `/uploads/groups/${req.file.filename}`
       : null;
@@ -664,86 +397,21 @@ router.post('/', authMiddleware, upload.single('photo'), async (req, res) => {
       [name.trim(), photoUrl, req.user.id]
     );
 
-    const group = rows[0];
-
-    // Adicionar criador como membro capitão (se for jogador)
-    if (req.user.role === 'player') {
-      await db.query(
-        'INSERT INTO group_memberships (user_id, group_id, is_captain) VALUES ($1, $2, true)',
-        [req.user.id, group.id]
-      );
-    }
-
-    res.status(201).json(group);
+    res.status(201).json(rows[0]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao criar grupo' });
   }
 });
 
-// POST /api/groups/:id/join - entrar em um grupo
+// POST /api/groups/:id/join - desabilitado (admin gerencia equipes)
 router.post('/:id/join', authMiddleware, async (req, res) => {
-  if (req.user.role !== 'player') {
-    return res.status(403).json({ error: 'Apenas jogadores podem entrar em grupos' });
-  }
-
-  try {
-    const { id } = req.params;
-
-    // Verificar se já está em um grupo
-    const { rows: existing } = await db.query(
-      'SELECT id FROM group_memberships WHERE user_id = $1',
-      [req.user.id]
-    );
-    if (existing.length > 0) {
-      return res.status(400).json({ error: 'Você já pertence a um grupo' });
-    }
-
-    // Verificar se grupo existe e tem vagas
-    const { rows: groupRows } = await db.query(
-      `SELECT g.id, COUNT(gm.user_id) as member_count
-       FROM groups g
-       LEFT JOIN group_memberships gm ON g.id = gm.group_id
-       WHERE g.id = $1 AND g.active = true
-       GROUP BY g.id`,
-      [id]
-    );
-
-    if (groupRows.length === 0) return res.status(404).json({ error: 'Grupo não encontrado' });
-
-    if (parseInt(groupRows[0].member_count) >= 5) {
-      return res.status(400).json({ error: 'Grupo está cheio (máximo 5 jogadores)' });
-    }
-
-    await db.query(
-      'INSERT INTO group_memberships (user_id, group_id, is_captain) VALUES ($1, $2, false)',
-      [req.user.id, id]
-    );
-
-    res.json({ message: 'Entrou no grupo com sucesso' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erro ao entrar no grupo' });
-  }
+  return res.status(403).json({ error: 'Entrada em equipes é feita pelo administrador' });
 });
 
-// POST /api/groups/:id/leave - sair do grupo
+// POST /api/groups/:id/leave - desabilitado (admin gerencia equipes)
 router.post('/:id/leave', authMiddleware, async (req, res) => {
-  if (req.user.role !== 'player') {
-    return res.status(403).json({ error: 'Apenas jogadores podem sair de grupos' });
-  }
-
-  try {
-    const { id } = req.params;
-    await db.query(
-      'DELETE FROM group_memberships WHERE user_id = $1 AND group_id = $2',
-      [req.user.id, id]
-    );
-    res.json({ message: 'Saiu do grupo com sucesso' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erro ao sair do grupo' });
-  }
+  return res.status(403).json({ error: 'Saída de equipes é feita pelo administrador' });
 });
 
 // PUT /api/groups/:id - atualizar grupo

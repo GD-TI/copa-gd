@@ -177,6 +177,12 @@ function pillStyle(hit) {
   }
 }
 
+function fmtDay(dateStr) {
+  if (!dateStr) return '—'
+  const d = new Date(dateStr + 'T12:00:00Z')
+  return d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })
+}
+
 function PointsTab({ group }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -198,91 +204,130 @@ function PointsTab({ group }) {
     <div style={{ padding: 24, textAlign: 'center', color: 'var(--red)', fontSize: 13 }}>{err}</div>
   )
 
-  const breakdown = data?.breakdown || []
-  const teamTotal = data?.team_stats?.total_points ?? 0
+  const { days = [], adjustments = [], grand_total = 0, total_points = 0, adj_total = 0 } = data || {}
+  const todayStr = new Date().toISOString().slice(0, 10)
 
   return (
     <div style={{ paddingBottom: 8 }}>
-      <TeamSummary ts={data?.team_stats} />
-
-      {/* Total do grupo */}
+      {/* Total acumulado */}
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: '14px 16px', borderBottom: '1px solid var(--border)',
-        background: 'var(--surf3)',
+        padding: '14px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surf3)',
       }}>
         <div>
           <div style={{ font: '700 9px/1 var(--font)', color: 'var(--txt3)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 4 }}>
-            Pontos do Grupo
+            Total Acumulado
           </div>
           <div style={{ font: '400 11px/1 var(--font)', color: 'var(--txt3)' }}>
-            calculado das propostas atuais
+            todos os dias da campanha
           </div>
         </div>
-        <div style={{ font: '700 26px/1 var(--mono)', color: 'var(--gold)' }}>
-          {teamTotal.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-          <span style={{ font: '600 12px/1 var(--font)', color: 'var(--txt3)', marginLeft: 4 }}>pts</span>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ font: '700 26px/1 var(--mono)', color: 'var(--gold)' }}>
+            {grand_total.toLocaleString('pt-BR')}
+            <span style={{ font: '600 12px/1 var(--font)', color: 'var(--txt3)', marginLeft: 4 }}>pts</span>
+          </div>
+          {adj_total !== 0 && (
+            <div style={{ font: '400 10px/1 var(--font)', color: 'var(--txt3)', marginTop: 2 }}>
+              {total_points} eventos + {adj_total >= 0 ? '+' : ''}{adj_total} ajustes
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Breakdown por regra */}
-      {breakdown.length === 0 ? (
+      {/* Sem dados */}
+      {days.length === 0 && (
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt3)', fontSize: 13 }}>
-          Nenhuma regra atingida ainda
+          Nenhum ponto registrado ainda
         </div>
-      ) : (
-        <>
-          <div style={{
-            padding: '8px 16px 4px',
-            font: '700 9px/1 var(--font)', color: 'var(--txt3)',
-            letterSpacing: 2, textTransform: 'uppercase',
-            background: 'var(--bg)',
-          }}>
-            Origem dos Pontos
-          </div>
-          {breakdown.map(b => (
-            <div key={b.rule_name} style={{
-              display: 'flex', alignItems: 'flex-start', gap: 12,
-              padding: '12px 16px', borderBottom: '1px solid var(--border)',
+      )}
+
+      {/* Por dia */}
+      {days.map(day => {
+        const isToday = day.date === todayStr
+        return (
+          <div key={day.date} style={{ borderBottom: '1px solid var(--border)' }}>
+            {/* Cabeçalho do dia */}
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '7px 16px', background: 'var(--bg)',
             }}>
-              {/* Icon */}
-              <div style={{ fontSize: 18, flexShrink: 0, marginTop: 1 }}>{b.icon}</div>
-
-              {/* Label + attribution + detail */}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ font: '600 13px/1 var(--font)', color: 'var(--txt)', marginBottom: 3 }}>
-                  {b.label}
-                </div>
-                <div style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4,
-                  padding: '2px 8px', borderRadius: 20,
-                  font: '500 11px/1 var(--font)',
-                  background: b.attribution === 'Time todo' ? 'rgba(96,165,250,.1)' : 'rgba(244,114,182,.1)',
-                  border: `1px solid ${b.attribution === 'Time todo' ? 'rgba(96,165,250,.25)' : 'rgba(244,114,182,.25)'}`,
-                  color: b.attribution === 'Time todo' ? '#60a5fa' : '#f472b6',
-                  marginBottom: 4,
-                }}>
-                  {b.attribution === 'Time todo' ? '👥' : '👤'} {b.attribution}
-                </div>
-                <div style={{ font: '400 11px/1.4 var(--font)', color: 'var(--txt3)' }}>
-                  {b.detail}
-                </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ font: '700 11px/1 var(--mono)', color: isToday ? 'var(--gold)' : 'var(--txt2)' }}>
+                  {fmtDay(day.date)}
+                </span>
+                {isToday && (
+                  <span style={{
+                    font: '700 9px/1 var(--font)', letterSpacing: 1, textTransform: 'uppercase',
+                    background: 'var(--gold-soft)', color: 'var(--gold)',
+                    padding: '2px 6px', borderRadius: 4,
+                  }}>ao vivo</span>
+                )}
               </div>
+              <span style={{ font: '700 12px/1 var(--mono)', color: 'var(--gold)' }}>
+                +{day.daily_total} pts
+              </span>
+            </div>
 
-              {/* Points */}
-              <div style={{
-                textAlign: 'right', flexShrink: 0,
-                font: '700 16px/1 var(--mono)',
-                color: RULE_COLOR[b.rule_name] || 'var(--gold)',
+            {/* Regras do dia */}
+            {day.events.map(e => (
+              <div key={e.rule_name} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '6px 16px 6px 24px',
+                borderTop: '1px solid var(--border)',
               }}>
-                +{b.points.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                <div style={{ font: '500 9px/1 var(--font)', color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: 1, marginTop: 3 }}>
-                  pts
+                <span style={{ fontSize: 13, flexShrink: 0 }}>{e.icon}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ font: '600 12px/1 var(--font)', color: 'var(--txt)' }}>{e.label}</div>
+                  {e.description && (
+                    <div style={{ font: '400 10px/1.4 var(--font)', color: 'var(--txt3)', marginTop: 1 }}>
+                      {e.description}
+                    </div>
+                  )}
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <span style={{ font: '700 13px/1 var(--mono)', color: RULE_COLOR[e.rule_name] || 'var(--gold)' }}>
+                    +{e.points}
+                  </span>
+                  {e.is_double && (
+                    <span style={{ font: '500 9px/1 var(--font)', color: 'var(--txt3)', marginLeft: 3 }}>×2</span>
+                  )}
                 </div>
               </div>
+            ))}
+          </div>
+        )
+      })}
+
+      {/* Ajustes admin */}
+      {adjustments.length > 0 && (
+        <div>
+          <div style={{
+            padding: '7px 16px', background: 'var(--bg)',
+            font: '700 9px/1 var(--font)', color: 'var(--txt3)', letterSpacing: 2, textTransform: 'uppercase',
+            borderBottom: '1px solid var(--border)',
+          }}>Ajustes Admin</div>
+          {adjustments.map((a, i) => (
+            <div key={i} style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '8px 16px', borderBottom: '1px solid var(--border)',
+            }}>
+              <span style={{ fontSize: 13, flexShrink: 0 }}>⚙️</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ font: '600 12px/1 var(--font)', color: 'var(--txt)' }}>{a.reason}</div>
+                <div style={{ font: '400 10px/1 var(--font)', color: 'var(--txt3)', marginTop: 1 }}>
+                  {fmtDay(a.date)}
+                </div>
+              </div>
+              <span style={{
+                font: '700 13px/1 var(--mono)',
+                color: Number(a.points) >= 0 ? 'var(--green)' : 'var(--red)',
+              }}>
+                {Number(a.points) >= 0 ? '+' : ''}{a.points}
+              </span>
             </div>
           ))}
-        </>
+        </div>
       )}
     </div>
   )

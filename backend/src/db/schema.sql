@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS users (
   corban_avatar_url VARCHAR(500), -- avatar_url do NewCorban
   display_name VARCHAR(150),      -- nome exibido no app
   active BOOLEAN DEFAULT true,
+  needs_password_setup BOOLEAN DEFAULT false,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -132,3 +133,13 @@ CREATE TABLE IF NOT EXISTS campaign_settings (
 
 -- Admin padrão é criado pelo script de inicialização do Node.js (src/db/seed.js)
 -- Senha padrão: admin2026 (mudar após primeiro acesso)
+
+-- Pontos configuráveis por regra de pontuação
+CREATE TABLE IF NOT EXISTS scoring_rules (
+  rule_name VARCHAR(50) PRIMARY KEY,
+  label VARCHAR(100) NOT NULL,
+  description TEXT,
+  icon VARCHAR(10) DEFAULT '⭐',
+  base_points NUMERIC NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP DEFAULT NOW()
+);

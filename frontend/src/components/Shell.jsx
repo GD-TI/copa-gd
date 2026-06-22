@@ -3,9 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import ShellRanking from '../pages/ShellRanking'
 import ShellConfig from '../pages/ShellConfig'
+import ShellMyGroup from '../pages/ShellMyGroup'
 import '../shell.css'
 
-const PAGE_TITLES = { ranking: 'Ranking', config: 'Configuração' }
+const PAGE_TITLES = { ranking: 'Ranking', config: 'Configuração', meugrupo: 'Meu Grupo' }
 
 export default function Shell() {
   const { user, logout } = useAuth()
@@ -65,6 +66,12 @@ export default function Shell() {
             <div className="sb-item-icon">🏆</div>
             <span className="sb-item-lbl">Ranking</span>
           </div>
+          {user?.role === 'player' && (
+            <div className={`sb-item ${page === 'meugrupo' ? 'active' : ''}`} onClick={() => navTo('meugrupo')}>
+              <div className="sb-item-icon">⚽</div>
+              <span className="sb-item-lbl">Meu Grupo</span>
+            </div>
+          )}
           {user?.role === 'admin' && (
             <div className={`sb-item ${page === 'config' ? 'active' : ''}`} onClick={() => navTo('config')}>
               <div className="sb-item-icon">⚙️</div>
@@ -128,6 +135,11 @@ export default function Shell() {
           <div className={`page ${page === 'ranking' ? 'active' : ''}`}>
             <ShellRanking />
           </div>
+          {user?.role === 'player' && (
+            <div className={`page ${page === 'meugrupo' ? 'active' : ''}`}>
+              <ShellMyGroup />
+            </div>
+          )}
           {user?.role === 'admin' && (
             <div className={`page ${page === 'config' ? 'active' : ''}`}>
               <ShellConfig />
