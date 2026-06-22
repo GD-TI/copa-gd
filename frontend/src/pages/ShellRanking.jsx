@@ -224,10 +224,58 @@ function TelaoRankRow({ group, rank }) {
   )
 }
 
-function Telao({ groups, campaign, onClose }) {
+const TL_BALL_LABELS = ['Bola de Ouro', 'Bola de Prata', 'Bola de Bronze']
+const TL_BALL_CLS    = ['tl-ir-gold', 'tl-ir-silver', 'tl-ir-bronze']
+const TL_ASSIST_ICONS = ['🥇', '🥈', '🥉']
+
+function TelaoIndView({ indRankings }) {
+  const mv = indRankings?.melhor_vendedor || []
+  const ra = indRankings?.rei_assistencias || []
+  return (
+    <div className="tl-ind-body">
+      <div className="tl-ind-col">
+        <div className="tl-ind-col-head">⚽ Melhor Vendedor</div>
+        {mv.length === 0
+          ? <div className="tl-ind-empty">Sem dados</div>
+          : mv.map((item, i) => (
+            <div key={item.vendedor_id} className={`tl-ir-row ${TL_BALL_CLS[i] || ''}`}>
+              <div className="tl-ir-medal">
+                <span className="tl-ir-icon">⚽</span>
+                <span className="tl-ir-lbl">{TL_BALL_LABELS[i]}</span>
+              </div>
+              <div className="tl-ir-name">{item.name}</div>
+              <div className="tl-ir-val">R$ {item.total_valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+            </div>
+          ))
+        }
+      </div>
+      <div className="tl-ind-divider" />
+      <div className="tl-ind-col">
+        <div className="tl-ind-col-head">🤝 Rei das Assistências</div>
+        {ra.length === 0
+          ? <div className="tl-ind-empty">Sem dados</div>
+          : ra.map((item, i) => (
+            <div key={item.vendedor_id} className={`tl-ir-row ${TL_BALL_CLS[i] || ''}`}>
+              <div className="tl-ir-medal">
+                <span className="tl-ir-icon">{TL_ASSIST_ICONS[i]}</span>
+                <span className="tl-ir-lbl">{i + 1}º lugar</span>
+              </div>
+              <div className="tl-ir-name">{item.name}</div>
+              <div className="tl-ir-val">{item.indicacao_count} indicaç{item.indicacao_count === 1 ? 'ão' : 'ões'}</div>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  )
+}
+
+function Telao({ groups, campaign, indRankings, onClose }) {
   const [tlLight, setTlLight] = useState(false)
   const [clock, setClock] = useState('')
   const [dateStr, setDateStr] = useState('')
+  const [tlMode, setTlMode]   = useState('teams') // 'teams' | 'individual'
+  const [tlFade, setTlFade]   = useState(false)
 
   useEffect(() => {
     const tick = () => {
@@ -249,6 +297,18 @@ function Telao({ groups, campaign, onClose }) {
   useEffect(() => {
     document.documentElement.requestFullscreen?.().catch(() => {})
     return () => { document.exitFullscreen?.().catch(() => {}) }
+  }, [])
+
+  // Alterna entre equipes e individual a cada 5 minutos com fade
+  useEffect(() => {
+    const t = setInterval(() => {
+      setTlFade(true)
+      setTimeout(() => {
+        setTlMode(m => m === 'teams' ? 'individual' : 'teams')
+        setTlFade(false)
+      }, 500)
+    }, 5 * 60 * 1000)
+    return () => clearInterval(t)
   }, [])
 
   const total = groups.reduce((a, g) => a + (Number(g.total_points) || 0), 0)
@@ -294,7 +354,9 @@ function Telao({ groups, campaign, onClose }) {
           </div>
           <div className="tl-hd-c">
             <div className="tl-hd-title">⚽ COPA GD 2026</div>
-            <div className="tl-hd-sub">Ranking Ao Vivo</div>
+            <div className="tl-hd-sub">
+              {tlMode === 'teams' ? 'Ranking por Equipe' : '🏅 Rankings Individuais'}
+            </div>
           </div>
           <div className="tl-hd-r">
             <div className="tl-hd-info">
@@ -341,20 +403,25 @@ function Telao({ groups, campaign, onClose }) {
           </div>
         </div>
 
-        {/* Body */}
-        <div className="tl-body">
-          {/* Left: champion stacked cards */}
-          <div className="tl-champ-col">
-            {top3.map((g, i) => <TelaoChampCard key={g.id} group={g} rank={i} />)}
-          </div>
-
-          {/* Right: full ranking */}
-          <div className="tl-rank-col">
-            <div className="tl-col-title">📊 Classificação Completa</div>
-            <div className="tl-rank-scroll">
-              {groups.map((g, i) => <TelaoRankRow key={g.id} group={g} rank={i} />)}
-            </div>
-          </div>
+        {/* Body — fade on mode switch */}
+        <div className={`tl-body${tlFade ? ' tl-body-fade' : ''}`}>
+          {tlMode === 'teams' ? (
+            <>
+              {/* Left: champion stacked cards */}
+              <div className="tl-champ-col">
+                {top3.map((g, i) => <TelaoChampCard key={g.id} group={g} rank={i} />)}
+              </div>
+              {/* Right: full ranking */}
+              <div className="tl-rank-col">
+                <div className="tl-col-title">📊 Classificação Completa</div>
+                <div className="tl-rank-scroll">
+                  {groups.map((g, i) => <TelaoRankRow key={g.id} group={g} rank={i} />)}
+                </div>
+              </div>
+            </>
+          ) : (
+            <TelaoIndView indRankings={indRankings} />
+          )}
         </div>
 
         {/* Ticker */}
@@ -373,37 +440,6 @@ function Telao({ groups, campaign, onClose }) {
           </div>
         </div>
       </div>
-    </div>
-  )
-}
-
-// ── Individual Rankings ──────────────────────────────────────
-
-const BALL_LABELS  = ['Bola de Ouro', 'Bola de Prata', 'Bola de Bronze']
-const BALL_ICONS   = ['⚽', '⚽', '⚽']
-const BALL_CLS     = ['ir-gold', 'ir-silver', 'ir-bronze']
-const ASSIST_ICONS = ['🥇', '🥈', '🥉']
-
-function IndividualRankCard({ title, icon, items, formatValue, emptyMsg }) {
-  return (
-    <div className="ir-card">
-      <div className="ir-card-head">
-        <span className="ir-card-icon">{icon}</span>
-        <span className="ir-card-title">{title}</span>
-      </div>
-      {items.length === 0
-        ? <div className="ir-empty">{emptyMsg}</div>
-        : items.map((item, i) => (
-          <div key={item.vendedor_id} className={`ir-row ${BALL_CLS[i] || ''}`}>
-            <div className="ir-medal-col">
-              <span className={`ir-ball ${BALL_CLS[i] || ''}`}>{title.includes('Vendedor') ? BALL_ICONS[i] : ASSIST_ICONS[i]}</span>
-              <span className="ir-rank-lbl">{title.includes('Vendedor') ? BALL_LABELS[i] : `${i + 1}º lugar`}</span>
-            </div>
-            <div className="ir-name">{item.name}</div>
-            <div className="ir-value">{formatValue(item)}</div>
-          </div>
-        ))
-      }
     </div>
   )
 }
@@ -465,7 +501,7 @@ export default function ShellRanking() {
       )}
 
       {telaoOpen && (
-        <Telao groups={groups} campaign={campaign} onClose={() => setTelaoOpen(false)} />
+        <Telao groups={groups} campaign={campaign} indRankings={indRankings} onClose={() => setTelaoOpen(false)} />
       )}
 
       {/* Campaign strip */}
@@ -559,31 +595,6 @@ export default function ShellRanking() {
         {groups.map((g, i) => <RankRow key={g.id} group={g} rank={i} onOpen={() => setModalGroup(g)} />)}
       </div>
 
-      {/* Individual rankings */}
-      <div className="ir-section">
-        <div className="sec-label">🏅 Rankings Individuais</div>
-        {indLoading
-          ? <div className="ir-loading">Carregando rankings…</div>
-          : (
-            <div className="ir-grid">
-              <IndividualRankCard
-                title="Melhor Vendedor"
-                icon="⚽"
-                items={indRankings?.melhor_vendedor || []}
-                formatValue={item => `R$ ${item.total_valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
-                emptyMsg="Nenhuma proposta paga no período"
-              />
-              <IndividualRankCard
-                title="Rei das Assistências"
-                icon="🤝"
-                items={indRankings?.rei_assistencias || []}
-                formatValue={item => `${item.indicacao_count} indicaç${item.indicacao_count === 1 ? 'ão' : 'ões'}`}
-                emptyMsg="Nenhuma proposta por indicação no período"
-              />
-            </div>
-          )
-        }
-      </div>
     </>
   )
 }

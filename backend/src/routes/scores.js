@@ -128,11 +128,21 @@ router.get('/individual-rankings', authMiddleware, async (req, res) => {
     const today     = new Date().toISOString().slice(0, 10);
     const endDate   = endRaw < today ? endRaw : today;
 
+    // Apenas vendedores presentes em equipes ativas
+    const { rows: activeMembers } = await db.query(`
+      SELECT DISTINCT u.corban_id
+      FROM users u
+      JOIN group_memberships gm ON u.id = gm.user_id
+      JOIN groups g ON gm.group_id = g.id
+      WHERE g.active = true AND u.active = true AND u.corban_id IS NOT NULL
+    `);
+    const activeCorbans = new Set(activeMembers.map(r => String(r.corban_id)));
+
     const proposalsMap = await getProposals(startDate, endDate);
     const proposals    = Object.values(proposalsMap || {});
 
-    // Apenas propostas pagas no período (cadastro já filtrado pela API)
-    const paid = proposals.filter(p => p?.datas?.pagamento);
+    // Apenas propostas pagas de vendedores em equipes ativas
+    const paid = proposals.filter(p => p?.datas?.pagamento && activeCorbans.has(String(p.vendedor_id)));
 
     // Agrupa por vendedor_id
     const byVendor = {};
