@@ -26,6 +26,3 @@ backend/uploads/
 .DS_Store
 Thumbs.db
 *.log
-
-# Claude local (se não quiser versionar)
-CLAUDE.MD

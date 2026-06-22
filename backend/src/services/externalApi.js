@@ -246,6 +246,9 @@ async function getProposals(startDate, endDate, vendedorIds = []) {
     body,
     { headers: { 'Content-Type': 'application/json' }, timeout: 60000 }
   ).then(({ data }) => {
+    if (data && data.error) {
+      throw new Error(`API propostas: ${data.mensagem || 'Credenciais inválidas'}`);
+    }
     console.log(`[NewCorban] propostas: ${Object.keys(data || {}).length} registros (${startDate}→${endDate})`);
     cacheSet(cacheKey, data);
     return data;

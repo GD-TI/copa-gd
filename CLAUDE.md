@@ -464,8 +464,8 @@ Se aparecer só `(API)`: falta `SERVE_STATIC=true` ou `frontend/dist` não foi g
 | `NEWCORBAN_PASSWORD` | Sim | Senha API v2 |
 | `SERVE_STATIC` | Recomendado | `true` — serve o React buildado |
 | `NEWCORBAN_SUBDOMAIN` | Não | Default `grupodigital` |
-| `NEWCORBAN_API_USERNAME` | Não | Propostas (default `botapi`) |
-| `NEWCORBAN_API_PASSWORD` | Não | Propostas (default no código) |
+| `NEWCORBAN_API_USERNAME` | **Sim** | Login para `POST /api/propostas/` — se os defaults `botapi`/`api@bot321` não funcionarem, o ranking fica zerado |
+| `NEWCORBAN_API_PASSWORD` | **Sim** | Senha para `POST /api/propostas/` |
 | `CORS_ORIGIN` | Não | Só se API e front em domínios diferentes |
 | `HOST` | Não | Default `0.0.0.0` |
 | `FOOTBALL_API_KEY` | Não | Calendário Copa (football-data.org) |
@@ -624,6 +624,7 @@ VITE_API_URL=http://localhost:3001
 | Jun/26 | `GET /api/groups/:id` query à tabela legacy `group_goals` (vazia) | Removida query e campo `goal` da resposta; metas já estão em `...group` (grupos.daily/weekly_goal_value) |
 | Jun/26 | Seed falhava ao `ALTER TABLE` quando `copa_app` não é owner | Cada migration agora em try-catch individual — silencia permissão se colunas já existem |
 | Jun/26 | `docker-compose.yml` DATABASE_URL hardcoded (sem override por .env) | Mudado para `${DATABASE_URL:-...}` para permitir apontar para Hostinger em dev |
+| Jun/26 | Ranking zerado — credenciais `NEWCORBAN_API_USERNAME`/`_PASSWORD` ausentes no `docker-compose.yml` | `botapi`/`api@bot321` inválidos para essa conta; adicionados `NEWCORBAN_API_USERNAME` e `NEWCORBAN_API_PASSWORD` ao docker-compose env e ao `.env`; `getProposals` agora lança erro quando a API retorna `{error: true}` em vez de silenciar |
 | Jun/26 | `column daily_goal_value does not exist` após schema manual | Migrations do `seed.js` não rodaram; SQL manual ou redeploy após schema |
 | Jun/26 | `/api/health` pouco diagnóstico | Retorna `serveStatic`, `distExists`, `distPath`, `nodeEnv` |
 | Jun/26 | Confusão schema vs credenciais Postgres | Documentado: `schema.sql` = tabelas; credenciais vêm do provedor/Docker |
