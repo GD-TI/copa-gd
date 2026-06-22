@@ -345,6 +345,15 @@ input[type="text"].field-input {
 @media(max-width:580px){ .rank-bar { padding:10px 16px 6px; } }
 .rank-count-lbl { font-size:12px;font-weight:600;color:var(--txt3); }
 
+/* Live indicator */
+.rank-bar-live { display:flex;align-items:center;gap:6px; }
+.live-dot { width:8px;height:8px;border-radius:50%;background:var(--txt3);flex-shrink:0;transition:background .3s; }
+.live-dot.live-on { background:#22c55e;box-shadow:0 0 6px #22c55e80;animation:pulse-live 2s infinite; }
+@keyframes pulse-live { 0%,100%{opacity:1} 50%{opacity:.5} }
+.live-lbl { font-size:11px;font-weight:600;color:var(--txt3); }
+.live-dot.live-on + .live-lbl { color:#22c55e; }
+.live-time { font-size:10px;color:var(--txt3);letter-spacing:.3px; }
+
 .expand-btn { display:flex;align-items:center;gap:7px;background:linear-gradient(135deg,#D97706,#F59E0B);color:#fff;border:none;border-radius:var(--r-sm);padding:9px 16px;font:700 11px/1 var(--font);letter-spacing:.3px;text-transform:uppercase;transition:all .18s var(--ease);box-shadow:0 2px 8px rgba(245,158,11,.25); }
 .expand-btn:hover { transform:translateY(-1px);box-shadow:0 4px 16px rgba(245,158,11,.4); }
 .expand-btn svg { width:13px;height:13px; }
@@ -942,6 +951,7 @@ input[type="text"].field-input {
 .ir-medal-col { display:flex; flex-direction:column; align-items:center; gap:2px; min-width:54px; }
 .ir-ball { font-size:20px; line-height:1; filter:grayscale(0); }
 .ir-rank-lbl { font:600 9px/1 var(--font); letter-spacing:.3px; text-align:center; white-space:nowrap; }
+.ir-rank-num { font:700 15px/1 var(--font); color:var(--txt3); text-align:center; }
 
 /* Gold / Silver / Bronze accent */
 .ir-gold   .ir-rank-lbl { color:var(--gold); }

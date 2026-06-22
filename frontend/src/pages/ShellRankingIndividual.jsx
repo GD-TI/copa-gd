@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import api from '../api/client'
 
 function d10(s) { return s ? String(s).slice(0, 10) : '' }
@@ -26,12 +26,14 @@ function IndCard({ title, icon, items, formatValue, emptyMsg, isBola }) {
         : items.map((item, i) => (
           <div key={item.vendedor_id} className={`ir-row ${BALL_CLS[i] || ''}`}>
             <div className="ir-medal-col">
-              <span className="ir-ball">
-                {isBola ? '⚽' : ASSIST_ICONS[i]}
-              </span>
-              <span className="ir-rank-lbl">
-                {isBola ? BALL_LABELS[i] : `${i + 1}º lugar`}
-              </span>
+              {i < 3 ? (
+                <>
+                  <span className="ir-ball">{isBola ? '⚽' : ASSIST_ICONS[i]}</span>
+                  <span className="ir-rank-lbl">{isBola ? BALL_LABELS[i] : `${i + 1}º lugar`}</span>
+                </>
+              ) : (
+                <span className="ir-rank-num">{i + 1}º</span>
+              )}
             </div>
             <div className="ir-name">{item.name}</div>
             <div className="ir-value">{formatValue(item)}</div>
@@ -43,31 +45,39 @@ function IndCard({ title, icon, items, formatValue, emptyMsg, isBola }) {
 }
 
 export default function ShellRankingIndividual() {
-  const [data, setData]       = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [campaign, setCampaign] = useState(null)
+  const [data, setData]           = useState(null)
+  const [loading, setLoading]     = useState(true)
+  const [campaign, setCampaign]   = useState(null)
+  const [sseConnected, setSseConnected] = useState(false)
+  const [lastUpdate, setLastUpdate]     = useState(null)
+  const debounceRef = useRef(null)
 
-  const load = useCallback(() => {
-    api.get('/scores/individual-rankings')
-      .then(r => setData(r.data))
-      .catch(() => {})
-      .finally(() => setLoading(false))
-
-    api.get('/groups/ranking')
-      .then(r => { if (r.data.campaign) setCampaign(r.data.campaign) })
-      .catch(() => {})
+  const loadAll = useCallback(async () => {
+    const [r1, r2] = await Promise.allSettled([
+      api.get('/scores/individual-rankings'),
+      api.get('/groups/ranking'),
+    ])
+    if (r1.status === 'fulfilled') setData(r1.value.data)
+    if (r2.status === 'fulfilled' && r2.value.data.campaign) setCampaign(r2.value.data.campaign)
+    setLoading(false)
+    setLastUpdate(new Date())
   }, [])
 
   useEffect(() => {
-    load()
+    loadAll()
 
     const es = new EventSource('/api/events/stream')
-    es.addEventListener('scores_updated', () => load())
-    es.onerror = () => {}
+    es.addEventListener('connected', () => setSseConnected(true))
+    es.addEventListener('scores_updated', () => {
+      clearTimeout(debounceRef.current)
+      debounceRef.current = setTimeout(() => loadAll(), 800)
+    })
+    es.onerror = () => setSseConnected(false)
+    es.onopen  = () => setSseConnected(true)
 
-    const t = setInterval(load, 300000)
-    return () => { es.close(); clearInterval(t) }
-  }, [load])
+    const t = setInterval(loadAll, 300000)
+    return () => { es.close(); clearInterval(t); clearTimeout(debounceRef.current) }
+  }, [loadAll])
 
   return (
     <>

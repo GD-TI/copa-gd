@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import api from '../api/client'
 import MembersModal from '../components/MembersModal'
 
@@ -229,8 +229,8 @@ const TL_BALL_CLS    = ['tl-ir-gold', 'tl-ir-silver', 'tl-ir-bronze']
 const TL_ASSIST_ICONS = ['🥇', '🥈', '🥉']
 
 function TelaoIndView({ indRankings }) {
-  const mv = indRankings?.melhor_vendedor || []
-  const ra = indRankings?.rei_assistencias || []
+  const mv = (indRankings?.melhor_vendedor || []).slice(0, 5)
+  const ra = (indRankings?.rei_assistencias || []).slice(0, 5)
   return (
     <div className="tl-ind-body">
       <div className="tl-ind-col">
@@ -240,8 +240,14 @@ function TelaoIndView({ indRankings }) {
           : mv.map((item, i) => (
             <div key={item.vendedor_id} className={`tl-ir-row ${TL_BALL_CLS[i] || ''}`}>
               <div className="tl-ir-medal">
-                <span className="tl-ir-icon">⚽</span>
-                <span className="tl-ir-lbl">{TL_BALL_LABELS[i]}</span>
+                {i < 3 ? (
+                  <>
+                    <span className="tl-ir-icon">⚽</span>
+                    <span className="tl-ir-lbl">{TL_BALL_LABELS[i]}</span>
+                  </>
+                ) : (
+                  <span className="tl-ir-lbl">{i + 1}º</span>
+                )}
               </div>
               <div className="tl-ir-name">{item.name}</div>
               <div className="tl-ir-val">R$ {item.total_valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
@@ -257,8 +263,14 @@ function TelaoIndView({ indRankings }) {
           : ra.map((item, i) => (
             <div key={item.vendedor_id} className={`tl-ir-row ${TL_BALL_CLS[i] || ''}`}>
               <div className="tl-ir-medal">
-                <span className="tl-ir-icon">{TL_ASSIST_ICONS[i]}</span>
-                <span className="tl-ir-lbl">{i + 1}º lugar</span>
+                {i < 3 ? (
+                  <>
+                    <span className="tl-ir-icon">{TL_ASSIST_ICONS[i]}</span>
+                    <span className="tl-ir-lbl">{i + 1}º lugar</span>
+                  </>
+                ) : (
+                  <span className="tl-ir-lbl">{i + 1}º</span>
+                )}
               </div>
               <div className="tl-ir-name">{item.name}</div>
               <div className="tl-ir-val">{item.indicacao_count} indicaç{item.indicacao_count === 1 ? 'ão' : 'ões'}</div>
@@ -453,36 +465,47 @@ export default function ShellRanking() {
   const [modalGroup, setModalGroup]   = useState(null)
   const [telaoOpen, setTelaoOpen]     = useState(false)
   const [indRankings, setIndRankings] = useState(null)
-  const [indLoading, setIndLoading]   = useState(true)
+  const [sseConnected, setSseConnected] = useState(false)
+  const [lastUpdate, setLastUpdate]     = useState(null)
+  const debounceRef = useRef(null)
 
-  const loadInd = useCallback(() => {
-    api.get('/scores/individual-rankings')
-      .then(r => setIndRankings(r.data))
-      .catch(() => {})
-      .finally(() => setIndLoading(false))
-  }, [])
-
-  const load = useCallback(() => {
-    api.get('/groups/ranking').then(r => {
-      setGroups(r.data.groups || [])
-      if (r.data.campaign) setCampaign(r.data.campaign)
-    }).catch(() => {}).finally(() => setLoading(false))
+  // Carrega ranking e individuais de uma vez — uma única renderização
+  const loadAll = useCallback(async () => {
+    const [r1, r2] = await Promise.allSettled([
+      api.get('/groups/ranking'),
+      api.get('/scores/individual-rankings'),
+    ])
+    if (r1.status === 'fulfilled') {
+      const d = r1.value.data
+      setGroups(d.groups || [])
+      if (d.campaign) setCampaign(d.campaign)
+    }
+    if (r2.status === 'fulfilled') setIndRankings(r2.value.data)
+    setLoading(false)
+    setLastUpdate(new Date())
   }, [])
 
   useEffect(() => {
-    load()
-    loadInd()
+    loadAll()
 
-    // SSE: atualização instantânea quando o servidor recalcula pontos
     const es = new EventSource('/api/events/stream')
-    es.addEventListener('scores_updated', () => { load(); loadInd() })
-    es.onerror = () => {} // reconecta automaticamente
+
+    es.addEventListener('connected', () => setSseConnected(true))
+
+    // Debounce: agrupa múltiplos eventos rápidos (ex: cron + recálculo manual) em um único reload
+    es.addEventListener('scores_updated', () => {
+      clearTimeout(debounceRef.current)
+      debounceRef.current = setTimeout(() => loadAll(), 800)
+    })
+
+    es.onerror = () => setSseConnected(false)
+    es.onopen  = () => setSseConnected(true)
 
     // Fallback: recarrega a cada 5 min caso SSE caia
-    const t = setInterval(() => { load(); loadInd() }, 300000)
+    const t = setInterval(loadAll, 300000)
 
-    return () => { es.close(); clearInterval(t) }
-  }, [load, loadInd])
+    return () => { es.close(); clearInterval(t); clearTimeout(debounceRef.current) }
+  }, [loadAll])
 
   const total = groups.reduce((a, g) => a + (Number(g.total_points) || 0), 0)
   const totalGoal = groups.reduce((a, g) => a + (Number(g.goal_points) || 0), 0)
@@ -558,6 +581,15 @@ export default function ShellRanking() {
         <span className="rank-count-lbl">
           {loading ? 'Carregando…' : `${groups.length} grupo${groups.length !== 1 ? 's' : ''}`}
         </span>
+        <div className="rank-bar-live">
+          <span className={`live-dot${sseConnected ? ' live-on' : ''}`} />
+          <span className="live-lbl">{sseConnected ? 'Ao vivo' : 'Reconectando…'}</span>
+          {lastUpdate && (
+            <span className="live-time">
+              {lastUpdate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </span>
+          )}
+        </div>
         <button className="telao-open-btn" onClick={() => setTelaoOpen(true)}>
           📺 Telão
         </button>

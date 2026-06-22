@@ -155,9 +155,9 @@ router.get('/individual-rankings', authMiddleware, async (req, res) => {
 
     const vendorList = Object.values(byVendor);
 
-    const topVendor       = [...vendorList].sort((a, b) => b.total_valor - a.total_valor).slice(0, 3);
+    const topVendor       = [...vendorList].sort((a, b) => b.total_valor - a.total_valor);
     const topAssistencias = vendorList.filter(v => v.indicacao_count > 0)
-                              .sort((a, b) => b.indicacao_count - a.indicacao_count).slice(0, 3);
+                              .sort((a, b) => b.indicacao_count - a.indicacao_count);
 
     // Resolve nomes via DB (corban_id → display_name)
     const allVids = [...new Set([...topVendor, ...topAssistencias].map(v => v.vendedor_id))];
