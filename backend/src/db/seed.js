@@ -21,6 +21,15 @@ async function seed() {
       `ALTER TABLE groups ADD COLUMN IF NOT EXISTS photo_data       BYTEA`,
       `ALTER TABLE groups ADD COLUMN IF NOT EXISTS photo_mime       VARCHAR(50)`,
       `ALTER TABLE users  ADD COLUMN IF NOT EXISTS needs_password_setup BOOLEAN DEFAULT false`,
+      `ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`,
+      `ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('player', 'admin', 'team_admin'))`,
+      `CREATE TABLE IF NOT EXISTS admin_team_scopes (
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (user_id, group_id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_admin_team_scopes_user ON admin_team_scopes(user_id)`,
     ];
     for (const sql of migrations) {
       try { await db.query(sql); } catch (_) { /* coluna já existe ou sem permissão de owner */ }

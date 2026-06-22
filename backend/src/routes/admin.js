@@ -1,7 +1,8 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const db = require('../config/db');
-const { authMiddleware, adminOnly } = require('../middleware/auth');
+const { authMiddleware, adminOnly, configAdminOnly, attachManagedGroups, requireGroupAccess, canAccessGroup, isMasterAdmin } = require('../middleware/auth');
+const { setManagedGroups, getManagedGroupIds } = require('../services/adminScopes');
 const { findUserByUsername } = require('../services/externalApi');
 const { calculateScores } = require('../services/scoring');
 const { broadcast } = require('./events');
@@ -21,14 +22,119 @@ function triggerRecalculate(adminId) {
     .catch(e => console.error('[Admin] Erro no recálculo pós-membership:', e.message));
 }
 
-router.use(authMiddleware, adminOnly);
+router.use(authMiddleware, configAdminOnly, attachManagedGroups);
+
+// ===== SUB-ADMINS (master only) =====
+
+router.get('/team-admins', adminOnly, async (req, res) => {
+  try {
+    const { rows } = await db.query(`
+      SELECT u.id, u.username, u.display_name, u.active, u.created_at,
+             COALESCE(
+               json_agg(json_build_object('id', g.id, 'name', g.name) ORDER BY g.name)
+               FILTER (WHERE g.id IS NOT NULL),
+               '[]'
+             ) AS groups
+      FROM users u
+      LEFT JOIN admin_team_scopes ats ON u.id = ats.user_id
+      LEFT JOIN groups g ON ats.group_id = g.id AND g.active = true
+      WHERE u.role = 'team_admin'
+      GROUP BY u.id
+      ORDER BY u.display_name
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao listar sub-admins' });
+  }
+});
+
+router.post('/team-admins', adminOnly, async (req, res) => {
+  const { username, password, display_name, group_ids } = req.body;
+
+  if (!username?.trim() || !password) {
+    return res.status(400).json({ error: 'Usuário e senha são obrigatórios' });
+  }
+  if (!Array.isArray(group_ids) || group_ids.length === 0) {
+    return res.status(400).json({ error: 'Selecione ao menos uma equipe' });
+  }
+
+  try {
+    const hash = await bcrypt.hash(password, 10);
+    const login = username.trim().toLowerCase();
+    const { rows } = await db.query(
+      `INSERT INTO users (username, password_hash, role, display_name, needs_password_setup)
+       VALUES ($1, $2, 'team_admin', $3, false)
+       RETURNING id, username, role, display_name, active, created_at`,
+      [login, hash, display_name?.trim() || login]
+    );
+    const user = rows[0];
+    const scopes = await setManagedGroups(user.id, group_ids);
+    res.status(201).json({ ...user, group_ids: scopes });
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ error: 'Nome de usuário já existe' });
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao criar sub-admin' });
+  }
+});
+
+router.put('/team-admins/:id', adminOnly, async (req, res) => {
+  const { id } = req.params;
+  const { username, password, display_name, active, group_ids } = req.body;
+
+  try {
+    const { rows: existing } = await db.query(
+      "SELECT id FROM users WHERE id = $1 AND role = 'team_admin'",
+      [id]
+    );
+    if (!existing.length) return res.status(404).json({ error: 'Sub-admin não encontrado' });
+
+    const updates = [];
+    const values = [];
+    let idx = 1;
+
+    if (username) { updates.push(`username = $${idx++}`); values.push(username.trim().toLowerCase()); }
+    if (password) {
+      updates.push(`password_hash = $${idx++}`);
+      values.push(await bcrypt.hash(password, 10));
+    }
+    if (display_name !== undefined) { updates.push(`display_name = $${idx++}`); values.push(display_name); }
+    if (active !== undefined) { updates.push(`active = $${idx++}`); values.push(active); }
+
+    if (updates.length > 0) {
+      values.push(id);
+      await db.query(
+        `UPDATE users SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx}`,
+        values
+      );
+    }
+
+    if (Array.isArray(group_ids)) {
+      if (group_ids.length === 0) {
+        return res.status(400).json({ error: 'Selecione ao menos uma equipe' });
+      }
+      await setManagedGroups(id, group_ids);
+    }
+
+    const scopes = await getManagedGroupIds(id);
+    const { rows } = await db.query(
+      'SELECT id, username, role, display_name, active, created_at FROM users WHERE id = $1',
+      [id]
+    );
+    res.json({ ...rows[0], group_ids: scopes });
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ error: 'Nome de usuário já existe' });
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao atualizar sub-admin' });
+  }
+});
 
 // ===== USUÁRIOS =====
 
 // GET /api/admin/users
 router.get('/users', async (req, res) => {
   try {
-    const { rows } = await db.query(`
+    let query = `
       SELECT u.id, u.username, u.role, u.display_name,
              u.corban_id, u.corban_username, u.corban_name, u.corban_avatar_url,
              u.active, u.created_at,
@@ -36,8 +142,19 @@ router.get('/users', async (req, res) => {
       FROM users u
       LEFT JOIN group_memberships gm ON u.id = gm.user_id
       LEFT JOIN groups g ON gm.group_id = g.id
-      ORDER BY u.role, u.display_name
-    `);
+    `;
+    const params = [];
+
+    if (!isMasterAdmin(req.user)) {
+      const scopes = req.managedGroupIds || [];
+      if (scopes.length === 0) return res.json([]);
+      query += ` WHERE u.role = 'player' AND g.id = ANY($1::int[])`;
+      params.push(scopes);
+    }
+
+    query += ' ORDER BY u.role, u.display_name';
+
+    const { rows } = await db.query(query, params);
     res.json(rows);
   } catch (err) {
     console.error(err);
@@ -50,8 +167,25 @@ router.post('/users', async (req, res) => {
   const { username, password, role, display_name, corban_id, corban_username, corban_name, corban_avatar_url, group_id } = req.body;
 
   const userRole = role || 'player';
-  if (!['player', 'admin'].includes(userRole)) {
+  if (!['player', 'admin', 'team_admin'].includes(userRole)) {
     return res.status(400).json({ error: 'Papel inválido' });
+  }
+
+  if ((userRole === 'admin' || userRole === 'team_admin') && !isMasterAdmin(req.user)) {
+    return res.status(403).json({ error: 'Apenas o admin master pode criar administradores' });
+  }
+
+  if (userRole === 'team_admin') {
+    const { group_ids } = req.body;
+    if (!Array.isArray(group_ids) || group_ids.length === 0) {
+      return res.status(400).json({ error: 'Sub-admin precisa de ao menos uma equipe' });
+    }
+  }
+
+  if (userRole === 'player' && group_id && !isMasterAdmin(req.user)) {
+    if (!canAccessGroup(req, group_id)) {
+      return res.status(403).json({ error: 'Sem permissão para esta equipe' });
+    }
   }
 
   try {
@@ -122,6 +256,10 @@ router.post('/users', async (req, res) => {
 
     const user = rows[0];
 
+    if (userRole === 'team_admin') {
+      await setManagedGroups(user.id, req.body.group_ids);
+    }
+
     if (group_id && userRole === 'player') {
       const { rows: gc } = await db.query(
         'SELECT COUNT(user_id) as count FROM group_memberships WHERE group_id = $1',
@@ -145,12 +283,26 @@ router.post('/users', async (req, res) => {
   }
 });
 
-// PUT /api/admin/users/:id - editar usuário
+// PUT /api/admin/users/:id - editar usuário (master ou jogador em equipe gerenciada)
 router.put('/users/:id', async (req, res) => {
   const { id } = req.params;
   const { username, password, display_name, corban_id, corban_username, corban_name, corban_avatar_url, active } = req.body;
 
   try {
+    if (!isMasterAdmin(req.user)) {
+      const { rows: target } = await db.query(
+        `SELECT u.role, gm.group_id FROM users u
+         LEFT JOIN group_memberships gm ON u.id = gm.user_id
+         WHERE u.id = $1`,
+        [id]
+      );
+      if (!target.length || target[0].role !== 'player') {
+        return res.status(403).json({ error: 'Sem permissão para editar este usuário' });
+      }
+      if (!target[0].group_id || !canAccessGroup(req, target[0].group_id)) {
+        return res.status(403).json({ error: 'Sem permissão para editar este usuário' });
+      }
+    }
     const updates = [];
     const values = [];
     let idx = 1;
@@ -183,10 +335,20 @@ router.put('/users/:id', async (req, res) => {
   }
 });
 
-// POST /api/admin/users/:id/deactivate - tirar da competição
+// POST /api/admin/users/:id/deactivate
 router.post('/users/:id/deactivate', async (req, res) => {
   const { id } = req.params;
   try {
+    if (!isMasterAdmin(req.user)) {
+      const { rows: target } = await db.query(
+        `SELECT u.role, gm.group_id FROM users u
+         LEFT JOIN group_memberships gm ON u.id = gm.user_id WHERE u.id = $1`,
+        [id]
+      );
+      if (!target.length || target[0].role !== 'player' || !canAccessGroup(req, target[0].group_id)) {
+        return res.status(403).json({ error: 'Sem permissão' });
+      }
+    }
     await db.query('UPDATE users SET active = false WHERE id = $1', [id]);
     await db.query('DELETE FROM group_memberships WHERE user_id = $1', [id]);
     res.json({ message: 'Jogador removido da competição' });
@@ -197,12 +359,23 @@ router.post('/users/:id/deactivate', async (req, res) => {
   }
 });
 
-// POST /api/admin/users/:id/move-group - mover jogador para outro grupo
+// POST /api/admin/users/:id/move-group
 router.post('/users/:id/move-group', async (req, res) => {
   const { id } = req.params;
   const { group_id } = req.body;
 
   try {
+    if (!isMasterAdmin(req.user)) {
+      const { rows: target } = await db.query(
+        `SELECT gm.group_id FROM group_memberships gm WHERE gm.user_id = $1`,
+        [id]
+      );
+      const fromOk = !target.length || canAccessGroup(req, target[0].group_id);
+      const toOk = !group_id || canAccessGroup(req, group_id);
+      if (!fromOk || !toOk) {
+        return res.status(403).json({ error: 'Sem permissão para mover entre estas equipes' });
+      }
+    }
     if (!group_id) {
       await db.query('DELETE FROM group_memberships WHERE user_id = $1', [id]);
       triggerRecalculate(req.user.id);
@@ -238,16 +411,25 @@ router.post('/users/:id/move-group', async (req, res) => {
 // GET /api/admin/groups
 router.get('/groups', async (req, res) => {
   try {
+    const params = [];
+    let scopeFilter = '';
+    if (!isMasterAdmin(req.user)) {
+      const scopes = req.managedGroupIds || [];
+      if (scopes.length === 0) return res.json([]);
+      scopeFilter = ' AND g.id = ANY($1::int[])';
+      params.push(scopes);
+    }
+
     const { rows } = await db.query(`
       SELECT g.id, g.name, g.photo_url, g.created_by, g.active, g.created_at, g.updated_at,
              g.daily_goal_value, g.weekly_goal_value, g.goal_points,
              COUNT(DISTINCT gm.user_id) as member_count
       FROM groups g
       LEFT JOIN group_memberships gm ON g.id = gm.group_id
-      WHERE g.active = true
+      WHERE g.active = true${scopeFilter}
       GROUP BY g.id
       ORDER BY g.name
-    `);
+    `, params);
     res.json(rows);
   } catch (err) {
     console.error(err);
@@ -255,8 +437,8 @@ router.get('/groups', async (req, res) => {
   }
 });
 
-// POST /api/admin/groups - criar equipe
-router.post('/groups', uploadPhoto('photo'), async (req, res) => {
+// POST /api/admin/groups - criar equipe (master)
+router.post('/groups', adminOnly, uploadPhoto('photo'), async (req, res) => {
   const { name } = req.body;
 
   if (!name || name.trim().length < 2) {
@@ -284,8 +466,8 @@ router.post('/groups', uploadPhoto('photo'), async (req, res) => {
   }
 });
 
-// PUT /api/admin/groups/:id/photo — atualizar só a foto (admin)
-router.put('/groups/:id/photo', uploadPhoto('photo'), async (req, res) => {
+// PUT /api/admin/groups/:id/photo
+router.put('/groups/:id/photo', requireGroupAccess, uploadPhoto('photo'), async (req, res) => {
   const { id } = req.params;
   if (!req.file) {
     return res.status(400).json({ error: 'Selecione uma imagem (campo photo)' });
@@ -310,8 +492,8 @@ router.put('/groups/:id/photo', uploadPhoto('photo'), async (req, res) => {
   }
 });
 
-// DELETE /api/admin/groups/:id/photo — remove foto corrompida/antiga
-router.delete('/groups/:id/photo', async (req, res) => {
+// DELETE /api/admin/groups/:id/photo
+router.delete('/groups/:id/photo', requireGroupAccess, async (req, res) => {
   const { id } = req.params;
   try {
     const { rows } = await db.query(
@@ -329,7 +511,7 @@ router.delete('/groups/:id/photo', async (req, res) => {
 });
 
 // GET /api/admin/groups/:id/members
-router.get('/groups/:id/members', async (req, res) => {
+router.get('/groups/:id/members', requireGroupAccess, async (req, res) => {
   const { id } = req.params;
   try {
     const { rows } = await db.query(
@@ -348,8 +530,8 @@ router.get('/groups/:id/members', async (req, res) => {
   }
 });
 
-// POST /api/admin/groups/:id/members - adicionar jogador à equipe
-router.post('/groups/:id/members', async (req, res) => {
+// POST /api/admin/groups/:id/members
+router.post('/groups/:id/members', requireGroupAccess, async (req, res) => {
   const { id } = req.params;
   const { user_id } = req.body;
 
@@ -393,8 +575,8 @@ router.post('/groups/:id/members', async (req, res) => {
   }
 });
 
-// DELETE /api/admin/groups/:id/members/:userId - remover jogador da equipe
-router.delete('/groups/:id/members/:userId', async (req, res) => {
+// DELETE /api/admin/groups/:id/members/:userId
+router.delete('/groups/:id/members/:userId', requireGroupAccess, async (req, res) => {
   const { id, userId } = req.params;
   try {
     const { rowCount } = await db.query(
@@ -410,8 +592,8 @@ router.delete('/groups/:id/members/:userId', async (req, res) => {
   }
 });
 
-// PUT /api/admin/groups/:id/goals - definir metas do grupo (legado — usar /settings/group-goals)
-router.put('/groups/:id/goals', async (req, res) => {
+// PUT /api/admin/groups/:id/goals (legado)
+router.put('/groups/:id/goals', requireGroupAccess, async (req, res) => {
   const { id } = req.params;
   const { daily_goal, weekly_goal, valid_from, valid_until } = req.body;
 
@@ -429,8 +611,8 @@ router.put('/groups/:id/goals', async (req, res) => {
   }
 });
 
-// GET /api/admin/groups/:id/points - listar ajustes de uma equipe
-router.get('/groups/:id/points', async (req, res) => {
+// GET /api/admin/groups/:id/points
+router.get('/groups/:id/points', requireGroupAccess, async (req, res) => {
   const { id } = req.params;
   try {
     const { rows } = await db.query(
@@ -451,8 +633,8 @@ router.get('/groups/:id/points', async (req, res) => {
   }
 });
 
-// POST /api/admin/groups/:id/points - ajuste manual de pontos
-router.post('/groups/:id/points', async (req, res) => {
+// POST /api/admin/groups/:id/points
+router.post('/groups/:id/points', requireGroupAccess, async (req, res) => {
   const { id } = req.params;
   const { points, reason } = req.body;
 
@@ -478,10 +660,19 @@ router.post('/groups/:id/points', async (req, res) => {
   }
 });
 
-// DELETE /api/admin/adjustments/:id - remover ajuste
+// DELETE /api/admin/adjustments/:id
 router.delete('/adjustments/:id', async (req, res) => {
   const { id } = req.params;
   try {
+    if (!isMasterAdmin(req.user)) {
+      const { rows } = await db.query(
+        'SELECT group_id FROM point_adjustments WHERE id = $1',
+        [id]
+      );
+      if (!rows.length || !canAccessGroup(req, rows[0].group_id)) {
+        return res.status(403).json({ error: 'Sem permissão para remover este ajuste' });
+      }
+    }
     const { rowCount } = await db.query(
       'DELETE FROM point_adjustments WHERE id = $1', [id]
     );
@@ -493,8 +684,8 @@ router.delete('/adjustments/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/admin/groups/:id - desativar grupo
-router.delete('/groups/:id', async (req, res) => {
+// DELETE /api/admin/groups/:id - desativar grupo (master)
+router.delete('/groups/:id', adminOnly, async (req, res) => {
   const { id } = req.params;
   try {
     await db.query('UPDATE groups SET active = false WHERE id = $1', [id]);
@@ -507,8 +698,8 @@ router.delete('/groups/:id', async (req, res) => {
 
 // ===== USUÁRIOS NEWCORBAN =====
 
-// GET /api/admin/newcorban-users - listar usuários do NewCorban (paginado)
-router.get('/newcorban-users', async (req, res) => {
+// GET /api/admin/newcorban-users (master)
+router.get('/newcorban-users', adminOnly, async (req, res) => {
   const externalApi = require('../services/externalApi');
   const { page = 1, per_page = 50 } = req.query;
   try {

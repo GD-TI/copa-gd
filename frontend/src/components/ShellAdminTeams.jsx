@@ -137,7 +137,7 @@ function AddPlayerForm({ groups, onAdded }) {
 }
 
 // ── Gestão de equipes ───────────────────────────────────────────────────────
-export default function ShellAdminTeams({ groups, onRefresh }) {
+export default function ShellAdminTeams({ groups, onRefresh, isMaster = true }) {
   const [expanded, setExpanded] = useState(null)
   const [members, setMembers] = useState({})
   const [loadingMembers, setLoadingMembers] = useState(null)
@@ -304,6 +304,7 @@ export default function ShellAdminTeams({ groups, onRefresh }) {
     <div>
       <AddPlayerForm groups={groups} onAdded={() => { loadPlayers(); onRefresh() }} />
 
+      {isMaster && (
       <div className="card" style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <button
@@ -340,6 +341,7 @@ export default function ShellAdminTeams({ groups, onRefresh }) {
           </button>
         </div>
       </div>
+      )}
 
       {groups.length === 0 ? (
         <div className="card" style={{ textAlign: 'center', padding: 32, color: 'var(--txt3)', fontSize: 13 }}>
@@ -378,6 +380,7 @@ export default function ShellAdminTeams({ groups, onRefresh }) {
               </div>
             </div>
             <span style={{ color: 'var(--txt3)', fontSize: 12 }}>{expanded === g.id ? '▲' : '▼'}</span>
+            {isMaster && (
             <button
               className="btn btn-ghost"
               style={{ fontSize: 11, padding: '5px 10px', color: 'var(--red)' }}
@@ -386,6 +389,7 @@ export default function ShellAdminTeams({ groups, onRefresh }) {
             >
               🗑️
             </button>
+            )}
           </div>
 
           {expanded === g.id && (

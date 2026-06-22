@@ -2,6 +2,8 @@
  * Contrato com origem de Indicação (NewCorban).
  * Critério da campanha: campo `origem` deve conter "Indicação".
  */
+const { isWeekdayPaid } = require('./businessDays');
+
 function isIndicacaoProposal(proposal) {
   if (!proposal) return false;
 
@@ -18,9 +20,9 @@ function isPaidProposal(proposal) {
   return Boolean(proposal?.datas?.pagamento);
 }
 
-/** Contratos pagos com Indicação. */
+/** Contratos pagos com Indicação (somente dias úteis). */
 function filterPaidIndicacoes(proposals) {
-  return (proposals || []).filter(p => isPaidProposal(p) && isIndicacaoProposal(p));
+  return (proposals || []).filter(p => isWeekdayPaid(p) && isIndicacaoProposal(p));
 }
 
 module.exports = {

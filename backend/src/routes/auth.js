@@ -5,8 +5,12 @@ const db = require('../config/db');
 const { authMiddleware } = require('../middleware/auth');
 const { findUserByUsername } = require('../services/externalApi');
 
+const { getManagedGroupIds } = require('../services/adminScopes');
+
 async function buildUserResponse(user) {
   let groupInfo = null;
+  let managed_group_ids = null;
+
   if (user.role === 'player') {
     const { rows: groupRows } = await db.query(
       `SELECT g.id, g.name, g.photo_url, gm.is_captain
@@ -18,6 +22,10 @@ async function buildUserResponse(user) {
     if (groupRows.length > 0) groupInfo = groupRows[0];
   }
 
+  if (user.role === 'team_admin') {
+    managed_group_ids = await getManagedGroupIds(user.id);
+  }
+
   return {
     id: user.id,
     username: user.username,
@@ -27,6 +35,7 @@ async function buildUserResponse(user) {
     corban_name: user.corban_name,
     corban_username: user.corban_username,
     group: groupInfo,
+    managed_group_ids,
   };
 }
 

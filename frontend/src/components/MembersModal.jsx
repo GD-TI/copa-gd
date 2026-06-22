@@ -252,16 +252,32 @@ function PointsTab({ group }) {
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
               padding: '7px 16px', background: 'var(--bg)',
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ font: '700 11px/1 var(--mono)', color: isToday ? 'var(--gold)' : 'var(--txt2)' }}>
-                  {fmtDay(day.date)}
-                </span>
-                {isToday && (
-                  <span style={{
-                    font: '700 9px/1 var(--font)', letterSpacing: 1, textTransform: 'uppercase',
-                    background: 'var(--gold-soft)', color: 'var(--gold)',
-                    padding: '2px 6px', borderRadius: 4,
-                  }}>ao vivo</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ font: '700 11px/1 var(--mono)', color: isToday ? 'var(--gold)' : 'var(--txt2)' }}>
+                    {fmtDay(day.date)}
+                  </span>
+                  {day.is_double_day && (
+                    <span style={{
+                      font: '700 9px/1 var(--font)', letterSpacing: 0.5,
+                      background: 'rgba(34,197,94,0.15)', color: 'var(--green)',
+                      padding: '2px 6px', borderRadius: 4,
+                    }} title={day.brazil_match?.opponent ? `Brasil x ${day.brazil_match.opponent}` : 'Jogo do Brasil'}>
+                      🇧🇷 ×2
+                    </span>
+                  )}
+                  {isToday && (
+                    <span style={{
+                      font: '700 9px/1 var(--font)', letterSpacing: 1, textTransform: 'uppercase',
+                      background: 'var(--gold-soft)', color: 'var(--gold)',
+                      padding: '2px 6px', borderRadius: 4,
+                    }}>ao vivo</span>
+                  )}
+                </div>
+                {day.is_double_day && day.brazil_match?.opponent && (
+                  <div style={{ font: '400 9px/1.3 var(--font)', color: 'var(--txt3)', marginTop: 3 }}>
+                    Jogo do Brasil × {day.brazil_match.opponent}
+                  </div>
                 )}
               </div>
               <span style={{ font: '700 12px/1 var(--mono)', color: 'var(--gold)' }}>
@@ -290,7 +306,9 @@ function PointsTab({ group }) {
                     +{e.points}
                   </span>
                   {e.is_double && (
-                    <span style={{ font: '500 9px/1 var(--font)', color: 'var(--txt3)', marginLeft: 3 }}>×2</span>
+                    <div style={{ font: '600 9px/1.3 var(--font)', color: 'var(--green)', marginTop: 2 }}>
+                      {e.base_points} pts base ×2 🇧🇷
+                    </div>
                   )}
                 </div>
               </div>
@@ -463,6 +481,15 @@ export default function MembersModal({ group, onClose }) {
           {/* ---- Aba Propostas ---- */}
           {tab === 'propostas' && (
             <>
+              {data?.is_business_day === false && (
+                <div style={{
+                  margin: '12px 16px 0', padding: '10px 14px', borderRadius: 8,
+                  background: 'var(--surf2)', border: '1px solid var(--border)',
+                  font: '500 12px/1.4 var(--font)', color: 'var(--txt2)',
+                }}>
+                  📅 Fim de semana — propostas e pagamentos desta data não entram na campanha (apenas dias úteis, seg–sex).
+                </div>
+              )}
               {loading && (
                 <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt3)', fontSize: 13 }}>Carregando…</div>
               )}

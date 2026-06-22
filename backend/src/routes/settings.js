@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const db = require('../config/db');
-const { authMiddleware, adminOnly } = require('../middleware/auth');
+const { authMiddleware, adminOnly, configAdminOnly, attachManagedGroups, canAccessGroup, isMasterAdmin } = require('../middleware/auth');
 const { getRulesList, invalidateRuleCache } = require('../services/scoringRules');
 
 function fmtDate(d) {
@@ -74,9 +74,8 @@ router.put('/campaign', authMiddleware, adminOnly, async (req, res) => {
   }
 });
 
-// PUT /api/settings/group-goals — admin only
-// Body: { goals: [{ group_id, daily_goal_value, weekly_goal_value }] }
-router.put('/group-goals', authMiddleware, adminOnly, async (req, res) => {
+// PUT /api/settings/group-goals — admin master ou sub-admin (equipes do escopo)
+router.put('/group-goals', authMiddleware, configAdminOnly, attachManagedGroups, async (req, res) => {
   const { goals } = req.body;
 
   if (!Array.isArray(goals) || goals.length === 0) {
@@ -85,6 +84,9 @@ router.put('/group-goals', authMiddleware, adminOnly, async (req, res) => {
 
   try {
     for (const g of goals) {
+      if (!isMasterAdmin(req.user) && !canAccessGroup(req, g.group_id)) {
+        return res.status(403).json({ error: `Sem permissão para equipe ${g.group_id}` });
+      }
       const daily  = parseFloat(g.daily_goal_value  || 0) || 0;
       const weekly = parseFloat(g.weekly_goal_value || 0) || 0;
       const goal   = parseInt(g.goal_points || 0) || 0;

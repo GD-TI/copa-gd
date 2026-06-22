@@ -80,6 +80,12 @@ export default function Shell() {
               <span className="sb-item-lbl">Configuração</span>
             </div>
           )}
+          {user?.role === 'team_admin' && (
+            <div className={`sb-item ${page === 'config' ? 'active' : ''}`} onClick={() => navTo('config')}>
+              <div className="sb-item-icon">⚙️</div>
+              <span className="sb-item-lbl">Minhas Equipes</span>
+            </div>
+          )}
         </nav>
 
         <div className="sb-foot">
@@ -94,7 +100,7 @@ export default function Shell() {
                   {user?.display_name || user?.username}
                 </div>
                 <div style={{ fontSize: 9, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: 1 }}>
-                  {user?.role === 'admin' ? 'Admin' : 'Jogador'}
+                  {user?.role === 'admin' ? 'Admin' : user?.role === 'team_admin' ? 'Sub-admin' : 'Jogador'}
                 </div>
               </div>
             </div>
@@ -142,7 +148,7 @@ export default function Shell() {
               <ShellMyGroup />
             </div>
           )}
-          {user?.role === 'admin' && (
+          {(user?.role === 'admin' || user?.role === 'team_admin') && (
             <div className={`page ${page === 'config' ? 'active' : ''}`}>
               <ShellConfig />
             </div>

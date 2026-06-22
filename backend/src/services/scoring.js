@@ -2,6 +2,14 @@ const db = require('../config/db');
 const externalApi = require('./externalApi');
 const { getRulePointsMap } = require('./scoringRules');
 const { filterPaidIndicacoes } = require('../utils/proposals');
+const {
+  isBusinessDay,
+  getCadastroDateStr,
+  isWeekdayPaid,
+  filterByWeekdayCadastro,
+  getDaysInRange,
+  getBusinessDaysInRange,
+} = require('../utils/businessDays');
 
 const CONVERSION_MIN_RATE = parseFloat(process.env.CONVERSION_MIN_RATE || '0.80');
 
@@ -16,16 +24,7 @@ function getWeekStart(date) {
   return d;
 }
 
-function getDaysInRange(startStr, endStr) {
-  const days = [];
-  let cur = new Date(startStr + 'T12:00:00Z');
-  const end = new Date(endStr + 'T12:00:00Z');
-  while (cur <= end) {
-    days.push(cur.toISOString().slice(0, 10));
-    cur = new Date(cur.getTime() + 86400000);
-  }
-  return days;
-}
+const DAILY_RULES = ['META_DIA', 'CONVERSAO', 'GOL_DE_PLACA', 'ARTILHEIRO', 'TORCIDA_ORGANIZADA'];
 
 function sumValorRef(proposals) {
   return proposals.reduce((s, p) => s + parseFloat(p.proposta?.valor_referencia || 0), 0);
@@ -123,8 +122,8 @@ async function calculateScores(triggeredBy = null) {
   let allProposals = [];
   try {
     const pd = await externalApi.getProposals(campaignStart, todayStr, allCorbanIds);
-    allProposals = pd ? Object.values(pd) : [];
-    console.log(`[Scoring] ${allProposals.length} propostas (${campaignStart}→${todayStr})`);
+    allProposals = pd ? filterByWeekdayCadastro(Object.values(pd)) : [];
+    console.log(`[Scoring] ${allProposals.length} propostas em dias úteis (${campaignStart}→${todayStr})`);
   } catch (e) { console.error('[Scoring] Proposals error:', e.message); }
 
   // ── 5. Dias com pontos em dobro ──────────────────────────────────────────
@@ -133,7 +132,9 @@ async function calculateScores(triggeredBy = null) {
      WHERE match_date BETWEEN $1 AND $2 AND double_points = true`,
     [campaignStart, todayStr]
   );
-  const doubleDays = new Set(matchRows.map(m => toDateStr(new Date(m.match_date))));
+  const doubleDays = new Set(
+    matchRows.map(m => new Date(m.match_date).toISOString().slice(0, 10))
+  );
 
   // ── 6. Dias passados já calculados (skip em modo cron) ───────────────────
   const processedDays = new Set();
@@ -153,22 +154,39 @@ async function calculateScores(triggeredBy = null) {
   for (const dateStr of campaignDays) {
     const isToday = dateStr === todayStr;
 
+    // Fins de semana não entram na campanha
+    if (!isBusinessDay(dateStr)) {
+      if (isToday || isForce) {
+        for (const g of groups) {
+          for (const rule of DAILY_RULES) {
+            await deleteEvent(g.id, dateStr, rule);
+          }
+        }
+      }
+      if (!isToday && !processedDays.has(dateStr)) {
+        await db.query(
+          `INSERT INTO daily_calculations (calculation_date, triggered_by)
+           VALUES ($1, $2) ON CONFLICT (calculation_date) DO UPDATE SET calculated_at = NOW(), triggered_by = $2`,
+          [dateStr, isForce ? triggeredBy : null]
+        );
+      }
+      continue;
+    }
+
     // Dias passados já processados: pular (exceto em force)
     if (!isToday && processedDays.has(dateStr)) continue;
 
     const mult = doubleDays.has(dateStr) ? 2 : 1;
 
-    // Propostas deste dia específico
-    const dayProps = allProposals.filter(p =>
-      (p.datas?.cadastro || p.datas?.inclusao || '').startsWith(dateStr)
-    );
+    // Propostas deste dia específico (cadastro em dia útil)
+    const dayProps = allProposals.filter(p => getCadastroDateStr(p) === dateStr);
 
     // Estatísticas por grupo para este dia
     const gStats = {};
     for (const g of groups) {
       const cids  = (g.corban_ids || []).map(String);
       const gDay  = dayProps.filter(p => cids.includes(String(p.vendedor_id)));
-      const gPaid = gDay.filter(p => p.datas?.pagamento);
+      const gPaid = gDay.filter(isWeekdayPaid);
       const gValor = sumValorRef(gPaid);
       const gMaxC  = gPaid.reduce((mx, p) => Math.max(mx, parseFloat(p.proposta?.valor_referencia || 0)), 0);
       gStats[g.id] = { cids, gDay, gPaid, gValor, gMaxC };
@@ -319,12 +337,12 @@ async function calculateScores(triggeredBy = null) {
     // Para semanas passadas processadas: só recalcular em force
     if (!isCurrentWeek && !isForce && processedDays.has(wsStr)) continue;
 
-    // Multiplier: dobro se algum dia da semana foi dia de jogo
-    const weekMult = getDaysInRange(wsStr, weStr).some(d => doubleDays.has(d)) ? 2 : 1;
+    // Multiplier: dobro se algum dia útil da semana foi dia de jogo
+    const weekMult = getBusinessDaysInRange(wsStr, weStr).some(d => doubleDays.has(d)) ? 2 : 1;
 
     const weekProps = allProposals.filter(p => {
-      const d = p.datas?.cadastro || p.datas?.inclusao || '';
-      return d >= wsStr && d <= weStr;
+      const d = getCadastroDateStr(p);
+      return d && d >= wsStr && d <= weStr;
     });
 
     for (const g of groups) {
@@ -341,21 +359,20 @@ async function calculateScores(triggeredBy = null) {
     }
   }
 
-  // ── 9. INDICACAO + CONTRATO_10K: acumulado da campanha ──────────────────
-  const todayMult = doubleDays.has(todayStr) ? 2 : 1;
+  // ── 9. INDICACAO + CONTRATO_10K: acumulado da campanha (sem dobro — regras de campanha) ──
   for (const g of groups) {
     const cids   = (g.corban_ids || []).map(String);
     const gAll   = allProposals.filter(p => cids.includes(String(p.vendedor_id)));
-    const paidAll = gAll.filter(p => p.datas?.pagamento);
+    const paidAll = gAll.filter(isWeekdayPaid);
 
     const paidRefs = filterPaidIndicacoes(paidAll);
     const refBatches = Math.floor(paidRefs.length / 5);
     if (refBatches > 0) {
       await upsertEvent(
         g.id, campaignStart, 'INDICACAO',
-        refBatches * rulePts.INDICACAO * todayMult,
+        refBatches * rulePts.INDICACAO,
         `${paidRefs.length} contrato(s) pagos com Indicação — ${refBatches} lote(s) de 5 × ${rulePts.INDICACAO} pts`,
-        todayMult > 1
+        false
       );
     } else {
       await deleteEvent(g.id, campaignStart, 'INDICACAO');
@@ -363,8 +380,8 @@ async function calculateScores(triggeredBy = null) {
 
     const hvCount = paidAll.filter(p => parseFloat(p.proposta?.valor_referencia || 0) > 10000).length;
     if (hvCount > 0) {
-      await upsertEvent(g.id, campaignStart, 'CONTRATO_10K', hvCount * rulePts.CONTRATO_10K * todayMult,
-        `${hvCount} contrato(s) acima de R$ 10.000`, todayMult > 1);
+      await upsertEvent(g.id, campaignStart, 'CONTRATO_10K', hvCount * rulePts.CONTRATO_10K,
+        `${hvCount} contrato(s) acima de R$ 10.000`, false);
     } else {
       await deleteEvent(g.id, campaignStart, 'CONTRATO_10K');
     }

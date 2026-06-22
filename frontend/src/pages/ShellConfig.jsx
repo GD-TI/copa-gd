@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '../api/client'
+import { useAuth } from '../contexts/AuthContext'
 import ShellAdminTeams from '../components/ShellAdminTeams'
 
 function showToast(msg, ok = true) {
@@ -347,13 +348,186 @@ function ScoringRulesConfig() {
         </button>
       </div>
       <p style={{ font: '400 11px/1.4 var(--font)', color: 'var(--txt3)', marginTop: -16, marginBottom: 28 }}>
-        Em dias de jogo do Brasil, os pontos são multiplicados por 2. Indicação e Contrato 10K usam o valor por lote/contrato.
+        Em dias de jogo do Brasil (🇧🇷), regras diárias e meta semanal ganham ×2. Indicação e Contrato 10K não dobram. A campanha conta apenas dias úteis (segunda a sexta).
       </p>
     </div>
   )
 }
 
+// ── Sub-admins (master) ─────────────────────────────────────────────────────
+function SubAdminsConfig() {
+  const [groupOptions, setGroupOptions] = useState([])
+  const [admins, setAdmins] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [username, setUsername] = useState('')
+  const [displayName, setDisplayName] = useState('')
+  const [password, setPassword] = useState('')
+  const [selectedGroups, setSelectedGroups] = useState([])
+  const [saving, setSaving] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    api.get('/admin/team-admins')
+      .then(r => setAdmins(r.data || []))
+      .catch(() => setAdmins([]))
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    api.get('/groups').then(r => setGroupOptions(r.data || [])).catch(() => {})
+  }, [])
+
+  const toggleGroup = (id) => {
+    setSelectedGroups(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
+  const resetForm = () => {
+    setUsername('')
+    setDisplayName('')
+    setPassword('')
+    setSelectedGroups([])
+    setEditingId(null)
+  }
+
+  const startEdit = (a) => {
+    setEditingId(a.id)
+    setUsername(a.username)
+    setDisplayName(a.display_name || '')
+    setPassword('')
+    const gids = Array.isArray(a.groups) ? a.groups.map(g => g.id) : []
+    setSelectedGroups(gids)
+  }
+
+  const handleSave = async () => {
+    if (!username.trim()) { showToast('Informe o usuário', false); return }
+    if (!editingId && !password) { showToast('Informe a senha', false); return }
+    if (selectedGroups.length === 0) { showToast('Selecione ao menos uma equipe', false); return }
+
+    setSaving(true)
+    try {
+      if (editingId) {
+        const body = { display_name: displayName, group_ids: selectedGroups, active: true }
+        if (password) body.password = password
+        if (username !== admins.find(a => a.id === editingId)?.username) body.username = username
+        await api.put(`/admin/team-admins/${editingId}`, body)
+        showToast('Sub-admin atualizado!')
+      } else {
+        await api.post('/admin/team-admins', {
+          username: username.trim(),
+          display_name: displayName.trim() || username.trim(),
+          password,
+          group_ids: selectedGroups,
+        })
+        showToast('Sub-admin criado!')
+      }
+      resetForm()
+      load()
+    } catch (e) {
+      showToast(e.response?.data?.error || 'Erro ao salvar', false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDeactivate = async (a) => {
+    if (!window.confirm(`Desativar sub-admin "${a.display_name || a.username}"?`)) return
+    try {
+      await api.put(`/admin/team-admins/${a.id}`, { active: false, group_ids: [] })
+      showToast('Sub-admin desativado')
+      load()
+    } catch (e) {
+      showToast(e.response?.data?.error || 'Erro', false)
+    }
+  }
+
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <div className="card" style={{ marginBottom: 12, padding: '16px 18px' }}>
+        <div style={{ font: '700 11px/1 var(--font)', color: 'var(--txt3)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 12 }}>
+          {editingId ? 'Editar Sub-admin' : 'Novo Sub-admin'}
+        </div>
+        <div className="cfg-2col" style={{ marginBottom: 12 }}>
+          <div className="field-group">
+            <label className="field-label">Usuário (login)</label>
+            <input className="field-input" value={username} onChange={e => setUsername(e.target.value)} placeholder="ex: coordenador.sp" />
+          </div>
+          <div className="field-group">
+            <label className="field-label">Nome exibido</label>
+            <input className="field-input" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Nome no painel" />
+          </div>
+        </div>
+        <div className="field-group" style={{ marginBottom: 12 }}>
+          <label className="field-label">{editingId ? 'Nova senha (opcional)' : 'Senha'}</label>
+          <input type="password" className="field-input" value={password} onChange={e => setPassword(e.target.value)} placeholder={editingId ? 'Deixe em branco para manter' : 'Mínimo 6 caracteres'} />
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <div className="field-label" style={{ marginBottom: 8 }}>Equipes com acesso</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {groupOptions.map(g => (
+              <label key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer', padding: '6px 10px', background: 'var(--surf2)', borderRadius: 8, border: selectedGroups.includes(g.id) ? '1px solid var(--gold)' : '1px solid var(--border)' }}>
+                <input type="checkbox" checked={selectedGroups.includes(g.id)} onChange={() => toggleGroup(g.id)} />
+                {g.name}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button type="button" className="btn btn-gold" onClick={handleSave} disabled={saving}>
+            {saving ? 'Salvando…' : editingId ? '💾 Atualizar' : '➕ Criar sub-admin'}
+          </button>
+          {editingId && (
+            <button type="button" className="btn btn-ghost" onClick={resetForm}>Cancelar</button>
+          )}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="card" style={{ padding: 20, color: 'var(--txt3)', fontSize: 13 }}>Carregando…</div>
+      ) : admins.filter(a => a.active !== false).length === 0 ? (
+        <div className="card" style={{ padding: 20, color: 'var(--txt3)', fontSize: 13 }}>Nenhum sub-admin cadastrado</div>
+      ) : (
+        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <table className="sync-table">
+            <thead>
+              <tr>
+                <th>Usuário</th>
+                <th>Equipes</th>
+                <th style={{ textAlign: 'right' }}>Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {admins.filter(a => a.active !== false).map(a => (
+                <tr key={a.id}>
+                  <td>
+                    <div className="s-name">{a.display_name || a.username}</div>
+                    <div style={{ fontSize: 10, color: 'var(--txt3)', marginTop: 2 }}>@{a.username}</div>
+                  </td>
+                  <td style={{ fontSize: 12, color: 'var(--txt2)' }}>
+                    {(Array.isArray(a.groups) ? a.groups : []).map(g => g.name).join(', ') || '—'}
+                  </td>
+                  <td style={{ textAlign: 'right' }}>
+                    <button type="button" className="btn btn-ghost" style={{ fontSize: 11, marginRight: 6 }} onClick={() => startEdit(a)}>Editar</button>
+                    <button type="button" className="btn btn-ghost" style={{ fontSize: 11, color: 'var(--red)' }} onClick={() => handleDeactivate(a)}>Desativar</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ShellConfig() {
+  const { user } = useAuth()
+  const isMaster = user?.role === 'admin'
+  const isTeamAdmin = user?.role === 'team_admin'
   const [cfgStart, setCfgStart] = useState('')
   const [cfgEnd, setCfgEnd]     = useState('')
   const [cfgName, setCfgName]   = useState('Copa GD 2026')
@@ -363,7 +537,8 @@ export default function ShellConfig() {
   const [savingGoals, setSavingGoals]   = useState(false)
 
   const loadGroups = useCallback(() => {
-    api.get('/groups').then(r => {
+    const endpoint = isTeamAdmin ? '/admin/groups' : '/groups'
+    api.get(endpoint).then(r => {
       const gs = r.data || []
       setGroups(gs)
       const init = {}
@@ -376,18 +551,20 @@ export default function ShellConfig() {
       })
       setDraft(init)
     }).catch(() => {})
-  }, [])
+  }, [isTeamAdmin])
 
   useEffect(() => {
-    api.get('/settings/campaign').then(r => {
-      const c = r.data
-      setCfgStart(toDateInput(c.start_date))
-      setCfgEnd(toDateInput(c.end_date))
-      if (c.name) setCfgName(c.name)
-    }).catch(() => {})
+    if (isMaster) {
+      api.get('/settings/campaign').then(r => {
+        const c = r.data
+        setCfgStart(toDateInput(c.start_date))
+        setCfgEnd(toDateInput(c.end_date))
+        if (c.name) setCfgName(c.name)
+      }).catch(() => {})
+    }
 
     loadGroups()
-  }, [loadGroups])
+  }, [loadGroups, isMaster])
 
   const setField = (groupId, field, value) => {
     setDraft(prev => ({ ...prev, [groupId]: { ...prev[groupId], [field]: value } }))
@@ -436,16 +613,29 @@ export default function ShellConfig() {
   return (
     <div className="pw">
       <div className="cfg-info-banner">
-        <div className="cfg-info-icon">🤖</div>
+        <div className="cfg-info-icon">{isTeamAdmin ? '⚽' : '🤖'}</div>
         <div className="cfg-info-text">
-          <strong>Painel administrativo.</strong> Gerencie equipes e jogadores, configure metas por equipe (R$), pontos das regras e período da campanha. Os dados de vendas vêm do NewCorban automaticamente.
+          {isTeamAdmin ? (
+            <><strong>Painel das suas equipes.</strong> Gerencie jogadores, metas e ajustes de pontos das equipes atribuídas a você.</>
+          ) : (
+            <><strong>Painel administrativo.</strong> Gerencie equipes e jogadores, configure metas por equipe (R$), pontos das regras e período da campanha. Os dados de vendas vêm do NewCorban automaticamente.</>
+          )}
         </div>
       </div>
 
+      {isMaster && (
+        <>
+          <div className="sec-label">👤 Sub-admins de Equipe</div>
+          <SubAdminsConfig />
+        </>
+      )}
+
       {/* ── Equipes e jogadores ── */}
       <div className="sec-label">⚽ Equipes e Jogadores</div>
-      <ShellAdminTeams groups={groups} onRefresh={loadGroups} />
+      <ShellAdminTeams groups={groups} onRefresh={loadGroups} isMaster={isMaster} />
 
+      {isMaster && (
+        <>
       {/* ── Pontos das regras ── */}
       <div className="sec-label">🏅 Pontos por Regra</div>
       <ScoringRulesConfig />
@@ -470,6 +660,8 @@ export default function ShellConfig() {
           💾 {savingPeriod ? 'Salvando…' : 'Salvar período'}
         </button>
       </div>
+        </>
+      )}
 
       {/* ── Metas por equipe ── */}
       <div className="sec-label">🎯 Metas de Valor Referência por Equipe (R$)</div>

@@ -36,7 +36,11 @@
 
 - JWT via cookies/localStorage: `copa_token` e `copa_user`
 - Admin padrão: `admin` / `admin2026`
-- Role `admin` tem acesso a todos os endpoints
+- Role `admin` (master) tem acesso a todos os endpoints
+- Role `team_admin` (sub-admin): acesso apenas às equipes em `admin_team_scopes` — gestão de jogadores, metas e ajustes de pontos dessas equipes
+- Endpoints de sub-admin: `GET/POST/PUT /api/admin/team-admins` (somente master)
+- Login do sub-admin: username + senha definidos pelo master (não usa NewCorban)
+- `GET /api/auth/me` retorna `managed_group_ids` para `team_admin`
 
 ### Login do consultor (NewCorban)
 
@@ -297,8 +301,13 @@ Senha padrão `admin2026` — hash gerado por `bcrypt` no `seed.js` (10 rounds).
 
 ## Regras de Pontuação
 
-> Pontos base vêm de `scoring_rules.base_points` (editável pelo admin).  
-> Todas as regras usam `multiplier = 2` em dias de jogo do Brasil (`brazil_matches.double_points = true`).
+> Pontos base vêm de `scoring_rules.base_points` (editável pelo admin master).  
+> **Dias úteis:** somente **segunda a sexta** entram na campanha. Propostas digitadas ou pagas no sábado/domingo **não contam** (`backend/src/utils/businessDays.js`).  
+> **Pontos em dobro (×2)** em dias com jogo do Brasil (`brazil_matches.double_points = true`):
+> - Regras **diárias**: META_DIA, CONVERSAO, GOL_DE_PLACA, ARTILHEIRO, TORCIDA_ORGANIZADA
+> - **META_SEMANA**: dobra se **qualquer dia** da semana tiver jogo do Brasil
+> - **INDICACAO** e **CONTRATO_10K** (campanha acumulada): **não** dobram
+> - Campo `score_events.is_double_points` + breakdown em `/api/groups/:id/members/points` (`base_points`, `multiplier`, `is_double_day`, `brazil_match`)
 
 | Regra | Pontos (padrão) | Tipo | event_date | Critério |
 |-------|-----------------|------|------------|----------|
@@ -325,6 +334,7 @@ Senha padrão `admin2026` — hash gerado por `bcrypt` no `seed.js` (10 rounds).
 
 ## Cálculo de Pontos (`scoring.js`)
 
+- **Dias úteis (seg–sex):** o loop diário ignora sábado/domingo; propostas com cadastro ou pagamento em fim de semana são excluídas. Após force/recalcular, eventos de fim de semana são removidos.
 - Roda a cada 15 minutos via cron (`scheduler.js`)
 - Carrega pontos das regras via `getRulePointsMap()` no início de cada execução
 - Busca propostas de **todo o período da campanha** (`campaignStart` → hoje) em **uma única chamada** (cacheada)

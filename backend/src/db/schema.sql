@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   username VARCHAR(100) UNIQUE NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
-  role VARCHAR(20) NOT NULL DEFAULT 'player' CHECK (role IN ('player', 'admin')),
+  role VARCHAR(20) NOT NULL DEFAULT 'player' CHECK (role IN ('player', 'admin', 'team_admin')),
   corban_id VARCHAR(50),          -- id do usuário no NewCorban (= vendedor_id nas propostas)
   corban_username VARCHAR(100),   -- username de login no NewCorban
   corban_name VARCHAR(255),       -- nome completo no NewCorban
@@ -103,6 +103,15 @@ CREATE INDEX IF NOT EXISTS idx_score_events_date ON score_events(event_date);
 CREATE INDEX IF NOT EXISTS idx_group_memberships_group ON group_memberships(group_id);
 CREATE INDEX IF NOT EXISTS idx_group_goals_group ON group_goals(group_id);
 CREATE INDEX IF NOT EXISTS idx_point_adjustments_group ON point_adjustments(group_id);
+
+-- Escopo de equipes por sub-admin (team_admin)
+CREATE TABLE IF NOT EXISTS admin_team_scopes (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  PRIMARY KEY (user_id, group_id)
+);
+CREATE INDEX IF NOT EXISTS idx_admin_team_scopes_user ON admin_team_scopes(user_id);
 
 -- Função para atualizar updated_at
 CREATE OR REPLACE FUNCTION update_updated_at()

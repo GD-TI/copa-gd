@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const db = require('../config/db');
-const { authMiddleware } = require('../middleware/auth');
+const { authMiddleware, canAccessGroup, isMasterAdmin } = require('../middleware/auth');
+const { getManagedGroupIds } = require('../services/adminScopes');
 const {
   uploadPhoto,
   GROUP_PUBLIC_COLUMNS,
@@ -8,6 +9,11 @@ const {
   serveGroupPhoto,
   photoSaveError,
 } = require('../services/groupPhotoStorage');
+const {
+  isBusinessDay,
+  filterByWeekdayCadastro,
+  isWeekdayPaid,
+} = require('../utils/businessDays');
 
 // GET /api/groups - listar todos os grupos com pontuação
 router.get('/', authMiddleware, async (req, res) => {
@@ -130,6 +136,23 @@ router.get('/:id/members/points', authMiddleware, async (req, res) => {
       ? new Date(campRows[0].start_date).toISOString().slice(0, 10)
       : new Date().toISOString().slice(0, 10);
 
+    // Jogos do Brasil com pontos dobrados no período
+    const { rows: brazilMatches } = await db.query(
+      `SELECT match_date, opponent, stage, description
+       FROM brazil_matches
+       WHERE match_date BETWEEN $1 AND CURRENT_DATE AND double_points = true`,
+      [campaignStart]
+    );
+    const matchByDate = new Map();
+    for (const m of brazilMatches) {
+      const d = new Date(m.match_date).toISOString().slice(0, 10);
+      matchByDate.set(d, {
+        opponent: m.opponent,
+        stage: m.stage,
+        description: m.description,
+      });
+    }
+
     // score_events do grupo desde o início da campanha
     const { rows: events } = await db.query(
       `SELECT event_date, rule_name, points, description, is_double_points
@@ -165,6 +188,8 @@ router.get('/:id/members/points', authMiddleware, async (req, res) => {
       dayMap.get(d).push({
         rule_name:  e.rule_name,
         points:     Number(e.points),
+        base_points: e.is_double_points ? Number(e.points) / 2 : Number(e.points),
+        multiplier: e.is_double_points ? 2 : 1,
         description: e.description,
         is_double:  e.is_double_points,
         icon:       RULE_META[e.rule_name]?.icon  || '⭐',
@@ -178,6 +203,8 @@ router.get('/:id/members/points', authMiddleware, async (req, res) => {
         date,
         events: evs,
         daily_total: evs.reduce((s, e) => s + e.points, 0),
+        brazil_match: matchByDate.get(date) || null,
+        is_double_day: matchByDate.has(date),
       }));
 
     const total_points = events.reduce((s, e) => s + Number(e.points), 0);
@@ -202,6 +229,8 @@ router.get('/:id/members/stats', authMiddleware, async (req, res) => {
   const date = req.query.date || new Date().toISOString().split('T')[0];
 
   try {
+    const weekend = !isBusinessDay(date);
+
     // Grupo
     const { rows: groupRows } = await db.query(
       'SELECT id, name, photo_url FROM groups WHERE id = $1 AND active = true',
@@ -226,7 +255,7 @@ router.get('/:id/members/stats', authMiddleware, async (req, res) => {
     let vendorMap   = {};
     let allProposals = [];
 
-    if (corbanIds.length > 0) {
+    if (corbanIds.length > 0 && !weekend) {
       try {
         const rankingData = await externalApi.getRanking(date, date);
         if (rankingData?.result) {
@@ -238,16 +267,16 @@ router.get('/:id/members/stats', authMiddleware, async (req, res) => {
 
       try {
         const proposalsData = await externalApi.getProposals(date, date, corbanIds);
-        allProposals = proposalsData ? Object.values(proposalsData) : [];
+        allProposals = filterByWeekdayCadastro(proposalsData ? Object.values(proposalsData) : []);
       } catch (_) {}
     }
 
     // Stats por membro
     const memberStats = members.map(m => {
       const cid    = m.corban_id ? String(m.corban_id) : null;
-      const vendor = cid ? (vendorMap[cid] || {}) : {};
-      const mProps = cid ? allProposals.filter(p => String(p.vendedor_id) === cid) : [];
-      const paid   = mProps.filter(p => p.datas?.pagamento);
+      const vendor = cid && !weekend ? (vendorMap[cid] || {}) : {};
+      const mProps = cid && !weekend ? allProposals.filter(p => String(p.vendedor_id) === cid) : [];
+      const paid   = mProps.filter(isWeekdayPaid);
       const valor  = mProps.reduce((s, p) => s + parseFloat(p.proposta?.valor_referencia || 0), 0);
 
       return {
@@ -270,7 +299,7 @@ router.get('/:id/members/stats', authMiddleware, async (req, res) => {
       contratos_pagos:  acc.contratos_pagos  + m.contratos_pagos,
     }), { qtd_propostas: 0, valor_referencia: 0, contratos_pagos: 0 });
 
-    res.json({ group: groupRows[0], date, members: memberStats, totals });
+    res.json({ group: groupRows[0], date, is_business_day: !weekend, members: memberStats, totals });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao buscar stats dos membros' });
@@ -355,10 +384,10 @@ router.get('/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// POST /api/groups - criar grupo (apenas admin)
+// POST /api/groups - criar grupo (apenas admin master)
 router.post('/', authMiddleware, uploadPhoto('photo'), async (req, res) => {
   if (req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Apenas o administrador pode criar equipes' });
+    return res.status(403).json({ error: 'Apenas o administrador master pode criar equipes' });
   }
 
   const { name } = req.body;
@@ -406,8 +435,13 @@ router.put('/:id', authMiddleware, uploadPhoto('photo'), async (req, res) => {
     const { id } = req.params;
     const { name } = req.body;
 
-    // Verificar se o usuário é capitão do grupo ou admin
-    if (req.user.role !== 'admin') {
+    // Verificar permissão: master, sub-admin do escopo ou capitão
+    if (req.user.role === 'team_admin') {
+      req.managedGroupIds = await getManagedGroupIds(req.user.id);
+      if (!canAccessGroup(req, id)) {
+        return res.status(403).json({ error: 'Sem permissão para esta equipe' });
+      }
+    } else if (req.user.role !== 'admin') {
       const { rows } = await db.query(
         'SELECT id FROM group_memberships WHERE user_id = $1 AND group_id = $2 AND is_captain = true',
         [req.user.id, id]
