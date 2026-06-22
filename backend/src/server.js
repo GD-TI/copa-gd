@@ -16,13 +16,17 @@ const settingsRoutes = require('./routes/settings');
 const { router: eventsRouter } = require('./routes/events');
 const { startScheduler } = require('./services/scheduler');
 const { seed } = require('./db/seed');
+const { validateDatabaseUrl } = require('./config/validateDb');
 
 const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 const isProd = process.env.NODE_ENV === 'production';
+// Hostinger: use SERVE_STATIC=true ou NODE_ENV=production
 const serveStatic = isProd || process.env.SERVE_STATIC === 'true';
-const frontendDist = path.join(__dirname, '../../frontend/dist');
+const frontendDist = path.resolve(__dirname, '../../frontend/dist');
+const fs = require('fs');
+const distExists = fs.existsSync(frontendDist);
 
 app.use(cors({
   origin: process.env.CORS_ORIGIN || (serveStatic ? false : '*'),
@@ -48,26 +52,42 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    mode: serveStatic ? 'fullstack' : 'api',
+    mode: serveStatic && distExists ? 'fullstack' : 'api',
+    serveStatic,
+    distExists,
+    distPath: frontendDist,
+    nodeEnv: process.env.NODE_ENV || 'unset',
   });
 });
 
 // Frontend estático (produção / website builder — uma única porta)
-if (serveStatic) {
-  const fs = require('fs');
-  if (fs.existsSync(frontendDist)) {
-    app.use(express.static(frontendDist, { index: false }));
-    app.get('*', (req, res, next) => {
-      if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
-        return next();
-      }
-      res.sendFile(path.join(frontendDist, 'index.html'), (err) => {
-        if (err) next(err);
-      });
+if (serveStatic && distExists) {
+  app.use(express.static(frontendDist, { index: false }));
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) return next();
+    res.sendFile(path.join(frontendDist, 'index.html'), (err) => {
+      if (err) next(err);
     });
-  } else {
-    console.warn(`[Server] SERVE_STATIC ativo mas ${frontendDist} não existe. Rode: npm run build`);
-  }
+  });
+} else if (serveStatic && !distExists) {
+  console.warn(`[Server] SERVE_STATIC ativo mas pasta não existe: ${frontendDist}`);
+  app.get('/', (req, res) => {
+    res.status(503).json({
+      error: 'Frontend não buildado',
+      hint: 'Confirme que o build rodou: npm run build',
+      distPath: frontendDist,
+      health: '/api/health',
+    });
+  });
+} else {
+  app.get('/', (req, res) => {
+    res.status(503).json({
+      error: 'Modo API apenas',
+      hint: 'No painel Hostinger: NODE_ENV=production e SERVE_STATIC=true',
+      health: '/api/health',
+    });
+  });
 }
 
 // 404 API
@@ -84,8 +104,17 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, HOST, async () => {
-  console.log(`🏆 Copa GD rodando em http://${HOST}:${PORT} (${serveStatic ? 'API + frontend' : 'API'})`);
+  const mode = serveStatic && distExists ? 'API + frontend' : 'API';
+  console.log(`🏆 Copa GD rodando em http://${HOST}:${PORT} (${mode})`);
+  console.log(`[Server] NODE_ENV=${process.env.NODE_ENV || 'unset'} SERVE_STATIC=${process.env.SERVE_STATIC || 'unset'} dist=${distExists ? 'ok' : 'AUSENTE'}`);
+  if (!distExists && serveStatic) console.warn(`[Server] dist esperado em: ${frontendDist}`);
   setTimeout(async () => {
+    const dbCheck = validateDatabaseUrl();
+    if (!dbCheck.ok) {
+      console.error(`[Server] ⚠️  ${dbCheck.message}`);
+      startScheduler();
+      return;
+    }
     try {
       await seed();
       startScheduler();

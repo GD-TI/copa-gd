@@ -77,7 +77,19 @@ async function seed() {
       console.log('[Seed] Campanha padrão criada:', firstDay, '→', lastDay);
     }
   } catch (err) {
-    console.error('[Seed] Erro:', err.message);
+    if (err.code === 'ENOTFOUND') {
+      const host = require('../config/validateDb').parseDbHost(process.env.DATABASE_URL);
+      console.error(
+        `[Seed] Erro: não foi possível resolver o host do banco "${host}". ` +
+        'Verifique DATABASE_URL no painel da Hostinger (host, usuário e senha reais).'
+      );
+    } else if (err.code === 'ECONNREFUSED') {
+      console.error('[Seed] Erro: conexão recusada. Confira host, porta (5432) e se o PostgreSQL aceita conexões externas.');
+    } else if (err.code === '42P01') {
+      console.error('[Seed] Erro: tabela não existe. Execute backend/src/db/schema.sql no banco antes do primeiro deploy.');
+    } else {
+      console.error('[Seed] Erro:', err.message);
+    }
   }
 }
 

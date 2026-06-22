@@ -112,6 +112,8 @@ export default function ShellAdminTeams({ groups, onRefresh }) {
   const [members, setMembers] = useState({})
   const [loadingMembers, setLoadingMembers] = useState(null)
   const [newTeamName, setNewTeamName] = useState('')
+  const [newTeamPhoto, setNewTeamPhoto] = useState(null)
+  const [newTeamPhotoPreview, setNewTeamPhotoPreview] = useState(null)
   const [creating, setCreating] = useState(false)
   const [allPlayers, setAllPlayers] = useState([])
   const [addUserId, setAddUserId] = useState({})
@@ -146,18 +148,53 @@ export default function ShellAdminTeams({ groups, onRefresh }) {
     }
   }
 
+  const handleNewTeamPhoto = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      showToast('Selecione uma imagem (JPG, PNG, etc.)', false)
+      return
+    }
+    setNewTeamPhoto(file)
+    setNewTeamPhotoPreview(URL.createObjectURL(file))
+  }
+
   const handleCreate = async () => {
     if (!newTeamName.trim()) return
     setCreating(true)
     try {
-      await api.post('/admin/groups', { name: newTeamName.trim() })
+      const formData = new FormData()
+      formData.append('name', newTeamName.trim())
+      if (newTeamPhoto) formData.append('photo', newTeamPhoto)
+      await api.post('/admin/groups', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
       showToast('Equipe criada!')
       setNewTeamName('')
+      setNewTeamPhoto(null)
+      setNewTeamPhotoPreview(null)
       onRefresh()
     } catch (e) {
       showToast(e.response?.data?.error || 'Erro ao criar equipe', false)
     } finally {
       setCreating(false)
+    }
+  }
+
+  const handlePhotoChange = async (groupId, file) => {
+    if (!file || !file.type.startsWith('image/')) {
+      showToast('Selecione uma imagem (JPG, PNG, etc.)', false)
+      return
+    }
+    setBusy(`photo-${groupId}`)
+    try {
+      const formData = new FormData()
+      formData.append('photo', file)
+      await api.put(`/groups/${groupId}`, formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+      showToast('Foto atualizada!')
+      onRefresh()
+    } catch (e) {
+      showToast(e.response?.data?.error || 'Erro ao enviar foto', false)
+    } finally {
+      setBusy(null)
     }
   }
 
@@ -220,7 +257,25 @@ export default function ShellAdminTeams({ groups, onRefresh }) {
       <AddPlayerForm groups={groups} onAdded={() => { loadPlayers(); onRefresh() }} />
 
       <div className="card" style={{ marginBottom: 12 }}>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="s-av"
+            style={{ width: 52, height: 52, flexShrink: 0, cursor: 'pointer', border: '2px dashed var(--border)' }}
+            title="Foto da equipe (opcional)"
+            onClick={() => document.getElementById('new-team-photo')?.click()}
+          >
+            {newTeamPhotoPreview
+              ? <img src={newTeamPhotoPreview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }} />
+              : <span style={{ fontSize: 18, color: 'var(--txt3)' }}>📷</span>}
+          </button>
+          <input
+            id="new-team-photo"
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={handleNewTeamPhoto}
+          />
           <div className="field-group" style={{ flex: 1, minWidth: 200, margin: 0 }}>
             <label className="field-label">Nova Equipe</label>
             <input
@@ -248,9 +303,30 @@ export default function ShellAdminTeams({ groups, onRefresh }) {
             style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', cursor: 'pointer' }}
             onClick={() => toggleExpand(g.id)}
           >
-            <div className="s-av" style={{ width: 40, height: 40 }}>
+            <button
+              type="button"
+              className="s-av"
+              style={{ width: 40, height: 40, flexShrink: 0, cursor: 'pointer', padding: 0, border: 'none', background: 'none' }}
+              title="Alterar foto da equipe"
+              disabled={busy === `photo-${g.id}`}
+              onClick={e => {
+                e.stopPropagation()
+                document.getElementById(`team-photo-${g.id}`)?.click()
+              }}
+            >
               {g.photo_url ? <img src={g.photo_url} alt="" /> : ini(g.name)}
-            </div>
+            </button>
+            <input
+              id={`team-photo-${g.id}`}
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={e => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                if (file) handlePhotoChange(g.id, file)
+              }}
+            />
             <div style={{ flex: 1 }}>
               <div className="s-name">{g.name}</div>
               <div style={{ fontSize: 10, color: 'var(--txt3)', marginTop: 2 }}>
