@@ -42,7 +42,7 @@ async function seed() {
       ['META_DIA',           'Meta do Dia',           'Grupo atinge a meta diária de valor referência (contratos pagos)', '🎯', 5],
       ['META_SEMANA',        'Meta da Semana',        'Grupo atinge a meta semanal de valor referência',                '📅', 10],
       ['CONVERSAO',          'Taxa de Conversão',     'Taxa de pagamento do dia >= 25%',                                '📈', 5],
-      ['INDICACAO',          'Vendas por Indicação',  'A cada 5 contratos pagos por indicação',                         '👥', 10],
+      ['INDICACAO',          'Vendas por Indicação',  'A cada 5 contratos pagos em que origem contém "Indicação"',        '👥', 10],
       ['CONTRATO_10K',       'Contrato Acima de 10K', 'Por contrato com valor_referencia > R$ 10.000',                  '💰', 5],
       ['GOL_DE_PLACA',       'Gol de Placa',          'Grupo com o maior contrato pago do dia',                         '⚽', 15],
       ['TORCIDA_ORGANIZADA', 'Torcida Organizada',    'Todos os integrantes com >10 propostas no dia',                  '🎉', 20],
@@ -52,7 +52,10 @@ async function seed() {
       await db.query(
         `INSERT INTO scoring_rules (rule_name, label, description, icon, base_points)
          VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (rule_name) DO NOTHING`,
+         ON CONFLICT (rule_name) DO UPDATE SET
+           label = EXCLUDED.label,
+           description = EXCLUDED.description,
+           icon = EXCLUDED.icon`,
         [name, label, desc, icon, pts]
       );
     }

@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const externalApi = require('./externalApi');
 const { getRulePointsMap } = require('./scoringRules');
+const { filterPaidIndicacoes } = require('../utils/proposals');
 
 function toDateStr(date) {
   return date.toISOString().split('T')[0];
@@ -345,17 +346,25 @@ async function calculateScores(triggeredBy = null) {
     const gAll   = allProposals.filter(p => cids.includes(String(p.vendedor_id)));
     const paidAll = gAll.filter(p => p.datas?.pagamento);
 
-    const paidRefs  = paidAll.filter(p => p.proposta?.indicacao_id != null);
+    const paidRefs = filterPaidIndicacoes(paidAll);
     const refBatches = Math.floor(paidRefs.length / 5);
     if (refBatches > 0) {
-      await upsertEvent(g.id, campaignStart, 'INDICACAO', refBatches * rulePts.INDICACAO * todayMult,
-        `${paidRefs.length} contratos por indicação (${refBatches}× ${rulePts.INDICACAO} pts)`, todayMult > 1);
+      await upsertEvent(
+        g.id, campaignStart, 'INDICACAO',
+        refBatches * rulePts.INDICACAO * todayMult,
+        `${paidRefs.length} contrato(s) pagos com Indicação — ${refBatches} lote(s) de 5 × ${rulePts.INDICACAO} pts`,
+        todayMult > 1
+      );
+    } else {
+      await deleteEvent(g.id, campaignStart, 'INDICACAO');
     }
 
     const hvCount = paidAll.filter(p => parseFloat(p.proposta?.valor_referencia || 0) > 10000).length;
     if (hvCount > 0) {
       await upsertEvent(g.id, campaignStart, 'CONTRATO_10K', hvCount * rulePts.CONTRATO_10K * todayMult,
         `${hvCount} contrato(s) acima de R$ 10.000`, todayMult > 1);
+    } else {
+      await deleteEvent(g.id, campaignStart, 'CONTRATO_10K');
     }
   }
 
