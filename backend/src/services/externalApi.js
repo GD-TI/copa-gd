@@ -199,7 +199,13 @@ function buildRankingFilter(startDate, endDate) {
 }
 
 
-async function getRanking(startDate, endDate) {
+function isTokenError(err, data) {
+  if (err?.response?.status === 401) return true;
+  const msg = (err?.message || data?.message || data?.error || '').toLowerCase();
+  return msg.includes('token') || msg.includes('unauthorized') || msg.includes('unauthenticated');
+}
+
+async function getRanking(startDate, endDate, _retry = true) {
   const token = await getToken();
   const filter = buildRankingFilter(startDate, endDate);
   const encodedFilter = encodeFilter(filter);
@@ -210,10 +216,18 @@ async function getRanking(startDate, endDate) {
       headers: authHeaders(token),
       timeout: 30000,
     });
+    // Resposta 200 mas com erro de token no corpo (ex: "Token mismatch")
+    if (data && typeof data === 'object' && isTokenError(null, data) && _retry) {
+      console.warn('[NewCorban] Token inválido no ranking, renovando e retentando...');
+      clearToken();
+      return getRanking(startDate, endDate, false);
+    }
     return data;
   } catch (err) {
-    if (err.response?.status === 401) {
+    if (isTokenError(err) && _retry) {
+      console.warn('[NewCorban] Token expirado no ranking, renovando e retentando...');
       clearToken();
+      return getRanking(startDate, endDate, false);
     }
     throw new Error(
       `Falha ao buscar ranking: ${err.response?.data?.message || err.message}`,
@@ -221,7 +235,7 @@ async function getRanking(startDate, endDate) {
   }
 }
 
-async function getProposals(startDate, endDate, vendedorIds = []) {
+async function getProposals(startDate, endDate, vendedorIds = [], _retry = true) {
   const cacheKey = `proposals:${startDate}:${endDate}:${[...vendedorIds].sort().join(',')}`;
 
   // Retorna do cache se ainda válido
@@ -269,6 +283,7 @@ async function getProposals(startDate, endDate, vendedorIds = []) {
   try {
     return await promise;
   } catch (err) {
+    // getProposals usa auth própria (não o token v2), sem retry de token aqui
     throw new Error(`Falha ao buscar propostas: ${err.response?.data?.message || err.message}`);
   }
 }

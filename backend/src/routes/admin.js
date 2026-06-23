@@ -272,8 +272,8 @@ router.post('/users', async (req, res) => {
         'SELECT COUNT(user_id) as count FROM group_memberships WHERE group_id = $1',
         [group_id]
       );
-      if (parseInt(gc[0].count) >= 5) {
-        return res.status(400).json({ error: 'Grupo está cheio (máx. 5)' });
+      if (parseInt(gc[0].count) >= 6) {
+        return res.status(400).json({ error: 'Grupo está cheio (máx. 6)' });
       }
       await db.query(
         'INSERT INTO group_memberships (user_id, group_id, is_captain) VALUES ($1, $2, false)',
@@ -394,8 +394,8 @@ router.post('/users/:id/move-group', async (req, res) => {
       `SELECT COUNT(user_id) as count FROM group_memberships WHERE group_id = $1`,
       [group_id]
     );
-    if (parseInt(groupCheck[0].count) >= 5) {
-      return res.status(400).json({ error: 'Grupo de destino está cheio' });
+    if (parseInt(groupCheck[0].count) >= 6) {
+      return res.status(400).json({ error: 'Grupo de destino está cheio (máx. 6)' });
     }
 
     // Upsert na membership
@@ -563,8 +563,8 @@ router.post('/groups/:id/members', requireGroupAccess, async (req, res) => {
     const { rows: countRows } = await db.query(
       'SELECT COUNT(user_id) as count FROM group_memberships WHERE group_id = $1', [id]
     );
-    if (parseInt(countRows[0].count) >= 5) {
-      return res.status(400).json({ error: 'Equipe cheia (máximo 5 jogadores)' });
+    if (parseInt(countRows[0].count) >= 6) {
+      return res.status(400).json({ error: 'Equipe cheia (máximo 6 jogadores)' });
     }
 
     await db.query(
