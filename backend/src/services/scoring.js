@@ -108,7 +108,8 @@ async function calculateScores(triggeredBy = null) {
     JOIN group_memberships gm ON g.id = gm.group_id
     JOIN users u ON gm.user_id = u.id
     WHERE g.active = true AND u.active = true
-    GROUP BY g.id, g.name, g.daily_goal_value, g.weekly_goal_value
+    GROUP BY g.id, g.name, g.daily_goal_value, g.weekly_goal_value,
+             g.daily_goal_clt, g.daily_goal_fgts, g.weekly_goal_clt, g.weekly_goal_fgts
   `);
 
   if (groups.length === 0) {

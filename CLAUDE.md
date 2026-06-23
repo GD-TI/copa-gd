@@ -794,3 +794,7 @@ VITE_API_URL=http://localhost:3001
 | Jun/26 | Breakdown ×2 pouco visível | `MembersModal`: badge 🇧🇷, `base_points`, adversário |
 | Jun/26 | Sub-admins sem UI de gestão | `SubAdminsConfig` + role `team_admin` + `admin_team_scopes` |
 | Jun/26 | META_DIA sem bônus por superação | `META_DIA_PLUS30/50/100` (+10/+15/+20 pts); tier mais alto vence; ×2 em dia de jogo |
+| Jun/26 | `scoring.js` GROUP BY sem colunas CLT/FGTS | Adicionado `g.daily_goal_clt, g.daily_goal_fgts, g.weekly_goal_clt, g.weekly_goal_fgts` ao GROUP BY; sem isso o cron falhava com erro PostgreSQL a cada rodada |
+| Jun/26 | Cron sem guarda contra rodadas simultâneas | `scheduler.js`: flag `isRunning` + `finally` — se rodada anterior ainda está em andamento, a nova é pulada (evita esgotamento do pool DB) |
+| Jun/26 | App crashava sob carga (unhandledRejection) | `server.js`: handlers `process.on('unhandledRejection')` e `process.on('uncaughtException')` — erros async inesperados não derrubam mais o processo |
+| Jun/26 | Pool PostgreSQL sem keepalive (conexões mortas) | `db.js`: `keepAlive: true`, `idleTimeoutMillis: 30000`, `connectionTimeoutMillis: 5000`, `max: 10` — evita 403 quando firewall mata conexões idle |

@@ -4,6 +4,14 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
+// Evita crash do processo por erros async não capturados
+process.on('unhandledRejection', (reason) => {
+  console.error('[Server] UnhandledRejection:', reason instanceof Error ? reason.message : reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[Server] UncaughtException (recuperando):', err.message);
+});
+
 const express = require('express');
 const cors = require('cors');
 
