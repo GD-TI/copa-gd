@@ -448,7 +448,7 @@ Senha padrão `admin2026` — hash gerado por `bcrypt` no `seed.js` (10 rounds).
 
 ### Fluxo geral
 
-- Roda a cada 15 minutos via cron (`scheduler.js`)
+- Roda a cada **5 minutos** via cron (`scheduler.js` — `*/5 * * * *`)
 - Carrega `getRulePointsMap()` no início
 - Uma chamada cacheada de propostas: `campaignStart` → hoje, filtradas por dia útil
 - Itera cada dia da campanha; aplica regras diárias em dias úteis
@@ -905,8 +905,11 @@ VITE_API_URL=http://localhost:3001
 | Jun/26 | Sem proteção a brute-force no login | `middleware/rateLimiter.js`: 20 tentativas por IP em 15 min; aplicado em `POST /api/auth/login` |
 | Jun/26 | Pool sem conexões mínimas (cold-start lento) | `db.js`: `min: 2` — mantém 2 conexões aquecidas no pool |
 | Jun/26 | Cache `_cache` em `externalApi.js` sem limpeza automática | Entradas expiradas acumulavam na memória (nova chave a cada dia). Corrigido: `setInterval` de 10 min que remove entradas com `expiresAt` vencido |
+| Jun/23 | `individual-rankings` sempre retornava arrays vazios | 3 causas: (1) `end_date = NULL` → `new Date(null)` = epoch `"1970-01-01"` → API sem propostas; (2) `getProposals` sem filtro de vendedor → busca toda a empresa (timeout); (3) `responseCache` cacheava resultado vazio. Fix: `endRaw && endRaw < today ? endRaw : today`; passar `[...activeCorbans]` ao `getProposals`; `responseCache` ignora arrays vazios |
 | Jun/26 | SSE `clients` Set crescia ilimitado sob nginx da Hostinger | `req.on('close')` não dispara quando nginx fica no meio. Corrigido: limite `MAX_SSE_CLIENTS=50` + remoção proativa no catch do keepalive ping |
 | Jun/23 | `DELETE /api/admin/adjustments/:id` sem `authMiddleware` | Qualquer usuário podia deletar ajustes de pontos sem autenticação. Adicionado `authMiddleware, configAdminOnly` |
 | Jun/23 | Contagem de membros incluía usuários inativos no limite | `COUNT(user_id)` sem `JOIN users WHERE active=true` fazia membro desativado ocupar vaga — bloqueava adição do 6º jogador. Corrigido nas 3 queries de verificação de capacidade |
 | Jun/23 | `torcidaMap` undefined em TORCIDA_ORGANIZADA retroativa | Se fetch do ranking histórico falhava, `vendorMapByDate[dateStr]` era `undefined` e `.every()` lançava TypeError. Corrigido: `|| {}` no fallback |
 | Jun/23 | `parseFloat(null)` retornava `NaN` em `scoringRules.js` | Se `base_points` fosse NULL no banco, pontuação ficava `NaN`. Corrigido: fallback para `FALLBACK[rule] || 0` quando `isNaN(pts)` |
+| Jun/23 | Pontos perdidos em massa no ranking a cada rodada do cron | 2 causas: (1) `getProposals` lançava exceção → `allProposals=[]` → cron deletava CONVERSAO, INDICACAO, CONTRATO_10K para todos os grupos sem re-inserir; (2) `getRanking` lançava exceção → `vendorMap={}` → TORCIDA deletada para todos. Corrigido: flag `proposalsOk` — se `getProposals` lança, `return []` imediatamente (abort); flag `rankingOk` — se `getRanking` lança, TORCIDA é preservada (`torcidaDataAvailable`) |
+| Jun/23 | Cron documentado como "15 min" mas rodava a cada 5 min | `scheduler.js` usa `*/5 * * * *`. Corrigido no CLAUDE.md |

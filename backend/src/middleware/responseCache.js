@@ -4,6 +4,16 @@
 
 const _cache = new Map();
 
+// Retorna true quando o dado não tem utilidade para cachear (array vazio ou objeto com todos arrays vazios)
+function isEmptyResult(data) {
+  if (Array.isArray(data)) return data.length === 0;
+  if (data && typeof data === 'object') {
+    const vals = Object.values(data);
+    return vals.length > 0 && vals.every(v => Array.isArray(v) && v.length === 0);
+  }
+  return false;
+}
+
 function responseCache(ttlMs = 30_000) {
   return (req, res, next) => {
     const key = req.path;
@@ -19,7 +29,7 @@ function responseCache(ttlMs = 30_000) {
 
     res.setHeader('X-Cache', 'MISS');
     res.json = function(data) {
-      if (res.statusCode >= 200 && res.statusCode < 300) {
+      if (res.statusCode >= 200 && res.statusCode < 300 && !isEmptyResult(data)) {
         _cache.set(key, { data, expiresAt: Date.now() + ttlMs });
       }
       return origJson(data);

@@ -125,10 +125,11 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
     );
     if (!cs[0]) return res.json({ melhor_vendedor: [], rei_assistencias: [] });
 
-    const startDate = new Date(cs[0].start_date).toISOString().slice(0, 10);
-    const endRaw    = new Date(cs[0].end_date).toISOString().slice(0, 10);
     const today     = new Date().toISOString().slice(0, 10);
-    const endDate   = endRaw < today ? endRaw : today;
+    const startDate = new Date(cs[0].start_date).toISOString().slice(0, 10);
+    // end_date pode ser NULL (campanha em andamento) → usa today como limite
+    const endRaw    = cs[0].end_date ? new Date(cs[0].end_date).toISOString().slice(0, 10) : null;
+    const endDate   = endRaw && endRaw < today ? endRaw : today;
 
     // Apenas vendedores presentes em equipes ativas
     const { rows: activeMembers } = await db.query(`
@@ -140,7 +141,12 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
     `);
     const activeCorbans = new Set(activeMembers.map(r => String(r.corban_id)));
 
-    const proposalsMap = await getProposals(startDate, endDate);
+    if (activeCorbans.size === 0) {
+      return res.json({ melhor_vendedor: [], rei_assistencias: [] });
+    }
+
+    // Filtra por corban_ids ativos — mesmo cache que o scoring.js quando datas coincidem
+    const proposalsMap = await getProposals(startDate, endDate, [...activeCorbans]);
     const proposals    = Object.values(proposalsMap || {});
 
     // Apenas propostas pagas de vendedores em equipes ativas

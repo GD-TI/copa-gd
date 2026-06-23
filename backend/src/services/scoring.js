@@ -130,9 +130,11 @@ async function calculateScores(triggeredBy = null) {
   if (allCorbanIds.length === 0) { console.log('[Scoring] Nenhum corban_id configurado.'); return []; }
 
   // ── 2. Ranking de hoje (TORCIDA_ORGANIZADA) ──────────────────────────────
+  let rankingOk = false;
   const vendorMap = {};
   try {
     const rd = await externalApi.getRanking(todayStr, todayStr);
+    rankingOk = true; // API respondeu (pode ser vazio — válido)
     if (rd?.result) {
       Object.values(rd.result).forEach(v => {
         if (v.filter_value) vendorMap[String(v.filter_value)] = v;
@@ -142,11 +144,18 @@ async function calculateScores(triggeredBy = null) {
 
   // ── 4. Todas as propostas da campanha (uma chamada, cacheada) ─────────────
   let allProposals = [];
+  let proposalsOk = false;
   try {
     const pd = await externalApi.getProposals(campaignStart, todayStr, allCorbanIds);
     allProposals = pd ? filterByWeekdayCadastro(Object.values(pd)) : [];
+    proposalsOk = true;
     console.log(`[Scoring] ${allProposals.length} propostas em dias úteis (${campaignStart}→${todayStr})`);
   } catch (e) { console.error('[Scoring] Proposals error:', e.message); }
+
+  if (!proposalsOk) {
+    console.warn('[Scoring] ⚠️  API de propostas indisponível — rodada abortada para preservar pontuações');
+    return [];
+  }
 
   // ── 5. Dias com pontos em dobro ──────────────────────────────────────────
   const { rows: matchRows } = await db.query(
@@ -407,8 +416,11 @@ async function calculateScores(triggeredBy = null) {
 
       // TORCIDA_ORGANIZADA: hoje (ranking ao vivo) ou retroativo em dia de jogo (force)
       const torcidaMap = (isToday ? vendorMap : vendorMapByDate[dateStr]) || {};
+      const torcidaDataAvailable = isToday ? rankingOk : (vendorMapByDate[dateStr] !== undefined);
       if (isToday || (isForce && doubleDays.has(dateStr) && torcidaMap)) {
-        if (g.member_count >= 5 && s.cids.every(cid => (torcidaMap[cid]?.qtd_propostas || 0) > 10)) {
+        if (!torcidaDataAvailable) {
+          // Ranking indisponível — preserva evento existente sem avaliar
+        } else if (g.member_count >= 5 && s.cids.every(cid => (torcidaMap[cid]?.qtd_propostas || 0) > 10)) {
           dayEvents.push({
             group_id: g.id, event_date: dateStr, rule_name: 'TORCIDA_ORGANIZADA',
             points: rulePts.TORCIDA_ORGANIZADA * mult,
