@@ -14,6 +14,7 @@ process.on('uncaughtException', (err) => {
 
 const express = require('express');
 const cors = require('cors');
+const compression = require('compression');
 
 const authRoutes = require('./routes/auth');
 const groupRoutes = require('./routes/groups');
@@ -36,6 +37,14 @@ const serveStatic = isProd || process.env.SERVE_STATIC === 'true';
 const frontendDist = path.resolve(__dirname, '../../frontend/dist');
 const fs = require('fs');
 const distExists = fs.existsSync(frontendDist);
+
+// Confia no primeiro proxy (nginx) para obter o IP real do cliente (usado no rate limiter)
+app.set('trust proxy', 1);
+
+// Compressão gzip de todas as respostas (exceto SSE que precisa de stream contínuo)
+app.use(compression({
+  filter: (req, res) => req.path === '/api/events/stream' ? false : compression.filter(req, res),
+}));
 
 app.use(cors({
   origin: process.env.CORS_ORIGIN || (serveStatic ? false : '*'),

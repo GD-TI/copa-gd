@@ -13,7 +13,10 @@ async function getRulePointsMap() {
   if (cache && Date.now() - cacheAt < TTL) return cache;
   const { rows } = await db.query('SELECT rule_name, base_points FROM scoring_rules');
   const map = { ...FALLBACK };
-  rows.forEach(r => { map[r.rule_name] = parseFloat(r.base_points); });
+  rows.forEach(r => {
+    const pts = parseFloat(r.base_points);
+    map[r.rule_name] = isNaN(pts) ? (FALLBACK[r.rule_name] || 0) : pts;
+  });
   cache = map;
   cacheAt = Date.now();
   return map;

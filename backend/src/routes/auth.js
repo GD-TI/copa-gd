@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const db = require('../config/db');
 const { authMiddleware } = require('../middleware/auth');
 const { findUserByUsername } = require('../services/externalApi');
+const { loginRateLimiter } = require('../middleware/rateLimiter');
 
 const { getManagedGroupIds } = require('../services/adminScopes');
 
@@ -53,7 +54,7 @@ function signToken(user) {
 }
 
 // POST /api/auth/login — login pelo username NewCorban (ex: alessandro.ti)
-router.post('/login', async (req, res) => {
+router.post('/login', loginRateLimiter, async (req, res) => {
   const { username, password } = req.body;
 
   if (!username || !password) {

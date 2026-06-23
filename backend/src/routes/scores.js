@@ -7,9 +7,10 @@ const { getRulesList } = require('../services/scoringRules');
 const { getProposals } = require('../services/externalApi');
 const { isIndicacaoProposal } = require('../utils/proposals');
 const { getCadastroDateStr, isWeekdayPaid } = require('../utils/businessDays');
+const { responseCache } = require('../middleware/responseCache');
 
 // GET /api/scores/leaderboard - placar geral
-router.get('/leaderboard', authMiddleware, async (req, res) => {
+router.get('/leaderboard', authMiddleware, responseCache(30_000), async (req, res) => {
   try {
     const { rows } = await db.query(`
       SELECT
@@ -117,7 +118,7 @@ router.get('/rules', authMiddleware, async (req, res) => {
 });
 
 // GET /api/scores/individual-rankings - top 3 melhor vendedor e rei das assistências
-router.get('/individual-rankings', authMiddleware, async (req, res) => {
+router.get('/individual-rankings', authMiddleware, responseCache(60_000), async (req, res) => {
   try {
     const { rows: cs } = await db.query(
       'SELECT start_date, end_date FROM campaign_settings ORDER BY id DESC LIMIT 1'
@@ -190,7 +191,7 @@ router.get('/individual-rankings', authMiddleware, async (req, res) => {
 });
 
 // GET /api/scores/today-activity - equipes e jogadores que pontuaram hoje
-router.get('/today-activity', authMiddleware, async (req, res) => {
+router.get('/today-activity', authMiddleware, responseCache(30_000), async (req, res) => {
   try {
     const todayStr = new Date().toISOString().slice(0, 10);
 

@@ -269,10 +269,11 @@ router.post('/users', async (req, res) => {
 
     if (group_id && userRole === 'player') {
       const { rows: gc } = await db.query(
-        'SELECT COUNT(user_id) as count FROM group_memberships WHERE group_id = $1',
+        `SELECT COUNT(gm.user_id) as count FROM group_memberships gm
+         JOIN users u ON gm.user_id = u.id WHERE gm.group_id = $1 AND u.active = true`,
         [group_id]
       );
-      if (parseInt(gc[0].count) >= 6) {
+      if ((parseInt(gc[0].count) || 0) >= 6) {
         return res.status(400).json({ error: 'Grupo está cheio (máx. 6)' });
       }
       await db.query(
@@ -391,10 +392,11 @@ router.post('/users/:id/move-group', async (req, res) => {
 
     // Verificar vagas no grupo destino
     const { rows: groupCheck } = await db.query(
-      `SELECT COUNT(user_id) as count FROM group_memberships WHERE group_id = $1`,
+      `SELECT COUNT(gm.user_id) as count FROM group_memberships gm
+       JOIN users u ON gm.user_id = u.id WHERE gm.group_id = $1 AND u.active = true`,
       [group_id]
     );
-    if (parseInt(groupCheck[0].count) >= 6) {
+    if ((parseInt(groupCheck[0].count) || 0) >= 6) {
       return res.status(400).json({ error: 'Grupo de destino está cheio (máx. 6)' });
     }
 
@@ -561,9 +563,10 @@ router.post('/groups/:id/members', requireGroupAccess, async (req, res) => {
     }
 
     const { rows: countRows } = await db.query(
-      'SELECT COUNT(user_id) as count FROM group_memberships WHERE group_id = $1', [id]
+      `SELECT COUNT(gm.user_id) as count FROM group_memberships gm
+       JOIN users u ON gm.user_id = u.id WHERE gm.group_id = $1 AND u.active = true`, [id]
     );
-    if (parseInt(countRows[0].count) >= 6) {
+    if ((parseInt(countRows[0].count) || 0) >= 6) {
       return res.status(400).json({ error: 'Equipe cheia (máximo 6 jogadores)' });
     }
 
@@ -668,7 +671,7 @@ router.post('/groups/:id/points', requireGroupAccess, async (req, res) => {
 });
 
 // DELETE /api/admin/adjustments/:id
-router.delete('/adjustments/:id', async (req, res) => {
+router.delete('/adjustments/:id', authMiddleware, configAdminOnly, async (req, res) => {
   const { id } = req.params;
   try {
     if (!isMasterAdmin(req.user)) {

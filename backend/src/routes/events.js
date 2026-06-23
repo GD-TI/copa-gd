@@ -1,4 +1,5 @@
 const router = require('express').Router()
+const { invalidateResponseCache } = require('../middleware/responseCache')
 
 const clients = new Set()
 const MAX_SSE_CLIENTS = 50
@@ -41,6 +42,7 @@ router.get('/stream', (req, res) => {
 })
 
 function broadcast(event, data = {}) {
+  if (event === 'scores_updated') invalidateResponseCache()
   if (clients.size === 0) return
   const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
   const dead = []

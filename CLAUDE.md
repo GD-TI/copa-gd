@@ -625,6 +625,14 @@ O arquivo `frontend/dist/` gerado contém a URL do backend embutida.
 
 Se quiser HTTPS no backend, instale nginx + certbot no VPS:
 ```nginx
+# Gzip no nível nginx — aplica a assets estáticos e respostas que o Express não comprimiu
+gzip on;
+gzip_vary on;
+gzip_proxied any;
+gzip_comp_level 5;
+gzip_min_length 1000;
+gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
+
 server {
     listen 80;
     server_name api.seu-dominio.com.br;
@@ -634,6 +642,8 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_cache_bypass $http_upgrade;
         # SSE — sem buffer
         proxy_buffering off;
@@ -889,5 +899,14 @@ VITE_API_URL=http://localhost:3001
 | Jun/26 | Cron sem guarda contra rodadas simultâneas | `scheduler.js`: flag `isRunning` + `finally` — se rodada anterior ainda está em andamento, a nova é pulada (evita esgotamento do pool DB) |
 | Jun/26 | App crashava sob carga (unhandledRejection) | `server.js`: handlers `process.on('unhandledRejection')` e `process.on('uncaughtException')` — erros async inesperados não derrubam mais o processo |
 | Jun/26 | Pool PostgreSQL sem keepalive (conexões mortas) | `db.js`: `keepAlive: true`, `idleTimeoutMillis: 30000`, `connectionTimeoutMillis: 5000`, `max: 10` — evita 403 quando firewall mata conexões idle |
+| Jun/26 | N queries DB simultâneas quando vários usuários recebem SSE ao mesmo tempo | Cache de resposta 30s em `middleware/responseCache.js` aplicado em `/leaderboard`, `/today-activity` e `/individual-rankings`; cache invalidado via `invalidateResponseCache()` no `broadcast('scores_updated')` |
+| Jun/26 | Sem compressão gzip nas respostas HTTP | Pacote `compression` adicionado ao Express (`server.js`); SSE excluído do filtro; nginx: `gzip on` + `X-Forwarded-For` headers |
+| Jun/26 | IP real do cliente invisível atrás do nginx | `app.set('trust proxy', 1)` em `server.js`; rate limiter usa `req.ip` corretamente |
+| Jun/26 | Sem proteção a brute-force no login | `middleware/rateLimiter.js`: 20 tentativas por IP em 15 min; aplicado em `POST /api/auth/login` |
+| Jun/26 | Pool sem conexões mínimas (cold-start lento) | `db.js`: `min: 2` — mantém 2 conexões aquecidas no pool |
 | Jun/26 | Cache `_cache` em `externalApi.js` sem limpeza automática | Entradas expiradas acumulavam na memória (nova chave a cada dia). Corrigido: `setInterval` de 10 min que remove entradas com `expiresAt` vencido |
 | Jun/26 | SSE `clients` Set crescia ilimitado sob nginx da Hostinger | `req.on('close')` não dispara quando nginx fica no meio. Corrigido: limite `MAX_SSE_CLIENTS=50` + remoção proativa no catch do keepalive ping |
+| Jun/23 | `DELETE /api/admin/adjustments/:id` sem `authMiddleware` | Qualquer usuário podia deletar ajustes de pontos sem autenticação. Adicionado `authMiddleware, configAdminOnly` |
+| Jun/23 | Contagem de membros incluía usuários inativos no limite | `COUNT(user_id)` sem `JOIN users WHERE active=true` fazia membro desativado ocupar vaga — bloqueava adição do 6º jogador. Corrigido nas 3 queries de verificação de capacidade |
+| Jun/23 | `torcidaMap` undefined em TORCIDA_ORGANIZADA retroativa | Se fetch do ranking histórico falhava, `vendorMapByDate[dateStr]` era `undefined` e `.every()` lançava TypeError. Corrigido: `|| {}` no fallback |
+| Jun/23 | `parseFloat(null)` retornava `NaN` em `scoringRules.js` | Se `base_points` fosse NULL no banco, pontuação ficava `NaN`. Corrigido: fallback para `FALLBACK[rule] || 0` quando `isNaN(pts)` |

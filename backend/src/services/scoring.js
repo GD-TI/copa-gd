@@ -406,7 +406,7 @@ async function calculateScores(triggeredBy = null) {
       }
 
       // TORCIDA_ORGANIZADA: hoje (ranking ao vivo) ou retroativo em dia de jogo (force)
-      const torcidaMap = isToday ? vendorMap : vendorMapByDate[dateStr];
+      const torcidaMap = (isToday ? vendorMap : vendorMapByDate[dateStr]) || {};
       if (isToday || (isForce && doubleDays.has(dateStr) && torcidaMap)) {
         if (g.member_count >= 5 && s.cids.every(cid => (torcidaMap[cid]?.qtd_propostas || 0) > 10)) {
           dayEvents.push({
