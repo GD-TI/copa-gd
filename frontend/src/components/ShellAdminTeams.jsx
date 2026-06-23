@@ -121,7 +121,7 @@ function AddPlayerForm({ groups, onAdded }) {
           <select className="field-input" style={{ width: 160 }} value={groupId} onChange={e => setGroupId(e.target.value)}>
             <option value="">Sem equipe</option>
             {groups.map(g => (
-              <option key={g.id} value={g.id}>{g.name} ({g.member_count}/5)</option>
+              <option key={g.id} value={g.id}>{g.name} ({g.member_count}/6)</option>
             ))}
           </select>
           <button className="btn btn-gold" onClick={handleAdd} disabled={saving}>
@@ -374,7 +374,7 @@ export default function ShellAdminTeams({ groups, onRefresh, isMaster = true }) 
             <div style={{ flex: 1 }}>
               <div className="s-name">{g.name}</div>
               <div style={{ fontSize: 10, color: 'var(--txt3)', marginTop: 2 }}>
-                {g.member_count}/5 membros
+                {g.member_count}/6 membros
                 {g.daily_goal_value > 0 && ` · Meta dia: R$ ${Number(g.daily_goal_value).toLocaleString('pt-BR')}`}
                 {g.weekly_goal_value > 0 && ` · Semana: R$ ${Number(g.weekly_goal_value).toLocaleString('pt-BR')}`}
               </div>
@@ -441,7 +441,7 @@ export default function ShellAdminTeams({ groups, onRefresh, isMaster = true }) 
                 </div>
               ))}
 
-              {(members[g.id] || []).length < 5 && (
+              {(members[g.id] || []).length < 6 && (
                 <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
                   <select
                     className="field-input"
