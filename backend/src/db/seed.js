@@ -22,6 +22,10 @@ async function seed() {
       `ALTER TABLE groups ADD COLUMN IF NOT EXISTS photo_data       BYTEA`,
       `ALTER TABLE groups ADD COLUMN IF NOT EXISTS photo_mime       VARCHAR(50)`,
       `ALTER TABLE users  ADD COLUMN IF NOT EXISTS needs_password_setup BOOLEAN DEFAULT false`,
+      `ALTER TABLE groups ADD COLUMN IF NOT EXISTS daily_goal_clt   NUMERIC DEFAULT 0`,
+      `ALTER TABLE groups ADD COLUMN IF NOT EXISTS daily_goal_fgts  NUMERIC DEFAULT 0`,
+      `ALTER TABLE groups ADD COLUMN IF NOT EXISTS weekly_goal_clt  NUMERIC DEFAULT 0`,
+      `ALTER TABLE groups ADD COLUMN IF NOT EXISTS weekly_goal_fgts NUMERIC DEFAULT 0`,
     ];
     for (const sql of migrations) {
       try { await db.query(sql); } catch (err) {
@@ -53,6 +57,10 @@ async function seed() {
       ['META_DIA_PLUS50',    'Meta +50%',             'Bônus: equipe ultrapassa 50% acima da meta diária',              '💥', 15],
       ['META_DIA_PLUS100',   'Meta +100%',            'Bônus: equipe atinge o dobro da meta diária',                    '🚀', 20],
       ['META_SEMANA',        'Meta da Semana',        'Grupo atinge a meta semanal de valor referência',                '📅', 10],
+      ['META_DIA_CLT',       'Meta Diária CLT',       'Grupo atinge a meta diária de CLT (produto_id 13)',               '📋', 5],
+      ['META_DIA_FGTS',      'Meta Diária FGTS',      'Grupo atinge a meta diária de FGTS (produto_id 7)',               '💰', 5],
+      ['META_SEMANA_CLT',    'Meta Semanal CLT',      'Grupo atinge a meta semanal de CLT (produto_id 13)',              '📋', 10],
+      ['META_SEMANA_FGTS',   'Meta Semanal FGTS',     'Grupo atinge a meta semanal de FGTS (produto_id 7)',              '💰', 10],
       ['CONVERSAO',          'Taxa de Conversão',     'Taxa de pagamento do dia >= 80%',                                '📈', 5],
       ['INDICACAO',          'Vendas por Indicação',  'A cada 5 contratos pagos em que origem contém "Indicação"',        '👥', 10],
       ['CONTRATO_10K',       'Contrato Acima de 10K', 'Por contrato com valor_referencia > R$ 10.000',                  '💰', 5],

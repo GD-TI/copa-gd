@@ -6,6 +6,7 @@ const { broadcast } = require('./events');
 const { getRulesList } = require('../services/scoringRules');
 const { getProposals } = require('../services/externalApi');
 const { isIndicacaoProposal } = require('../utils/proposals');
+const { getCadastroDateStr, isWeekdayPaid } = require('../utils/businessDays');
 
 // GET /api/scores/leaderboard - placar geral
 router.get('/leaderboard', authMiddleware, async (req, res) => {
@@ -185,6 +186,97 @@ router.get('/individual-rankings', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('[IndividualRankings]', err.message);
     res.status(500).json({ error: 'Erro ao buscar rankings individuais' });
+  }
+});
+
+// GET /api/scores/today-activity - equipes e jogadores que pontuaram hoje
+router.get('/today-activity', authMiddleware, async (req, res) => {
+  try {
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    const { rows: eventRows } = await db.query(`
+      SELECT
+        g.id, g.name, g.photo_url,
+        se.rule_name, se.points, se.description, se.is_double_points,
+        sr.label, sr.icon,
+        SUM(se.points) OVER (PARTITION BY g.id) AS today_total
+      FROM score_events se
+      JOIN groups g ON se.group_id = g.id
+      LEFT JOIN scoring_rules sr ON se.rule_name = sr.rule_name
+      WHERE se.event_date = $1 AND g.active = true
+      ORDER BY today_total DESC, se.points DESC
+    `, [todayStr]);
+
+    const { rows: memberRows } = await db.query(`
+      SELECT g.id AS group_id, u.corban_id, u.display_name
+      FROM groups g
+      JOIN group_memberships gm ON g.id = gm.group_id
+      JOIN users u ON gm.user_id = u.id
+      WHERE g.active = true AND u.active = true AND u.corban_id IS NOT NULL
+    `);
+
+    const groupMembers = {};
+    memberRows.forEach(r => {
+      if (!groupMembers[r.group_id]) groupMembers[r.group_id] = [];
+      groupMembers[r.group_id].push({ corban_id: String(r.corban_id), name: r.display_name });
+    });
+
+    // Propostas do dia para stats por jogador (usa cache da campanha)
+    const playerStats = {};
+    try {
+      const { rows: cs } = await db.query('SELECT start_date FROM campaign_settings ORDER BY id DESC LIMIT 1');
+      const campaignStart = cs[0] ? new Date(cs[0].start_date).toISOString().slice(0, 10) : todayStr;
+      const allCorbans = memberRows.map(r => r.corban_id).filter(Boolean);
+      if (allCorbans.length > 0) {
+        const pd = await getProposals(campaignStart, todayStr, allCorbans);
+        Object.values(pd || {}).forEach(p => {
+          if (getCadastroDateStr(p) !== todayStr) return;
+          const vid = String(p.vendedor_id);
+          if (!playerStats[vid]) playerStats[vid] = { valor: 0, contratos: 0, pagos: 0 };
+          playerStats[vid].contratos++;
+          if (isWeekdayPaid(p)) {
+            playerStats[vid].pagos++;
+            playerStats[vid].valor += parseFloat(p.proposta?.valor_referencia || 0);
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('[TodayActivity] proposals:', e.message);
+    }
+
+    const grouped = {};
+    for (const row of eventRows) {
+      if (!grouped[row.id]) {
+        grouped[row.id] = {
+          id: row.id, name: row.name, photo_url: row.photo_url,
+          today_points: parseFloat(row.today_total),
+          events: [],
+          top_players: [],
+        };
+      }
+      grouped[row.id].events.push({
+        rule_name: row.rule_name,
+        points: parseFloat(row.points),
+        label: row.label || row.rule_name,
+        icon: row.icon || '📊',
+        description: row.description,
+        is_double: row.is_double_points,
+      });
+    }
+
+    for (const [gid, members] of Object.entries(groupMembers)) {
+      if (!grouped[gid]) continue;
+      grouped[gid].top_players = members
+        .map(m => ({ name: m.name, ...(playerStats[m.corban_id] || { valor: 0, contratos: 0, pagos: 0 }) }))
+        .filter(p => p.contratos > 0)
+        .sort((a, b) => b.valor - a.valor || b.pagos - a.pagos)
+        .slice(0, 5);
+    }
+
+    res.json({ date: todayStr, groups: Object.values(grouped) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao buscar atividade do dia' });
   }
 });
 

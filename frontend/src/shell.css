@@ -979,3 +979,45 @@ input[type="text"].field-input {
 .ir-card-full .ir-rank-lbl { font-size:10px; }
 .ir-card-full .ir-name { font-size:15px; }
 .ir-card-full .ir-value { font-size:13px; }
+
+/* ── Pontos do Dia ────────────────────────────────────────── */
+.td-empty-state { padding:48px 28px; text-align:center; font-size:13px; color:var(--txt3); }
+.td-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:14px; padding:0 28px 28px; }
+@media(max-width:600px){ .td-grid { grid-template-columns:1fr; padding:0 12px 20px; } }
+
+.td-card { background:var(--card-bg); border:1px solid var(--card-border); border-radius:14px; overflow:hidden; }
+.td-card-head { display:flex; align-items:center; gap:10px; padding:14px 16px 10px; border-bottom:1px solid var(--card-border); }
+.td-team-photo { width:36px; height:36px; border-radius:50%; object-fit:cover; flex-shrink:0; }
+.td-team-avatar { width:36px; height:36px; border-radius:50%; background:var(--gold-mid); color:#fff; display:flex; align-items:center; justify-content:center; font:700 13px/1 var(--font); flex-shrink:0; }
+.td-team-name { font:600 14px/1.2 var(--font); color:var(--txt); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.td-today-pts { font:700 13px/1 var(--font); color:var(--gold); white-space:nowrap; }
+
+.td-events { padding:10px 16px; display:flex; flex-direction:column; gap:6px; }
+.td-event { display:flex; align-items:flex-start; gap:8px; }
+.td-ev-icon { font-size:16px; line-height:1.4; flex-shrink:0; }
+.td-ev-body { flex:1; min-width:0; }
+.td-ev-top { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.td-ev-label { font:600 12px/1 var(--font); color:var(--txt); }
+.td-ev-double { font-size:10px; background:rgba(34,197,94,.15); color:#22c55e; border-radius:4px; padding:1px 5px; }
+.td-ev-pts { font:700 12px/1 var(--font); color:var(--gold); margin-left:auto; }
+.td-ev-desc { font:400 11px/1.4 var(--font); color:var(--txt3); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+.td-players { padding:8px 16px 12px; border-top:1px solid var(--card-border); }
+.td-players-title { font:600 10px/1 var(--font); color:var(--txt3); text-transform:uppercase; letter-spacing:.5px; margin-bottom:6px; }
+.td-player { display:flex; justify-content:space-between; align-items:center; padding:3px 0; gap:8px; }
+.td-pl-name { font:500 12px/1 var(--font); color:var(--txt); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.td-pl-stats { font:400 11px/1 var(--font); color:var(--txt3); white-space:nowrap; flex-shrink:0; }
+
+/* Telão — Pontos do Dia */
+.tl-today-empty { display:flex; align-items:center; justify-content:center; height:100%; font-size:16px; color:rgba(255,255,255,.35); }
+.tl-today-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:14px; padding:8px 0; overflow-y:auto; max-height:100%; }
+.tl-td-card { background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); border-radius:12px; padding:12px 14px; }
+.tl-td-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.tl-td-photo { width:32px; height:32px; border-radius:50%; object-fit:cover; flex-shrink:0; }
+.tl-td-avatar { width:32px; height:32px; border-radius:50%; background:var(--gold-mid,#c9a227); color:#fff; display:flex; align-items:center; justify-content:center; font:700 11px/1 sans-serif; flex-shrink:0; }
+.tl-td-name { font:600 14px/1 var(--tl-font,sans-serif); color:var(--tl-txt,#fff); flex:1; }
+.tl-td-pts { font:700 14px/1 var(--tl-font,sans-serif); color:#fbbf24; }
+.tl-td-events { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:6px; }
+.tl-td-badge { font:600 11px/1 var(--tl-font,sans-serif); background:rgba(255,255,255,.1); border-radius:6px; padding:3px 7px; color:rgba(255,255,255,.85); }
+.tl-td-players { display:flex; flex-wrap:wrap; gap:4px; }
+.tl-td-player { font:400 10px/1 var(--tl-font,sans-serif); color:rgba(255,255,255,.5); background:rgba(255,255,255,.05); border-radius:4px; padding:2px 6px; }

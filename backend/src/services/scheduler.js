@@ -3,7 +3,7 @@ const { calculateScores } = require('./scoring');
 const { broadcast } = require('../routes/events');
 
 function startScheduler() {
-  cron.schedule('*/15 * * * *', async () => {
+  cron.schedule('*/5 * * * *', async () => {
     console.log('[Scheduler] 🕐 Iniciando cálculo automático de pontuações...');
     try {
       await calculateScores(null);
@@ -16,7 +16,7 @@ function startScheduler() {
     timezone: 'America/Sao_Paulo',
   });
 
-  console.log('[Scheduler] ⏰ Agendador de pontuações iniciado (a cada 15 min).');
+  console.log('[Scheduler] ⏰ Agendador de pontuações iniciado (a cada 5 min).');
 }
 
 module.exports = { startScheduler };

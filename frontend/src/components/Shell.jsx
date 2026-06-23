@@ -3,12 +3,13 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import ShellRanking from '../pages/ShellRanking'
 import ShellRankingIndividual from '../pages/ShellRankingIndividual'
+import ShellRankingToday from '../pages/ShellRankingToday'
 import ShellConfig from '../pages/ShellConfig'
 import ShellMyGroup from '../pages/ShellMyGroup'
 import { applyTheme, writeThemeCookie } from '../utils/theme'
 import '../shell.css'
 
-const PAGE_TITLES = { ranking: 'Ranking Equipe', rankingind: 'Ranking Individual', config: 'Configuração', meugrupo: 'Meu Grupo' }
+const PAGE_TITLES = { ranking: 'Ranking Equipe', rankingind: 'Ranking Individual', rankingtoday: 'Pontos do Dia', config: 'Configuração', meugrupo: 'Meu Grupo' }
 
 export default function Shell() {
   const { user, logout } = useAuth()
@@ -72,6 +73,10 @@ export default function Shell() {
           <div className={`sb-item ${page === 'rankingind' ? 'active' : ''}`} onClick={() => navTo('rankingind')}>
             <div className="sb-item-icon">🏅</div>
             <span className="sb-item-lbl">Ranking Individual</span>
+          </div>
+          <div className={`sb-item ${page === 'rankingtoday' ? 'active' : ''}`} onClick={() => navTo('rankingtoday')}>
+            <div className="sb-item-icon">⚡</div>
+            <span className="sb-item-lbl">Pontos do Dia</span>
           </div>
           {user?.role === 'player' && (
             <div className={`sb-item ${page === 'meugrupo' ? 'active' : ''}`} onClick={() => navTo('meugrupo')}>
@@ -150,6 +155,9 @@ export default function Shell() {
           </div>
           <div className={`page ${page === 'rankingind' ? 'active' : ''}`}>
             <ShellRankingIndividual />
+          </div>
+          <div className={`page ${page === 'rankingtoday' ? 'active' : ''}`}>
+            <ShellRankingToday />
           </div>
           {user?.role === 'player' && (
             <div className={`page ${page === 'meugrupo' ? 'active' : ''}`}>

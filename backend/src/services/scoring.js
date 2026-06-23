@@ -31,7 +31,11 @@ function getWeekStart(date) {
   return d;
 }
 
-const DAILY_RULES = ['META_DIA', 'META_DIA_PLUS30', 'META_DIA_PLUS50', 'META_DIA_PLUS100', 'CONVERSAO', 'GOL_DE_PLACA', 'ARTILHEIRO', 'TORCIDA_ORGANIZADA'];
+const DAILY_RULES = ['META_DIA', 'META_DIA_PLUS30', 'META_DIA_PLUS50', 'META_DIA_PLUS100', 'META_DIA_CLT', 'META_DIA_FGTS', 'CONVERSAO', 'GOL_DE_PLACA', 'ARTILHEIRO', 'TORCIDA_ORGANIZADA'];
+
+function getProductoId(p) {
+  return String(p.produto_id || p.proposta?.produto_id || '');
+}
 
 function sumValorRef(proposals) {
   return proposals.reduce((s, p) => s + parseFloat(p.proposta?.valor_referencia || 0), 0);
@@ -97,6 +101,7 @@ async function calculateScores(triggeredBy = null) {
   const { rows: groups } = await db.query(`
     SELECT
       g.id, g.name, g.daily_goal_value, g.weekly_goal_value,
+      g.daily_goal_clt, g.daily_goal_fgts, g.weekly_goal_clt, g.weekly_goal_fgts,
       COUNT(DISTINCT gm.user_id)::int AS member_count,
       ARRAY_AGG(u.corban_id) FILTER (WHERE u.corban_id IS NOT NULL) AS corban_ids
     FROM groups g
@@ -235,7 +240,11 @@ async function calculateScores(triggeredBy = null) {
       const gPaid = gDay.filter(isWeekdayPaid);
       const gValor = sumValorRef(gPaid);
       const gMaxC  = gPaid.reduce((mx, p) => Math.max(mx, parseFloat(p.proposta?.valor_referencia || 0)), 0);
-      gStats[g.id] = { cids, gDay, gPaid, gValor, gMaxC };
+      const gPaidClt  = gPaid.filter(p => getProductoId(p) === '13');
+      const gPaidFgts = gPaid.filter(p => getProductoId(p) === '7');
+      const gValorClt  = sumValorRef(gPaidClt);
+      const gValorFgts = sumValorRef(gPaidFgts);
+      gStats[g.id] = { cids, gDay, gPaid, gValor, gMaxC, gValorClt, gValorFgts };
     }
 
     // Máximos globais para regras competitivas
@@ -332,6 +341,32 @@ async function calculateScores(triggeredBy = null) {
         await deleteEvent(g.id, dateStr, 'META_DIA_PLUS30');
         await deleteEvent(g.id, dateStr, 'META_DIA_PLUS50');
         await deleteEvent(g.id, dateStr, 'META_DIA_PLUS100');
+      }
+
+      // META_DIA_CLT: meta diária por produto CLT (produto_id 13)
+      const dailyGoalClt = parseFloat(g.daily_goal_clt || 0);
+      if (dailyGoalClt > 0 && s.gValorClt >= dailyGoalClt) {
+        dayEvents.push({
+          group_id: g.id, event_date: dateStr, rule_name: 'META_DIA_CLT',
+          points: (rulePts.META_DIA_CLT || 5) * mult,
+          description: `Meta CLT: R$ ${s.gValorClt.toFixed(2)} pagos / meta R$ ${dailyGoalClt.toFixed(2)}`,
+          is_double: mult > 1,
+        });
+      } else if (recalcDay) {
+        await deleteEvent(g.id, dateStr, 'META_DIA_CLT');
+      }
+
+      // META_DIA_FGTS: meta diária por produto FGTS (produto_id 7)
+      const dailyGoalFgts = parseFloat(g.daily_goal_fgts || 0);
+      if (dailyGoalFgts > 0 && s.gValorFgts >= dailyGoalFgts) {
+        dayEvents.push({
+          group_id: g.id, event_date: dateStr, rule_name: 'META_DIA_FGTS',
+          points: (rulePts.META_DIA_FGTS || 5) * mult,
+          description: `Meta FGTS: R$ ${s.gValorFgts.toFixed(2)} pagos / meta R$ ${dailyGoalFgts.toFixed(2)}`,
+          is_double: mult > 1,
+        });
+      } else if (recalcDay) {
+        await deleteEvent(g.id, dateStr, 'META_DIA_FGTS');
       }
 
       // CONVERSAO: taxa de pagamento do dia >= 80% (padrão)
@@ -437,6 +472,28 @@ async function calculateScores(triggeredBy = null) {
           weekMult > 1);
       } else if (isCurrentWeek || isForce || weekHasDouble) {
         await deleteEvent(g.id, wsStr, 'META_SEMANA');
+      }
+
+      // META_SEMANA_CLT
+      const gValorWeekClt = sumValorRef(gWeek.filter(p => getProductoId(p) === '13'));
+      const weeklyGoalClt = parseFloat(g.weekly_goal_clt || 0);
+      if (weeklyGoalClt > 0 && gValorWeekClt >= weeklyGoalClt) {
+        await upsertEvent(g.id, wsStr, 'META_SEMANA_CLT', (rulePts.META_SEMANA_CLT || 10) * weekMult,
+          `Meta semanal CLT: R$ ${gValorWeekClt.toFixed(2)} / meta R$ ${weeklyGoalClt.toFixed(2)} (${wsStr}→${weStr})${weekMult > 1 ? ' ×2' : ''}`,
+          weekMult > 1);
+      } else if (isCurrentWeek || isForce || weekHasDouble) {
+        await deleteEvent(g.id, wsStr, 'META_SEMANA_CLT');
+      }
+
+      // META_SEMANA_FGTS
+      const gValorWeekFgts = sumValorRef(gWeek.filter(p => getProductoId(p) === '7'));
+      const weeklyGoalFgts = parseFloat(g.weekly_goal_fgts || 0);
+      if (weeklyGoalFgts > 0 && gValorWeekFgts >= weeklyGoalFgts) {
+        await upsertEvent(g.id, wsStr, 'META_SEMANA_FGTS', (rulePts.META_SEMANA_FGTS || 10) * weekMult,
+          `Meta semanal FGTS: R$ ${gValorWeekFgts.toFixed(2)} / meta R$ ${weeklyGoalFgts.toFixed(2)} (${wsStr}→${weStr})${weekMult > 1 ? ' ×2' : ''}`,
+          weekMult > 1);
+      } else if (isCurrentWeek || isForce || weekHasDouble) {
+        await deleteEvent(g.id, wsStr, 'META_SEMANA_FGTS');
       }
     }
   }

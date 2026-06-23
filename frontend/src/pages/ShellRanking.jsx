@@ -282,11 +282,53 @@ function TelaoIndView({ indRankings }) {
   )
 }
 
-function Telao({ groups, campaign, indRankings, onClose }) {
+function TelaoTodayView({ todayActivity }) {
+  const groups = todayActivity?.groups || []
+  if (groups.length === 0) {
+    return (
+      <div className="tl-today-empty">Nenhuma equipe pontuou ainda hoje</div>
+    )
+  }
+  return (
+    <div className="tl-today-body">
+      {groups.map(g => (
+        <div key={g.id} className="tl-td-card">
+          <div className="tl-td-head">
+            {g.photo_url
+              ? <img src={g.photo_url} alt={g.name} className="tl-td-photo" />
+              : <div className="tl-td-avatar">{g.name.slice(0, 2).toUpperCase()}</div>
+            }
+            <span className="tl-td-name">{g.name}</span>
+            <span className="tl-td-pts">+{g.today_points} pts</span>
+          </div>
+          <div className="tl-td-events">
+            {g.events.map((ev, i) => (
+              <span key={i} className="tl-td-badge">
+                {ev.icon} {ev.label} <strong>+{ev.points}</strong>
+                {ev.is_double && ' 🇧🇷'}
+              </span>
+            ))}
+          </div>
+          {g.top_players?.length > 0 && (
+            <div className="tl-td-players">
+              {g.top_players.slice(0, 3).map((p, i) => (
+                <span key={i} className="tl-td-player">
+                  {p.name}{p.pagos > 0 ? ` · ${p.pagos}✓` : ''}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function Telao({ groups, campaign, indRankings, todayActivity, onClose }) {
   const [tlLight, setTlLight] = useState(false)
   const [clock, setClock] = useState('')
   const [dateStr, setDateStr] = useState('')
-  const [tlMode, setTlMode]   = useState('teams') // 'teams' | 'individual'
+  const [tlMode, setTlMode]   = useState('teams') // 'teams' | 'individual' | 'today'
   const [tlFade, setTlFade]   = useState(false)
 
   useEffect(() => {
@@ -311,12 +353,13 @@ function Telao({ groups, campaign, indRankings, onClose }) {
     return () => { document.exitFullscreen?.().catch(() => {}) }
   }, [])
 
-  // Alterna entre equipes e individual a cada 5 minutos com fade
+  // Cicla entre equipes → individual → pontos do dia a cada 5 minutos com fade
   useEffect(() => {
+    const MODES = ['teams', 'individual', 'today']
     const t = setInterval(() => {
       setTlFade(true)
       setTimeout(() => {
-        setTlMode(m => m === 'teams' ? 'individual' : 'teams')
+        setTlMode(m => MODES[(MODES.indexOf(m) + 1) % MODES.length])
         setTlFade(false)
       }, 500)
     }, 5 * 60 * 1000)
@@ -367,7 +410,7 @@ function Telao({ groups, campaign, indRankings, onClose }) {
           <div className="tl-hd-c">
             <div className="tl-hd-title">⚽ COPA GD 2026</div>
             <div className="tl-hd-sub">
-              {tlMode === 'teams' ? 'Ranking por Equipe' : '🏅 Rankings Individuais'}
+              {tlMode === 'teams' ? 'Ranking por Equipe' : tlMode === 'individual' ? '🏅 Rankings Individuais' : '⚡ Pontos do Dia'}
             </div>
           </div>
           <div className="tl-hd-r">
@@ -431,8 +474,10 @@ function Telao({ groups, campaign, indRankings, onClose }) {
                 </div>
               </div>
             </>
-          ) : (
+          ) : tlMode === 'individual' ? (
             <TelaoIndView indRankings={indRankings} />
+          ) : (
+            <TelaoTodayView todayActivity={todayActivity} />
           )}
         </div>
 
@@ -464,16 +509,18 @@ export default function ShellRanking() {
   const [loading, setLoading]         = useState(true)
   const [modalGroup, setModalGroup]   = useState(null)
   const [telaoOpen, setTelaoOpen]     = useState(false)
-  const [indRankings, setIndRankings] = useState(null)
+  const [indRankings, setIndRankings]     = useState(null)
+  const [todayActivity, setTodayActivity] = useState(null)
   const [sseConnected, setSseConnected] = useState(false)
   const [lastUpdate, setLastUpdate]     = useState(null)
   const debounceRef = useRef(null)
 
   // Carrega ranking e individuais de uma vez — uma única renderização
   const loadAll = useCallback(async () => {
-    const [r1, r2] = await Promise.allSettled([
+    const [r1, r2, r3] = await Promise.allSettled([
       api.get('/groups/ranking'),
       api.get('/scores/individual-rankings'),
+      api.get('/scores/today-activity'),
     ])
     if (r1.status === 'fulfilled') {
       const d = r1.value.data
@@ -481,6 +528,7 @@ export default function ShellRanking() {
       if (d.campaign) setCampaign(d.campaign)
     }
     if (r2.status === 'fulfilled') setIndRankings(r2.value.data)
+    if (r3.status === 'fulfilled') setTodayActivity(r3.value.data)
     setLoading(false)
     setLastUpdate(new Date())
   }, [])
@@ -524,7 +572,7 @@ export default function ShellRanking() {
       )}
 
       {telaoOpen && (
-        <Telao groups={groups} campaign={campaign} indRankings={indRankings} onClose={() => setTelaoOpen(false)} />
+        <Telao groups={groups} campaign={campaign} indRankings={indRankings} todayActivity={todayActivity} onClose={() => setTelaoOpen(false)} />
       )}
 
       {/* Campaign strip */}
