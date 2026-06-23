@@ -66,7 +66,7 @@ export default function ShellRankingIndividual() {
   useEffect(() => {
     loadAll()
 
-    const es = new EventSource('/api/events/stream')
+    const es = new EventSource((import.meta.env.VITE_API_URL || '') + '/api/events/stream')
     es.addEventListener('connected', () => setSseConnected(true))
     es.addEventListener('scores_updated', () => {
       clearTimeout(debounceRef.current)

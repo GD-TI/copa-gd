@@ -536,7 +536,7 @@ export default function ShellRanking() {
   useEffect(() => {
     loadAll()
 
-    const es = new EventSource('/api/events/stream')
+    const es = new EventSource((import.meta.env.VITE_API_URL || '') + '/api/events/stream')
 
     es.addEventListener('connected', () => setSseConnected(true))
 

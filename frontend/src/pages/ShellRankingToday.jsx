@@ -19,7 +19,7 @@ export default function ShellRankingToday() {
 
   useEffect(() => {
     load()
-    const es = new EventSource('/api/events/stream')
+    const es = new EventSource((import.meta.env.VITE_API_URL || '') + '/api/events/stream')
     es.addEventListener('scores_updated', () => {
       clearTimeout(debounceRef.current)
       debounceRef.current = setTimeout(() => load(), 800)

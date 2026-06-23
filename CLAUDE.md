@@ -554,6 +554,97 @@ O leaderboard **sempre filtra** `score_events` pelo período da campanha (`event
 
 ---
 
+## Deploy — Modo Split (Frontend Hostinger Estático + Backend no Servidor)
+
+> **Modo recomendado** — mais estável que Website Builder Node.js.
+
+### Visão geral
+
+| Camada | Onde | Como |
+|--------|------|------|
+| Frontend | Hostinger Static Hosting | Upload do `frontend/dist/` (HTML/CSS/JS estático) |
+| Backend | Seu servidor (VPS/Docker) | `docker compose up -d backend` na porta 3001 |
+| Banco | Seu servidor (mesmo VPS) | `docker compose up -d postgres` (já existente) |
+
+### Passos para configurar
+
+**1. No servidor (VPS) — arquivo `.env` na raiz:**
+```env
+NODE_ENV=production
+PORT=3001
+DATABASE_URL=postgresql://copa_user:senha@postgres:5432/copa_gd
+JWT_SECRET=...
+NEWCORBAN_USERNAME=...
+NEWCORBAN_PASSWORD=...
+NEWCORBAN_API_USERNAME=...
+NEWCORBAN_API_PASSWORD=...
+CORS_ORIGIN=https://seu-dominio.hostinger.com
+PUBLIC_BACKEND_URL=http://IP_DO_SERVIDOR:3001
+```
+
+**2. Subir backend no VPS:**
+```bash
+docker compose build backend
+docker compose up -d backend postgres
+```
+
+**3. Liberar porta no firewall do VPS:**
+```bash
+ufw allow 3001/tcp
+```
+Ou configurar nginx como proxy reverso na porta 80/443 (recomendado para HTTPS).
+
+**4. Build do frontend com a URL do backend:**
+```bash
+# Na sua máquina local, na pasta do projeto:
+VITE_API_URL=http://IP_DO_SERVIDOR:3001 npm run build:frontend
+# Ou se estiver no Windows:
+set VITE_API_URL=http://IP_DO_SERVIDOR:3001 && npm run build:frontend
+```
+O arquivo `frontend/dist/` gerado contém a URL do backend embutida.
+
+**5. Hostinger — criar site estático:**
+- No painel Hostinger: **Websites → Add Website → Static Site** (não Node.js)
+- Fazer upload do conteúdo de `frontend/dist/` via File Manager
+- Configurar domínio
+
+### Variáveis novas para o modo split
+
+| Variável | Onde | Valor |
+|----------|------|-------|
+| `CORS_ORIGIN` | Backend `.env` | URL do seu domínio Hostinger (ex: `https://copa.grupodigital.com.br`) |
+| `PUBLIC_BACKEND_URL` | Backend `.env` | URL pública do backend (ex: `http://191.252.159.244:3001`) |
+| `VITE_API_URL` | **Build time** frontend | Mesma URL do `PUBLIC_BACKEND_URL` |
+
+**Como funciona:**
+- `CORS_ORIGIN` → backend aceita requests do domínio do frontend
+- `PUBLIC_BACKEND_URL` → middleware em `server.js` reescreve `photo_url` relativas (ex: `/api/groups/1/photo`) para absolutas (ex: `http://servidor:3001/api/groups/1/photo`) — sem isso as fotos de equipe não carregam cross-origin
+- `VITE_API_URL` → baked no build do React; `api/client.js` usa `VITE_API_URL + '/api'` como base; SSE usa `VITE_API_URL + '/api/events/stream'`
+
+### Nginx como proxy reverso (recomendado para HTTPS)
+
+Se quiser HTTPS no backend, instale nginx + certbot no VPS:
+```nginx
+server {
+    listen 80;
+    server_name api.seu-dominio.com.br;
+    location / {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+        # SSE — sem buffer
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+    }
+}
+```
+Nesse caso `PUBLIC_BACKEND_URL=https://api.seu-dominio.com.br` e `VITE_API_URL=https://api.seu-dominio.com.br`.
+
+---
+
 ## Deploy — Hostinger / Website Builder Node.js
 
 App **fullstack em um único processo**: Express serve API + arquivos estáticos do Vite (`frontend/dist`).

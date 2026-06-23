@@ -45,6 +45,31 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Quando o frontend está em domínio diferente (split), reescreve photo_url relativas para absolutas
+if (process.env.PUBLIC_BACKEND_URL) {
+  const _backendBase = process.env.PUBLIC_BACKEND_URL.replace(/\/$/, '');
+  function _rewritePhotoUrls(obj) {
+    if (!obj || typeof obj !== 'object') return obj;
+    if (Array.isArray(obj)) return obj.map(_rewritePhotoUrls);
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (k === 'photo_url' && typeof v === 'string' && v.startsWith('/')) {
+        out[k] = _backendBase + v;
+      } else if (v && typeof v === 'object') {
+        out[k] = _rewritePhotoUrls(v);
+      } else {
+        out[k] = v;
+      }
+    }
+    return out;
+  }
+  app.use((req, res, next) => {
+    const origJson = res.json.bind(res);
+    res.json = function(data) { return origJson(_rewritePhotoUrls(data)); };
+    next();
+  });
+}
+
 // Uploads de fotos dos grupos
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
@@ -61,7 +86,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    mode: serveStatic && distExists ? 'fullstack' : 'api',
+    mode: serveStatic ? 'fullstack' : 'api',
     serveStatic,
     distExists,
     distPath: frontendDist,
@@ -79,7 +104,7 @@ if (serveStatic && distExists) {
       if (err) next(err);
     });
   });
-} else if (serveStatic && !distExists) {
+} else if (serveStatic) {
   console.warn(`[Server] SERVE_STATIC ativo mas pasta não existe: ${frontendDist}`);
   app.get('/', (req, res) => {
     res.status(503).json({
