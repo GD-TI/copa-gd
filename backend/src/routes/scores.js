@@ -229,13 +229,15 @@ router.get('/today-activity', authMiddleware, responseCache(30_000), async (req,
     });
 
     // Propostas do dia para stats por jogador (usa cache da campanha)
+    // Timeout de 5s: responde sem stats se NewCorban demorar; na prox. req os dados estarão em cache
     const playerStats = {};
     try {
       const { rows: cs } = await db.query('SELECT start_date FROM campaign_settings ORDER BY id DESC LIMIT 1');
       const campaignStart = cs[0] ? new Date(cs[0].start_date).toISOString().slice(0, 10) : todayStr;
       const allCorbans = memberRows.map(r => r.corban_id).filter(Boolean);
       if (allCorbans.length > 0) {
-        const pd = await getProposals(campaignStart, todayStr, allCorbans);
+        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('proposals timeout')), 5000));
+        const pd = await Promise.race([getProposals(campaignStart, todayStr, allCorbans), timeout]);
         Object.values(pd || {}).forEach(p => {
           if (getCadastroDateStr(p) !== todayStr) return;
           const vid = String(p.vendedor_id);

@@ -515,22 +515,25 @@ export default function ShellRanking() {
   const [lastUpdate, setLastUpdate]     = useState(null)
   const debounceRef = useRef(null)
 
-  // Carrega ranking e individuais de uma vez — uma única renderização
+  // Carrega ranking primeiro (apenas banco — rápido), depois dados secundários em background
   const loadAll = useCallback(async () => {
-    const [r1, r2, r3] = await Promise.allSettled([
-      api.get('/groups/ranking'),
+    // 1. Ranking: sem NewCorban, responde imediatamente
+    try {
+      const r1 = await api.get('/groups/ranking')
+      const d = r1.data
+      setGroups(d.groups || [])
+      if (d.campaign) setCampaign(d.campaign)
+    } catch (e) {}
+    setLoading(false)
+    setLastUpdate(new Date())
+
+    // 2. Dados secundários em paralelo (chamam NewCorban — podem demorar sem travar a UI)
+    const [r2, r3] = await Promise.allSettled([
       api.get('/scores/individual-rankings'),
       api.get('/scores/today-activity'),
     ])
-    if (r1.status === 'fulfilled') {
-      const d = r1.value.data
-      setGroups(d.groups || [])
-      if (d.campaign) setCampaign(d.campaign)
-    }
     if (r2.status === 'fulfilled') setIndRankings(r2.value.data)
     if (r3.status === 'fulfilled') setTodayActivity(r3.value.data)
-    setLoading(false)
-    setLastUpdate(new Date())
   }, [])
 
   useEffect(() => {
