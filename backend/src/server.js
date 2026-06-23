@@ -104,7 +104,7 @@ if (serveStatic && distExists) {
       if (err) next(err);
     });
   });
-} else if (serveStatic) {
+} else if (serveStatic && !distExists) {
   console.warn(`[Server] SERVE_STATIC ativo mas pasta não existe: ${frontendDist}`);
   app.get('/', (req, res) => {
     res.status(503).json({
