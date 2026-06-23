@@ -56,6 +56,26 @@ async function deleteEvent(groupId, eventDate, ruleName) {
   );
 }
 
+async function batchUpsertEvents(events) {
+  if (events.length === 0) return;
+  const values = events.map((_, i) => {
+    const b = i * 6;
+    return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6})`;
+  }).join(',');
+  const params = events.flatMap(ev => [
+    ev.group_id, ev.event_date, ev.rule_name, ev.points, ev.description, ev.is_double || false,
+  ]);
+  await db.query(
+    `INSERT INTO score_events (group_id, event_date, rule_name, points, description, is_double_points)
+     VALUES ${values}
+     ON CONFLICT (group_id, event_date, rule_name) DO UPDATE
+       SET points = EXCLUDED.points,
+           description = EXCLUDED.description,
+           is_double_points = EXCLUDED.is_double_points`,
+    params
+  );
+}
+
 async function calculateScores(triggeredBy = null) {
   const todayStr = toDateStr(new Date());
   const isForce  = triggeredBy !== null; // admin = recalculate all; cron = skip processed past days
@@ -68,20 +88,9 @@ async function calculateScores(triggeredBy = null) {
   );
   const campaignStart = campRows[0] ? toDateStr(new Date(campRows[0].start_date)) : todayStr;
 
-  // Force (admin): apaga eventos e marcações de dias para recalcular toda a campanha
   if (isForce) {
     console.log('[Scoring] Force: recalculando campanha inteira (mudança de equipe/membro)...');
-    await db.query(
-      `DELETE FROM score_events
-       WHERE group_id IN (SELECT id FROM groups WHERE active = true)
-         AND event_date >= $1::date AND event_date <= $2::date`,
-      [campaignStart, todayStr]
-    );
-    await db.query(
-      `DELETE FROM daily_calculations
-       WHERE calculation_date >= $1::date AND calculation_date <= $2::date`,
-      [campaignStart, todayStr]
-    );
+    // Não apaga tudo de uma vez — limpa dia a dia no loop para evitar zeragem do ranking
   }
 
   // ── 1. Grupos e membros ──────────────────────────────────────────────────
@@ -158,11 +167,11 @@ async function calculateScores(triggeredBy = null) {
   const campaignDays = getDaysInRange(campaignStart, todayStr);
   let totalEvents = [];
 
-  // Ranking histórico para TORCIDA em dias de jogo passados (recálculo retroativo)
+  // Ranking histórico para TORCIDA em dias de jogo passados (recálculo retroativo) — em paralelo
   const vendorMapByDate = {};
   if (isForce && doubleDays.size > 0) {
-    for (const d of doubleDays) {
-      if (!isBusinessDay(d) || d === todayStr) continue;
+    const retroDays = [...doubleDays].filter(d => isBusinessDay(d) && d !== todayStr);
+    await Promise.all(retroDays.map(async (d) => {
       try {
         const rd = await externalApi.getRanking(d, d);
         const vm = {};
@@ -175,16 +184,24 @@ async function calculateScores(triggeredBy = null) {
       } catch (e) {
         console.warn(`[Scoring] Ranking ${d} indisponível (TORCIDA retroativa):`, e.message);
       }
-    }
+    }));
   }
 
   // ── 7. Regras diárias: para cada dia da campanha ─────────────────────────
   for (const dateStr of campaignDays) {
     const isToday = dateStr === todayStr;
 
+    // Force: limpar eventos diários deste dia antes de recalcular (evita zeragem total do ranking)
+    if (isForce) {
+      await db.query(
+        `DELETE FROM score_events WHERE event_date = $1::date AND rule_name = ANY($2::text[])`,
+        [dateStr, DAILY_RULES]
+      );
+    }
+
     // Fins de semana não entram na campanha
     if (!isBusinessDay(dateStr)) {
-      if (isToday || isForce) {
+      if (isToday && !isForce) {
         for (const g of groups) {
           for (const rule of DAILY_RULES) {
             await deleteEvent(g.id, dateStr, rule);
@@ -368,9 +385,7 @@ async function calculateScores(triggeredBy = null) {
       }
     }
 
-    for (const ev of dayEvents) {
-      await upsertEvent(ev.group_id, ev.event_date, ev.rule_name, ev.points, ev.description, ev.is_double);
-    }
+    await batchUpsertEvents(dayEvents);
 
     // Marcar dia passado como processado
     if (!isToday) {
