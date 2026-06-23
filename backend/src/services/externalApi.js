@@ -19,6 +19,14 @@ function cacheSet(key, value) {
   _cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
+// Limpeza periódica de entradas expiradas (evita leak de memória — cada dia cria uma nova chave)
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of _cache.entries()) {
+    if (now > v.expiresAt) _cache.delete(k);
+  }
+}, 10 * 60 * 1000);
+
 // Se uma chamada para a mesma chave já está em andamento, aguarda ela ao invés de disparar outra
 const _inflight = new Map();
 

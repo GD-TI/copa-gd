@@ -798,3 +798,5 @@ VITE_API_URL=http://localhost:3001
 | Jun/26 | Cron sem guarda contra rodadas simultâneas | `scheduler.js`: flag `isRunning` + `finally` — se rodada anterior ainda está em andamento, a nova é pulada (evita esgotamento do pool DB) |
 | Jun/26 | App crashava sob carga (unhandledRejection) | `server.js`: handlers `process.on('unhandledRejection')` e `process.on('uncaughtException')` — erros async inesperados não derrubam mais o processo |
 | Jun/26 | Pool PostgreSQL sem keepalive (conexões mortas) | `db.js`: `keepAlive: true`, `idleTimeoutMillis: 30000`, `connectionTimeoutMillis: 5000`, `max: 10` — evita 403 quando firewall mata conexões idle |
+| Jun/26 | Cache `_cache` em `externalApi.js` sem limpeza automática | Entradas expiradas acumulavam na memória (nova chave a cada dia). Corrigido: `setInterval` de 10 min que remove entradas com `expiresAt` vencido |
+| Jun/26 | SSE `clients` Set crescia ilimitado sob nginx da Hostinger | `req.on('close')` não dispara quando nginx fica no meio. Corrigido: limite `MAX_SSE_CLIENTS=50` + remoção proativa no catch do keepalive ping |

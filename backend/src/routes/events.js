@@ -1,9 +1,16 @@
 const router = require('express').Router()
 
 const clients = new Set()
+const MAX_SSE_CLIENTS = 50
 
 // GET /api/events/stream — SSE: sem auth (só envia notificação, dados vêm de endpoints autenticados)
 router.get('/stream', (req, res) => {
+  // Protege contra acúmulo ilimitado de conexões (nginx pode não repassar close)
+  if (clients.size >= MAX_SSE_CLIENTS) {
+    res.status(503).json({ error: 'Limite de conexões SSE atingido' });
+    return;
+  }
+
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')
@@ -16,7 +23,14 @@ router.get('/stream', (req, res) => {
   console.log(`[SSE] +1 cliente. Total: ${clients.size}`)
 
   const keepAlive = setInterval(() => {
-    try { res.write(':ping\n\n') } catch (_) {}
+    try {
+      res.write(':ping\n\n')
+    } catch (_) {
+      // Conexão morta — remove proativamente
+      clearInterval(keepAlive)
+      clients.delete(res)
+      console.log(`[SSE] conexão morta removida. Total: ${clients.size}`)
+    }
   }, 25000)
 
   req.on('close', () => {
