@@ -171,10 +171,9 @@ base_points NUMERIC NOT NULL
 
 | rule_name | base_points | Observação |
 |-----------|-------------|------------|
-| META_DIA | 5 | × multiplier em dia de jogo |
-| META_DIA_PLUS30 | 10 | Bônus: ≥ 130% da meta diária (mutualmente exclusivo — tier mais alto vence) |
-| META_DIA_PLUS50 | 15 | Bônus: ≥ 150% da meta diária |
-| META_DIA_PLUS100 | 20 | Bônus: ≥ 200% da meta diária (dobro) |
+| META_DIA | 5 | Meta 1 — threshold = `groups.daily_goal_value` |
+| META_DIA_PLUS30 | 10 | Meta 2 — threshold fixo = `groups.daily_goal_meta2` (mutualmente exclusivo — tier mais alto vence) |
+| META_DIA_PLUS50 | 15 | Meta 3 — threshold fixo = `groups.daily_goal_meta3` |
 | META_SEMANA | 10 | × multiplier se semana tem dia de jogo |
 | CONVERSAO | 5 | |
 | INDICACAO | 10 | **por lote** de 5 contratos pagos com `origem` contendo "Indicação" |
@@ -182,6 +181,8 @@ base_points NUMERIC NOT NULL
 | GOL_DE_PLACA | 15 | competitiva diária |
 | TORCIDA_ORGANIZADA | 20 | |
 | ARTILHEIRO | 15 | competitiva diária |
+
+**Removidos:** META_DIA_PLUS100 (20 pts), META_DIA_CLT, META_DIA_FGTS, META_SEMANA_CLT, META_SEMANA_FGTS — descontinuados. O seed deleta essas entradas do banco automaticamente.
 
 ### Implementação
 
@@ -276,7 +277,11 @@ Upsert idempotente. `event_date` varia por tipo de regra (ver seção Regras).
 
 ### `groups`
 - `goal_points`: meta de pontos da equipe — usado para a barra de progresso no ShellRanking/Telão. Configurável via ShellConfig (aba Configuração). Default 0 = sem barra de progresso.
-- `daily_goal_value`, `weekly_goal_value`: metas em R$ por equipe (definidas pelo admin)
+- `daily_goal_value`: Meta 1 do dia — 5 pts quando atingida
+- `daily_goal_meta2`: Meta 2 do dia — 10 pts quando atingida (threshold fixo, independente da Meta 1)
+- `daily_goal_meta3`: Meta 3 do dia — 15 pts quando atingida (threshold fixo, independente da Meta 1)
+- `weekly_goal_value`: meta semanal em R$ (META_SEMANA, 10 pts)
+- `daily_goal_clt`, `daily_goal_fgts`, `weekly_goal_clt`, `weekly_goal_fgts`: colunas legadas CLT/FGTS — mantidas no banco mas não usadas mais
 
 ### `point_adjustments`
 - Ajustes manuais do admin. Incluídos no total do leaderboard E no `members/points` (retornados no campo `adjustments`).
@@ -406,10 +411,9 @@ Senha padrão `admin2026` — hash gerado por `bcrypt` no `seed.js` (10 rounds).
 
 | Regra | Pontos (padrão) | Tipo | event_date | Critério |
 |-------|-----------------|------|------------|----------|
-| META_DIA | 5 | Diária | `dateStr` (hoje) | Soma de `valor_referencia` dos contratos **pagos** hoje >= `daily_goal_value` |
-| META_DIA_PLUS30 | 10 | Diária (bônus) | `dateStr` | Bônus exclusivo: valor ≥ 130% da meta; tier mais alto vence (PLUS30 < PLUS50 < PLUS100) |
-| META_DIA_PLUS50 | 15 | Diária (bônus) | `dateStr` | Bônus exclusivo: valor ≥ 150% da meta |
-| META_DIA_PLUS100 | 20 | Diária (bônus) | `dateStr` | Bônus exclusivo: valor ≥ 200% da meta (dobro) |
+| META_DIA | 5 | Diária | `dateStr` (hoje) | Valor pago hoje >= `groups.daily_goal_value` (Meta 1) |
+| META_DIA_PLUS30 | 10 | Diária (bônus) | `dateStr` | Meta 2: valor pago hoje >= `groups.daily_goal_meta2` (threshold fixo); tier mais alto vence (PLUS30 < PLUS50) |
+| META_DIA_PLUS50 | 15 | Diária (bônus) | `dateStr` | Meta 3: valor pago hoje >= `groups.daily_goal_meta3` (threshold fixo) |
 | META_SEMANA | 10 | Semanal | `max(weekStart, campaignStart)` | `valor_referencia` da semana >= `weekly_goal_value` |
 | CONVERSAO | 5 | Diária | `dateStr` | Taxa de pagamento do dia >= **80%** (`CONVERSION_MIN_RATE`, default `0.80`) |
 | INDICACAO | 10/lote | Campanha acumulada | `campaignStart` | A cada **5 contratos pagos** em que o campo **`origem` contém "Indicação"** |
@@ -911,5 +915,6 @@ VITE_API_URL=http://localhost:3001
 | Jun/23 | Contagem de membros incluía usuários inativos no limite | `COUNT(user_id)` sem `JOIN users WHERE active=true` fazia membro desativado ocupar vaga — bloqueava adição do 6º jogador. Corrigido nas 3 queries de verificação de capacidade |
 | Jun/23 | `torcidaMap` undefined em TORCIDA_ORGANIZADA retroativa | Se fetch do ranking histórico falhava, `vendorMapByDate[dateStr]` era `undefined` e `.every()` lançava TypeError. Corrigido: `|| {}` no fallback |
 | Jun/23 | `parseFloat(null)` retornava `NaN` em `scoringRules.js` | Se `base_points` fosse NULL no banco, pontuação ficava `NaN`. Corrigido: fallback para `FALLBACK[rule] || 0` quando `isNaN(pts)` |
+| Jun/23 | Metas CLT/FGTS removidas; bônus de meta passaram de percentuais para valores fixos | Colunas CLT/FGTS ficam no banco (legado). Adicionadas `daily_goal_meta2` e `daily_goal_meta3` — thresholds fixos independentes para Meta 2 (10 pts) e Meta 3 (15 pts). META_DIA_PLUS100 removido. ShellConfig: tabela de metas atualizada. Seed: regras CLT/FGTS/PLUS100 deletadas do banco |
 | Jun/23 | Pontos perdidos em massa no ranking a cada rodada do cron | 2 causas: (1) `getProposals` lançava exceção → `allProposals=[]` → cron deletava CONVERSAO, INDICACAO, CONTRATO_10K para todos os grupos sem re-inserir; (2) `getRanking` lançava exceção → `vendorMap={}` → TORCIDA deletada para todos. Corrigido: flag `proposalsOk` — se `getProposals` lança, `return []` imediatamente (abort); flag `rankingOk` — se `getRanking` lança, TORCIDA é preservada (`torcidaDataAvailable`) |
 | Jun/23 | Cron documentado como "15 min" mas rodava a cada 5 min | `scheduler.js` usa `*/5 * * * *`. Corrigido no CLAUDE.md |

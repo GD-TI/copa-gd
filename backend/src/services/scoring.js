@@ -101,7 +101,7 @@ async function calculateScores(triggeredBy = null) {
   const { rows: groups } = await db.query(`
     SELECT
       g.id, g.name, g.daily_goal_value, g.weekly_goal_value,
-      g.daily_goal_clt, g.daily_goal_fgts, g.weekly_goal_clt, g.weekly_goal_fgts,
+      g.daily_goal_meta2, g.daily_goal_meta3,
       COUNT(DISTINCT gm.user_id)::int AS member_count,
       ARRAY_AGG(u.corban_id) FILTER (WHERE u.corban_id IS NOT NULL) AS corban_ids
     FROM groups g
@@ -109,7 +109,7 @@ async function calculateScores(triggeredBy = null) {
     JOIN users u ON gm.user_id = u.id
     WHERE g.active = true AND u.active = true
     GROUP BY g.id, g.name, g.daily_goal_value, g.weekly_goal_value,
-             g.daily_goal_clt, g.daily_goal_fgts, g.weekly_goal_clt, g.weekly_goal_fgts
+             g.daily_goal_meta2, g.daily_goal_meta3
   `);
 
   if (groups.length === 0) {
@@ -250,11 +250,7 @@ async function calculateScores(triggeredBy = null) {
       const gPaid = gDay.filter(isWeekdayPaid);
       const gValor = sumValorRef(gPaid);
       const gMaxC  = gPaid.reduce((mx, p) => Math.max(mx, parseFloat(p.proposta?.valor_referencia || 0)), 0);
-      const gPaidClt  = gPaid.filter(p => getProductoId(p) === '13');
-      const gPaidFgts = gPaid.filter(p => getProductoId(p) === '7');
-      const gValorClt  = sumValorRef(gPaidClt);
-      const gValorFgts = sumValorRef(gPaidFgts);
-      gStats[g.id] = { cids, gDay, gPaid, gValor, gMaxC, gValorClt, gValorFgts };
+      gStats[g.id] = { cids, gDay, gPaid, gValor, gMaxC };
     }
 
     // Máximos globais para regras competitivas
@@ -317,18 +313,17 @@ async function calculateScores(triggeredBy = null) {
           is_double: mult > 1,
         });
 
-        // Bônus por superação da meta — apenas o tier mais alto é concedido
-        const ratio = s.gValor / dailyGoal;
+        // Bônus por metas 2 e 3 (thresholds fixos por equipe) — apenas o tier mais alto é concedido
+        const meta3 = parseFloat(g.daily_goal_meta3 || 0);
+        const meta2 = parseFloat(g.daily_goal_meta2 || 0);
         let bonusRule = null;
-        if (ratio >= 2.0) {
-          bonusRule = { rule_name: 'META_DIA_PLUS100', pts: rulePts.META_DIA_PLUS100 || 20, label: '+100%' };
-        } else if (ratio >= 1.5) {
-          bonusRule = { rule_name: 'META_DIA_PLUS50', pts: rulePts.META_DIA_PLUS50 || 15, label: '+50%' };
-        } else if (ratio >= 1.3) {
-          bonusRule = { rule_name: 'META_DIA_PLUS30', pts: rulePts.META_DIA_PLUS30 || 10, label: '+30%' };
+        if (meta3 > 0 && s.gValor >= meta3) {
+          bonusRule = { rule_name: 'META_DIA_PLUS50', pts: rulePts.META_DIA_PLUS50 || 15, label: 'Meta 3' };
+        } else if (meta2 > 0 && s.gValor >= meta2) {
+          bonusRule = { rule_name: 'META_DIA_PLUS30', pts: rulePts.META_DIA_PLUS30 || 10, label: 'Meta 2' };
         }
 
-        // Limpar tiers inferiores que possam ter sido gravados em rodadas anteriores
+        // Limpar tiers que possam ter sido gravados em rodadas anteriores
         const allBonusTiers = ['META_DIA_PLUS30', 'META_DIA_PLUS50', 'META_DIA_PLUS100'];
         if (recalcDay) {
           for (const tier of allBonusTiers) {
@@ -339,10 +334,11 @@ async function calculateScores(triggeredBy = null) {
         }
 
         if (bonusRule) {
+          const threshold = bonusRule.rule_name === 'META_DIA_PLUS50' ? meta3 : meta2;
           dayEvents.push({
             group_id: g.id, event_date: dateStr, rule_name: bonusRule.rule_name,
             points: bonusRule.pts * mult,
-            description: `Bônus meta ${bonusRule.label}: R$ ${s.gValor.toFixed(2)} (${Math.round(ratio * 100 - 100)}% acima da meta)`,
+            description: `${bonusRule.label}: R$ ${s.gValor.toFixed(2)} / meta R$ ${threshold.toFixed(2)}`,
             is_double: mult > 1,
           });
         }
@@ -351,31 +347,7 @@ async function calculateScores(triggeredBy = null) {
         await deleteEvent(g.id, dateStr, 'META_DIA_PLUS30');
         await deleteEvent(g.id, dateStr, 'META_DIA_PLUS50');
         await deleteEvent(g.id, dateStr, 'META_DIA_PLUS100');
-      }
-
-      // META_DIA_CLT: meta diária por produto CLT (produto_id 13)
-      const dailyGoalClt = parseFloat(g.daily_goal_clt || 0);
-      if (dailyGoalClt > 0 && s.gValorClt >= dailyGoalClt) {
-        dayEvents.push({
-          group_id: g.id, event_date: dateStr, rule_name: 'META_DIA_CLT',
-          points: (rulePts.META_DIA_CLT || 5) * mult,
-          description: `Meta CLT: R$ ${s.gValorClt.toFixed(2)} pagos / meta R$ ${dailyGoalClt.toFixed(2)}`,
-          is_double: mult > 1,
-        });
-      } else if (recalcDay) {
         await deleteEvent(g.id, dateStr, 'META_DIA_CLT');
-      }
-
-      // META_DIA_FGTS: meta diária por produto FGTS (produto_id 7)
-      const dailyGoalFgts = parseFloat(g.daily_goal_fgts || 0);
-      if (dailyGoalFgts > 0 && s.gValorFgts >= dailyGoalFgts) {
-        dayEvents.push({
-          group_id: g.id, event_date: dateStr, rule_name: 'META_DIA_FGTS',
-          points: (rulePts.META_DIA_FGTS || 5) * mult,
-          description: `Meta FGTS: R$ ${s.gValorFgts.toFixed(2)} pagos / meta R$ ${dailyGoalFgts.toFixed(2)}`,
-          is_double: mult > 1,
-        });
-      } else if (recalcDay) {
         await deleteEvent(g.id, dateStr, 'META_DIA_FGTS');
       }
 
@@ -487,25 +459,9 @@ async function calculateScores(triggeredBy = null) {
         await deleteEvent(g.id, wsStr, 'META_SEMANA');
       }
 
-      // META_SEMANA_CLT
-      const gValorWeekClt = sumValorRef(gWeek.filter(p => getProductoId(p) === '13'));
-      const weeklyGoalClt = parseFloat(g.weekly_goal_clt || 0);
-      if (weeklyGoalClt > 0 && gValorWeekClt >= weeklyGoalClt) {
-        await upsertEvent(g.id, wsStr, 'META_SEMANA_CLT', (rulePts.META_SEMANA_CLT || 10) * weekMult,
-          `Meta semanal CLT: R$ ${gValorWeekClt.toFixed(2)} / meta R$ ${weeklyGoalClt.toFixed(2)} (${wsStr}→${weStr})${weekMult > 1 ? ' ×2' : ''}`,
-          weekMult > 1);
-      } else if (isCurrentWeek || isForce || weekHasDouble) {
+      // Legacy cleanup — META_SEMANA_CLT e META_SEMANA_FGTS removidos
+      if (isCurrentWeek || isForce || weekHasDouble) {
         await deleteEvent(g.id, wsStr, 'META_SEMANA_CLT');
-      }
-
-      // META_SEMANA_FGTS
-      const gValorWeekFgts = sumValorRef(gWeek.filter(p => getProductoId(p) === '7'));
-      const weeklyGoalFgts = parseFloat(g.weekly_goal_fgts || 0);
-      if (weeklyGoalFgts > 0 && gValorWeekFgts >= weeklyGoalFgts) {
-        await upsertEvent(g.id, wsStr, 'META_SEMANA_FGTS', (rulePts.META_SEMANA_FGTS || 10) * weekMult,
-          `Meta semanal FGTS: R$ ${gValorWeekFgts.toFixed(2)} / meta R$ ${weeklyGoalFgts.toFixed(2)} (${wsStr}→${weStr})${weekMult > 1 ? ' ×2' : ''}`,
-          weekMult > 1);
-      } else if (isCurrentWeek || isForce || weekHasDouble) {
         await deleteEvent(g.id, wsStr, 'META_SEMANA_FGTS');
       }
     }

@@ -87,21 +87,18 @@ router.put('/group-goals', authMiddleware, configAdminOnly, attachManagedGroups,
       if (!isMasterAdmin(req.user) && !canAccessGroup(req, g.group_id)) {
         return res.status(403).json({ error: `Sem permissão para equipe ${g.group_id}` });
       }
-      const daily     = parseFloat(g.daily_goal_value  || 0) || 0;
-      const weekly    = parseFloat(g.weekly_goal_value || 0) || 0;
-      const goal      = parseInt(g.goal_points         || 0) || 0;
-      const dailyClt  = parseFloat(g.daily_goal_clt    || 0) || 0;
-      const dailyFgts = parseFloat(g.daily_goal_fgts   || 0) || 0;
-      const weeklyClt  = parseFloat(g.weekly_goal_clt  || 0) || 0;
-      const weeklyFgts = parseFloat(g.weekly_goal_fgts || 0) || 0;
+      const daily  = parseFloat(g.daily_goal_value  || 0) || 0;
+      const weekly = parseFloat(g.weekly_goal_value || 0) || 0;
+      const goal   = parseInt(g.goal_points         || 0) || 0;
+      const meta2  = parseFloat(g.daily_goal_meta2  || 0) || 0;
+      const meta3  = parseFloat(g.daily_goal_meta3  || 0) || 0;
       await db.query(
         `UPDATE groups
          SET daily_goal_value = $1, weekly_goal_value = $2, goal_points = $3,
-             daily_goal_clt = $4, daily_goal_fgts = $5,
-             weekly_goal_clt = $6, weekly_goal_fgts = $7,
+             daily_goal_meta2 = $4, daily_goal_meta3 = $5,
              updated_at = NOW()
-         WHERE id = $8`,
-        [daily, weekly, goal, dailyClt, dailyFgts, weeklyClt, weeklyFgts, g.group_id]
+         WHERE id = $6`,
+        [daily, weekly, goal, meta2, meta3, g.group_id]
       );
     }
     res.json({ ok: true });

@@ -20,7 +20,7 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const { rows } = await db.query(`
       SELECT
-        g.id, g.name, g.photo_url, g.created_at, g.daily_goal_value, g.weekly_goal_value, g.goal_points,
+        g.id, g.name, g.photo_url, g.created_at, g.daily_goal_value, g.weekly_goal_value, g.goal_points, g.daily_goal_meta2, g.daily_goal_meta3,
         COUNT(DISTINCT gm.user_id) as member_count,
         COALESCE(se_agg.total_points, 0) + COALESCE(pa_agg.adj_points, 0) as total_points,
         COALESCE(se_agg.today_points, 0) as today_points
@@ -44,7 +44,7 @@ router.get('/', authMiddleware, async (req, res) => {
         WHERE pa.group_id = g.id
       ) pa_agg ON true
       WHERE g.active = true
-      GROUP BY g.id, g.name, g.photo_url, g.created_at, g.daily_goal_value, g.weekly_goal_value, g.goal_points,
+      GROUP BY g.id, g.name, g.photo_url, g.created_at, g.daily_goal_value, g.weekly_goal_value, g.goal_points, g.daily_goal_meta2, g.daily_goal_meta3,
                se_agg.total_points, se_agg.today_points, pa_agg.adj_points
       ORDER BY total_points DESC
     `);

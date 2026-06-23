@@ -544,13 +544,11 @@ export default function ShellConfig() {
       const init = {}
       gs.forEach(g => {
         init[g.id] = {
-          daily:      g.daily_goal_value  > 0 ? String(g.daily_goal_value)  : '',
-          weekly:     g.weekly_goal_value > 0 ? String(g.weekly_goal_value) : '',
-          goal:       g.goal_points       > 0 ? String(g.goal_points)       : '',
-          dailyClt:   g.daily_goal_clt    > 0 ? String(g.daily_goal_clt)    : '',
-          dailyFgts:  g.daily_goal_fgts   > 0 ? String(g.daily_goal_fgts)   : '',
-          weeklyClt:  g.weekly_goal_clt   > 0 ? String(g.weekly_goal_clt)   : '',
-          weeklyFgts: g.weekly_goal_fgts  > 0 ? String(g.weekly_goal_fgts)  : '',
+          daily:  g.daily_goal_value  > 0 ? String(g.daily_goal_value)  : '',
+          meta2:  g.daily_goal_meta2  > 0 ? String(g.daily_goal_meta2)  : '',
+          meta3:  g.daily_goal_meta3  > 0 ? String(g.daily_goal_meta3)  : '',
+          weekly: g.weekly_goal_value > 0 ? String(g.weekly_goal_value) : '',
+          goal:   g.goal_points       > 0 ? String(g.goal_points)       : '',
         }
       })
       setDraft(init)
@@ -593,26 +591,22 @@ export default function ShellConfig() {
   const saveGoals = async () => {
     const goals = groups.map(g => ({
       group_id:          g.id,
-      daily_goal_value:  parseFloat(draft[g.id]?.daily      || '0') || 0,
-      weekly_goal_value: parseFloat(draft[g.id]?.weekly     || '0') || 0,
-      goal_points:       parseInt(draft[g.id]?.goal         || '0') || 0,
-      daily_goal_clt:    parseFloat(draft[g.id]?.dailyClt   || '0') || 0,
-      daily_goal_fgts:   parseFloat(draft[g.id]?.dailyFgts  || '0') || 0,
-      weekly_goal_clt:   parseFloat(draft[g.id]?.weeklyClt  || '0') || 0,
-      weekly_goal_fgts:  parseFloat(draft[g.id]?.weeklyFgts || '0') || 0,
+      daily_goal_value:  parseFloat(draft[g.id]?.daily  || '0') || 0,
+      daily_goal_meta2:  parseFloat(draft[g.id]?.meta2  || '0') || 0,
+      daily_goal_meta3:  parseFloat(draft[g.id]?.meta3  || '0') || 0,
+      weekly_goal_value: parseFloat(draft[g.id]?.weekly || '0') || 0,
+      goal_points:       parseInt(draft[g.id]?.goal     || '0') || 0,
     }))
     setSavingGoals(true)
     try {
       await api.put('/settings/group-goals', { goals })
       setGroups(prev => prev.map(g => ({
         ...g,
-        daily_goal_value:  parseFloat(draft[g.id]?.daily      || '0') || 0,
-        weekly_goal_value: parseFloat(draft[g.id]?.weekly     || '0') || 0,
-        goal_points:       parseInt(draft[g.id]?.goal         || '0') || 0,
-        daily_goal_clt:    parseFloat(draft[g.id]?.dailyClt   || '0') || 0,
-        daily_goal_fgts:   parseFloat(draft[g.id]?.dailyFgts  || '0') || 0,
-        weekly_goal_clt:   parseFloat(draft[g.id]?.weeklyClt  || '0') || 0,
-        weekly_goal_fgts:  parseFloat(draft[g.id]?.weeklyFgts || '0') || 0,
+        daily_goal_value:  parseFloat(draft[g.id]?.daily  || '0') || 0,
+        daily_goal_meta2:  parseFloat(draft[g.id]?.meta2  || '0') || 0,
+        daily_goal_meta3:  parseFloat(draft[g.id]?.meta3  || '0') || 0,
+        weekly_goal_value: parseFloat(draft[g.id]?.weekly || '0') || 0,
+        goal_points:       parseInt(draft[g.id]?.goal     || '0') || 0,
       })))
       showToast('Metas salvas!')
     } catch (e) {
@@ -693,12 +687,19 @@ export default function ShellConfig() {
                 <tr>
                   <th>Equipe</th>
                   <th style={{ textAlign: 'center' }}>Membros</th>
-                  <th style={{ textAlign: 'right', minWidth: 140 }}>Diária Geral (R$)</th>
-                  <th style={{ textAlign: 'right', minWidth: 130, background: 'rgba(99,102,241,.07)' }}>Diária CLT (R$)</th>
-                  <th style={{ textAlign: 'right', minWidth: 130, background: 'rgba(16,185,129,.07)' }}>Diária FGTS (R$)</th>
-                  <th style={{ textAlign: 'right', minWidth: 140 }}>Semanal Geral (R$)</th>
-                  <th style={{ textAlign: 'right', minWidth: 130, background: 'rgba(99,102,241,.07)' }}>Semanal CLT (R$)</th>
-                  <th style={{ textAlign: 'right', minWidth: 130, background: 'rgba(16,185,129,.07)' }}>Semanal FGTS (R$)</th>
+                  <th style={{ textAlign: 'right', minWidth: 140 }}>
+                    Meta 1 — 5 pts (R$)
+                    <div style={{ fontWeight: 400, color: 'var(--txt3)', marginTop: 2 }}>meta diária base</div>
+                  </th>
+                  <th style={{ textAlign: 'right', minWidth: 140, background: 'rgba(251,146,60,.07)' }}>
+                    Meta 2 — 10 pts (R$)
+                    <div style={{ fontWeight: 400, color: 'var(--txt3)', marginTop: 2 }}>valor fixo</div>
+                  </th>
+                  <th style={{ textAlign: 'right', minWidth: 140, background: 'rgba(239,68,68,.07)' }}>
+                    Meta 3 — 15 pts (R$)
+                    <div style={{ fontWeight: 400, color: 'var(--txt3)', marginTop: 2 }}>valor fixo</div>
+                  </th>
+                  <th style={{ textAlign: 'right', minWidth: 140 }}>Semanal (R$)</th>
                   <th style={{ textAlign: 'right', minWidth: 130 }}>
                     Meta Pontos
                     <div style={{ fontWeight: 400, color: 'var(--txt3)', marginTop: 2 }}>barra progresso</div>
@@ -716,9 +717,11 @@ export default function ShellConfig() {
                         <div>
                           <div className="s-name">{g.name}</div>
                           <div style={{ fontSize: 10, color: 'var(--txt3)', marginTop: 2 }}>
-                            Atual diária: <strong style={{ color: 'var(--txt2)' }}>{fBRL(g.daily_goal_value)}</strong>
+                            M1: <strong style={{ color: 'var(--txt2)' }}>{fBRL(g.daily_goal_value)}</strong>
                             {' · '}
-                            Semanal: <strong style={{ color: 'var(--txt2)' }}>{fBRL(g.weekly_goal_value)}</strong>
+                            M2: <strong style={{ color: 'var(--txt2)' }}>{fBRL(g.daily_goal_meta2)}</strong>
+                            {' · '}
+                            M3: <strong style={{ color: 'var(--txt2)' }}>{fBRL(g.daily_goal_meta3)}</strong>
                           </div>
                         </div>
                       </div>
@@ -733,19 +736,19 @@ export default function ShellConfig() {
                         value={draft[g.id]?.daily ?? ''}
                         onChange={e => setField(g.id, 'daily', e.target.value)} />
                     </td>
-                    <td style={{ textAlign: 'right', background: 'rgba(99,102,241,.04)' }}>
+                    <td style={{ textAlign: 'right', background: 'rgba(251,146,60,.04)' }}>
                       <input type="number" min="0" step="1000" className="field-input"
-                        style={{ width: 110, textAlign: 'right', padding: '6px 10px', fontSize: 13 }}
-                        placeholder="ex: 5000"
-                        value={draft[g.id]?.dailyClt ?? ''}
-                        onChange={e => setField(g.id, 'dailyClt', e.target.value)} />
+                        style={{ width: 120, textAlign: 'right', padding: '6px 10px', fontSize: 13 }}
+                        placeholder="ex: 15000"
+                        value={draft[g.id]?.meta2 ?? ''}
+                        onChange={e => setField(g.id, 'meta2', e.target.value)} />
                     </td>
-                    <td style={{ textAlign: 'right', background: 'rgba(16,185,129,.04)' }}>
+                    <td style={{ textAlign: 'right', background: 'rgba(239,68,68,.04)' }}>
                       <input type="number" min="0" step="1000" className="field-input"
-                        style={{ width: 110, textAlign: 'right', padding: '6px 10px', fontSize: 13 }}
-                        placeholder="ex: 5000"
-                        value={draft[g.id]?.dailyFgts ?? ''}
-                        onChange={e => setField(g.id, 'dailyFgts', e.target.value)} />
+                        style={{ width: 120, textAlign: 'right', padding: '6px 10px', fontSize: 13 }}
+                        placeholder="ex: 20000"
+                        value={draft[g.id]?.meta3 ?? ''}
+                        onChange={e => setField(g.id, 'meta3', e.target.value)} />
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       <input type="number" min="0" step="1000" className="field-input"
@@ -753,20 +756,6 @@ export default function ShellConfig() {
                         placeholder="ex: 60000"
                         value={draft[g.id]?.weekly ?? ''}
                         onChange={e => setField(g.id, 'weekly', e.target.value)} />
-                    </td>
-                    <td style={{ textAlign: 'right', background: 'rgba(99,102,241,.04)' }}>
-                      <input type="number" min="0" step="1000" className="field-input"
-                        style={{ width: 110, textAlign: 'right', padding: '6px 10px', fontSize: 13 }}
-                        placeholder="ex: 30000"
-                        value={draft[g.id]?.weeklyClt ?? ''}
-                        onChange={e => setField(g.id, 'weeklyClt', e.target.value)} />
-                    </td>
-                    <td style={{ textAlign: 'right', background: 'rgba(16,185,129,.04)' }}>
-                      <input type="number" min="0" step="1000" className="field-input"
-                        style={{ width: 110, textAlign: 'right', padding: '6px 10px', fontSize: 13 }}
-                        placeholder="ex: 30000"
-                        value={draft[g.id]?.weeklyFgts ?? ''}
-                        onChange={e => setField(g.id, 'weeklyFgts', e.target.value)} />
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       <input type="number" min="0" step="10" className="field-input"
