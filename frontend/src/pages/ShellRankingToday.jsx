@@ -91,7 +91,6 @@ export default function ShellRankingToday() {
                       {p.pagos > 0 && `${p.pagos} pago${p.pagos !== 1 ? 's' : ''}`}
                       {p.pagos > 0 && p.valor > 0 && ' · '}
                       {p.valor > 0 && `R$ ${p.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
-                      {p.pagos === 0 && p.contratos > 0 && `${p.contratos} proposta${p.contratos !== 1 ? 's' : ''}`}
                     </span>
                   </div>
                 ))}

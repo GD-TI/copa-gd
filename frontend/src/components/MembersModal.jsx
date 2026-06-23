@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useEffect } from 'react'
 import api from '../api/client'
 
 function fBRL(v) {
@@ -352,24 +352,6 @@ function PointsTab({ group }) {
 }
 
 export default function MembersModal({ group, onClose }) {
-  const [date, setDate]     = useState(today())
-  const [data, setData]     = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [err, setErr]       = useState(null)
-  const [tab, setTab]       = useState('propostas')
-
-  const load = useCallback((d) => {
-    if (!group?.id) return
-    setLoading(true)
-    setErr(null)
-    api.get(`/groups/${group.id}/members/stats`, { params: { date: d } })
-      .then(r => setData(r.data))
-      .catch(e => setErr(e.response?.data?.error || 'Erro ao carregar dados'))
-      .finally(() => setLoading(false))
-  }, [group?.id])
-
-  useEffect(() => { load(date) }, [load, date])
-
   useEffect(() => {
     const fn = e => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', fn)
@@ -377,10 +359,6 @@ export default function MembersModal({ group, onClose }) {
   }, [onClose])
 
   if (!group) return null
-
-  const members  = data?.members || []
-  const totals   = data?.totals  || { qtd_propostas: 0, valor_referencia: 0, contratos_pagos: 0 }
-  const maxValor = Math.max(...members.map(m => m.valor_referencia), 1)
 
   return (
     <div
@@ -419,24 +397,9 @@ export default function MembersModal({ group, onClose }) {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ font: '700 14px/1 var(--font)', color: 'var(--txt)' }}>{group.name}</div>
             <div style={{ font: '500 11px/1 var(--font)', color: 'var(--txt3)', marginTop: 3 }}>
-              Contribuição individual dos vendedores
+              Pontos do grupo
             </div>
           </div>
-          {/* Date picker — só na aba propostas */}
-          {tab === 'propostas' && (
-            <input
-              type="date"
-              value={date}
-              max={today()}
-              onChange={e => setDate(e.target.value)}
-              style={{
-                background: 'var(--bg)', border: '1.5px solid var(--border)',
-                color: 'var(--txt)', borderRadius: 'var(--r-sm)',
-                padding: '5px 10px', font: '500 12px/1 var(--font)',
-                outline: 'none', cursor: 'pointer',
-              }}
-            />
-          )}
           <button
             onClick={onClose}
             style={{
@@ -449,143 +412,9 @@ export default function MembersModal({ group, onClose }) {
           >✕</button>
         </div>
 
-        {/* Tabs */}
-        <div style={{
-          display: 'flex', borderBottom: '1px solid var(--border)',
-          flexShrink: 0, background: 'var(--bg)',
-        }}>
-          {[
-            { key: 'propostas', label: '📋 Propostas' },
-            { key: 'pontos',    label: '⭐ Pontos do Grupo' },
-          ].map(t => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              style={{
-                flex: 1, padding: '10px 12px', border: 'none', cursor: 'pointer',
-                font: '600 12px/1 var(--font)', background: 'transparent',
-                color: tab === t.key ? 'var(--gold)' : 'var(--txt3)',
-                borderBottom: tab === t.key ? '2px solid var(--gold)' : '2px solid transparent',
-                transition: 'color .15s, border-color .15s',
-                marginBottom: -1,
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
         {/* Body */}
         <div style={{ overflowY: 'auto', flex: 1 }}>
-
-          {/* ---- Aba Propostas ---- */}
-          {tab === 'propostas' && (
-            <>
-              {data?.is_business_day === false && (
-                <div style={{
-                  margin: '12px 16px 0', padding: '10px 14px', borderRadius: 8,
-                  background: 'var(--surf2)', border: '1px solid var(--border)',
-                  font: '500 12px/1.4 var(--font)', color: 'var(--txt2)',
-                }}>
-                  📅 Fim de semana — propostas e pagamentos desta data não entram na campanha (apenas dias úteis, seg–sex).
-                </div>
-              )}
-              {loading && (
-                <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt3)', fontSize: 13 }}>Carregando…</div>
-              )}
-              {!loading && err && (
-                <div style={{ padding: 24, textAlign: 'center', color: 'var(--red)', fontSize: 13 }}>{err}</div>
-              )}
-              {!loading && !err && members.length === 0 && (
-                <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt3)', fontSize: 13 }}>
-                  Nenhum dado encontrado para esta data
-                </div>
-              )}
-              {!loading && !err && members.length > 0 && (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ background: 'var(--bg)' }}>
-                      <th style={thStyle({ textAlign: 'left' })}>Vendedor</th>
-                      <th style={thStyle({ textAlign: 'right' })}>Propostas<div style={{ fontWeight: 400, color: 'var(--txt3)', marginTop: 2 }}>qtd</div></th>
-                      <th style={thStyle({ textAlign: 'right' })}>Pagos<div style={{ fontWeight: 400, color: 'var(--txt3)', marginTop: 2 }}>contratos</div></th>
-                      <th style={thStyle({ textAlign: 'right', minWidth: 160 })}>Valor Ref.<div style={{ fontWeight: 400, color: 'var(--txt3)', marginTop: 2 }}>R$</div></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {members.map(m => {
-                      const barPct = maxValor > 0 ? (m.valor_referencia / maxValor) * 100 : 0
-                      return (
-                        <tr key={m.id} style={{ borderBottom: '1px solid var(--border)' }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'var(--hover)'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                        >
-                          <td style={{ padding: '10px 16px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <div style={{
-                                width: 28, height: 28, borderRadius: '50%',
-                                background: 'var(--surf3)', border: '1.5px solid var(--border)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                font: '600 10px/1 var(--display)', color: 'var(--txt2)', flexShrink: 0,
-                              }}>
-                                {ini(m.display_name)}
-                              </div>
-                              <div>
-                                <div style={{ font: '600 13px/1 var(--font)', color: 'var(--txt)' }}>
-                                  {m.display_name}
-                                  {m.is_captain && (
-                                    <span style={{
-                                      marginLeft: 6, fontSize: 9, fontWeight: 700,
-                                      letterSpacing: 1, textTransform: 'uppercase',
-                                      color: 'var(--gold)', background: 'var(--gold-soft)',
-                                      padding: '2px 5px', borderRadius: 4,
-                                    }}>Capitão</span>
-                                  )}
-                                </div>
-                                {!m.corban_id && (
-                                  <div style={{ fontSize: 10, color: 'var(--txt3)', marginTop: 2 }}>sem corban_id</div>
-                                )}
-                              </div>
-                            </div>
-                          </td>
-                          <td style={{ padding: '10px 16px', textAlign: 'right' }}>
-                            <span style={{ font: '600 14px/1 var(--mono)', color: 'var(--txt)' }}>{m.qtd_propostas}</span>
-                          </td>
-                          <td style={{ padding: '10px 16px', textAlign: 'right' }}>
-                            <span style={{ font: '600 14px/1 var(--mono)', color: m.contratos_pagos > 0 ? 'var(--green)' : 'var(--txt3)' }}>
-                              {m.contratos_pagos}
-                            </span>
-                          </td>
-                          <td style={{ padding: '10px 16px', textAlign: 'right' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                              <span style={{ font: '700 13px/1 var(--mono)', color: 'var(--txt)' }}>{fBRL(m.valor_referencia)}</span>
-                              <div style={{ width: 80, height: 3, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
-                                <div style={{
-                                  width: barPct + '%', height: '100%',
-                                  background: 'linear-gradient(90deg,var(--gold-mid),var(--gold))',
-                                  borderRadius: 2, transition: 'width .3s',
-                                }} />
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{ background: 'var(--bg)', borderTop: '2px solid var(--border)' }}>
-                      <td style={{ padding: '10px 16px', font: '700 11px/1 var(--font)', color: 'var(--txt3)', letterSpacing: 1, textTransform: 'uppercase' }}>Total da equipe</td>
-                      <td style={{ padding: '10px 16px', textAlign: 'right', font: '700 14px/1 var(--mono)', color: 'var(--txt)' }}>{totals.qtd_propostas}</td>
-                      <td style={{ padding: '10px 16px', textAlign: 'right', font: '700 14px/1 var(--mono)', color: 'var(--green)' }}>{totals.contratos_pagos}</td>
-                      <td style={{ padding: '10px 16px', textAlign: 'right', font: '700 13px/1 var(--mono)', color: 'var(--gold)' }}>{fBRL(totals.valor_referencia)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              )}
-            </>
-          )}
-
-          {/* ---- Aba Pontos ---- */}
-          {tab === 'pontos' && <PointsTab group={group} />}
+          <PointsTab group={group} />
         </div>
 
         {/* Footer */}
@@ -599,15 +428,4 @@ export default function MembersModal({ group, onClose }) {
       </div>
     </div>
   )
-}
-
-function thStyle(extra = {}) {
-  return {
-    padding: '8px 16px',
-    font: '700 9px/1 var(--font)',
-    letterSpacing: 2, textTransform: 'uppercase',
-    color: 'var(--txt3)',
-    borderBottom: '1px solid var(--border)',
-    ...extra,
-  }
 }
