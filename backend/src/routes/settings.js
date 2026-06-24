@@ -92,13 +92,14 @@ router.put('/group-goals', authMiddleware, configAdminOnly, attachManagedGroups,
       const goal   = parseInt(g.goal_points         || 0) || 0;
       const meta2  = parseFloat(g.daily_goal_meta2  || 0) || 0;
       const meta3  = parseFloat(g.daily_goal_meta3  || 0) || 0;
+      const meta4  = parseFloat(g.daily_goal_meta4  || 0) || 0;
       await db.query(
         `UPDATE groups
          SET daily_goal_value = $1, weekly_goal_value = $2, goal_points = $3,
-             daily_goal_meta2 = $4, daily_goal_meta3 = $5,
+             daily_goal_meta2 = $4, daily_goal_meta3 = $5, daily_goal_meta4 = $6,
              updated_at = NOW()
-         WHERE id = $6`,
-        [daily, weekly, goal, meta2, meta3, g.group_id]
+         WHERE id = $7`,
+        [daily, weekly, goal, meta2, meta3, meta4, g.group_id]
       );
     }
     res.json({ ok: true });

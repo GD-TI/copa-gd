@@ -101,7 +101,7 @@ async function calculateScores(triggeredBy = null) {
   const { rows: groups } = await db.query(`
     SELECT
       g.id, g.name, g.daily_goal_value, g.weekly_goal_value,
-      g.daily_goal_meta2, g.daily_goal_meta3,
+      g.daily_goal_meta2, g.daily_goal_meta3, g.daily_goal_meta4,
       COUNT(DISTINCT gm.user_id)::int AS member_count,
       ARRAY_AGG(u.corban_id) FILTER (WHERE u.corban_id IS NOT NULL) AS corban_ids
     FROM groups g
@@ -109,7 +109,7 @@ async function calculateScores(triggeredBy = null) {
     JOIN users u ON gm.user_id = u.id
     WHERE g.active = true AND u.active = true
     GROUP BY g.id, g.name, g.daily_goal_value, g.weekly_goal_value,
-             g.daily_goal_meta2, g.daily_goal_meta3
+             g.daily_goal_meta2, g.daily_goal_meta3, g.daily_goal_meta4
   `);
 
   if (groups.length === 0) {
@@ -313,14 +313,17 @@ async function calculateScores(triggeredBy = null) {
           is_double: mult > 1,
         });
 
-        // Bônus por metas 2 e 3 (thresholds fixos por equipe) — apenas o tier mais alto é concedido
+        // Bônus por metas 2, 3 e 4 (thresholds fixos por equipe) — apenas o tier mais alto é concedido
+        const meta4 = parseFloat(g.daily_goal_meta4 || 0);
         const meta3 = parseFloat(g.daily_goal_meta3 || 0);
         const meta2 = parseFloat(g.daily_goal_meta2 || 0);
         let bonusRule = null;
-        if (meta3 > 0 && s.gValor >= meta3) {
-          bonusRule = { rule_name: 'META_DIA_PLUS50', pts: rulePts.META_DIA_PLUS50 || 15, label: 'Meta 3' };
+        if (meta4 > 0 && s.gValor >= meta4) {
+          bonusRule = { rule_name: 'META_DIA_PLUS100', pts: rulePts.META_DIA_PLUS100 || 20, label: 'Meta 4', threshold: meta4 };
+        } else if (meta3 > 0 && s.gValor >= meta3) {
+          bonusRule = { rule_name: 'META_DIA_PLUS50', pts: rulePts.META_DIA_PLUS50 || 15, label: 'Meta 3', threshold: meta3 };
         } else if (meta2 > 0 && s.gValor >= meta2) {
-          bonusRule = { rule_name: 'META_DIA_PLUS30', pts: rulePts.META_DIA_PLUS30 || 10, label: 'Meta 2' };
+          bonusRule = { rule_name: 'META_DIA_PLUS30', pts: rulePts.META_DIA_PLUS30 || 10, label: 'Meta 2', threshold: meta2 };
         }
 
         // Limpar tiers que possam ter sido gravados em rodadas anteriores
@@ -334,7 +337,7 @@ async function calculateScores(triggeredBy = null) {
         }
 
         if (bonusRule) {
-          const threshold = bonusRule.rule_name === 'META_DIA_PLUS50' ? meta3 : meta2;
+          const threshold = bonusRule.threshold;
           dayEvents.push({
             group_id: g.id, event_date: dateStr, rule_name: bonusRule.rule_name,
             points: bonusRule.pts * mult,

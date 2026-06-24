@@ -547,6 +547,7 @@ export default function ShellConfig() {
           daily:  g.daily_goal_value  > 0 ? String(g.daily_goal_value)  : '',
           meta2:  g.daily_goal_meta2  > 0 ? String(g.daily_goal_meta2)  : '',
           meta3:  g.daily_goal_meta3  > 0 ? String(g.daily_goal_meta3)  : '',
+          meta4:  g.daily_goal_meta4  > 0 ? String(g.daily_goal_meta4)  : '',
           weekly: g.weekly_goal_value > 0 ? String(g.weekly_goal_value) : '',
           goal:   g.goal_points       > 0 ? String(g.goal_points)       : '',
         }
@@ -594,6 +595,7 @@ export default function ShellConfig() {
       daily_goal_value:  parseFloat(draft[g.id]?.daily  || '0') || 0,
       daily_goal_meta2:  parseFloat(draft[g.id]?.meta2  || '0') || 0,
       daily_goal_meta3:  parseFloat(draft[g.id]?.meta3  || '0') || 0,
+      daily_goal_meta4:  parseFloat(draft[g.id]?.meta4  || '0') || 0,
       weekly_goal_value: parseFloat(draft[g.id]?.weekly || '0') || 0,
       goal_points:       parseInt(draft[g.id]?.goal     || '0') || 0,
     }))
@@ -605,6 +607,7 @@ export default function ShellConfig() {
         daily_goal_value:  parseFloat(draft[g.id]?.daily  || '0') || 0,
         daily_goal_meta2:  parseFloat(draft[g.id]?.meta2  || '0') || 0,
         daily_goal_meta3:  parseFloat(draft[g.id]?.meta3  || '0') || 0,
+        daily_goal_meta4:  parseFloat(draft[g.id]?.meta4  || '0') || 0,
         weekly_goal_value: parseFloat(draft[g.id]?.weekly || '0') || 0,
         goal_points:       parseInt(draft[g.id]?.goal     || '0') || 0,
       })))
@@ -699,6 +702,10 @@ export default function ShellConfig() {
                     Meta 3 — 15 pts (R$)
                     <div style={{ fontWeight: 400, color: 'var(--txt3)', marginTop: 2 }}>valor fixo</div>
                   </th>
+                  <th style={{ textAlign: 'right', minWidth: 140, background: 'rgba(139,92,246,.07)' }}>
+                    Meta 4 — 20 pts (R$)
+                    <div style={{ fontWeight: 400, color: 'var(--txt3)', marginTop: 2 }}>valor fixo</div>
+                  </th>
                   <th style={{ textAlign: 'right', minWidth: 140 }}>Semanal (R$)</th>
                   <th style={{ textAlign: 'right', minWidth: 130 }}>
                     Meta Pontos
@@ -722,6 +729,8 @@ export default function ShellConfig() {
                             M2: <strong style={{ color: 'var(--txt2)' }}>{fBRL(g.daily_goal_meta2)}</strong>
                             {' · '}
                             M3: <strong style={{ color: 'var(--txt2)' }}>{fBRL(g.daily_goal_meta3)}</strong>
+                            {' · '}
+                            M4: <strong style={{ color: 'var(--txt2)' }}>{fBRL(g.daily_goal_meta4)}</strong>
                           </div>
                         </div>
                       </div>
@@ -749,6 +758,13 @@ export default function ShellConfig() {
                         placeholder="ex: 20000"
                         value={draft[g.id]?.meta3 ?? ''}
                         onChange={e => setField(g.id, 'meta3', e.target.value)} />
+                    </td>
+                    <td style={{ textAlign: 'right', background: 'rgba(139,92,246,.04)' }}>
+                      <input type="number" min="0" step="1000" className="field-input"
+                        style={{ width: 120, textAlign: 'right', padding: '6px 10px', fontSize: 13 }}
+                        placeholder="ex: 25000"
+                        value={draft[g.id]?.meta4 ?? ''}
+                        onChange={e => setField(g.id, 'meta4', e.target.value)} />
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       <input type="number" min="0" step="1000" className="field-input"

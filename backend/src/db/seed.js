@@ -28,6 +28,7 @@ async function seed() {
       `ALTER TABLE groups ADD COLUMN IF NOT EXISTS weekly_goal_fgts NUMERIC DEFAULT 0`,
       `ALTER TABLE groups ADD COLUMN IF NOT EXISTS daily_goal_meta2 NUMERIC DEFAULT 0`,
       `ALTER TABLE groups ADD COLUMN IF NOT EXISTS daily_goal_meta3 NUMERIC DEFAULT 0`,
+      `ALTER TABLE groups ADD COLUMN IF NOT EXISTS daily_goal_meta4 NUMERIC DEFAULT 0`,
     ];
     for (const sql of migrations) {
       try { await db.query(sql); } catch (err) {
@@ -57,6 +58,7 @@ async function seed() {
       ['META_DIA',           'Meta do Dia (Meta 1)',   'Grupo atinge a meta 1 do dia (valor referência dos contratos pagos)',  '🎯', 5],
       ['META_DIA_PLUS30',    'Meta do Dia (Meta 2)',   'Grupo atinge a meta 2 do dia (valor fixo configurado por equipe)',     '🔥', 10],
       ['META_DIA_PLUS50',    'Meta do Dia (Meta 3)',   'Grupo atinge a meta 3 do dia (valor fixo configurado por equipe)',     '💥', 15],
+      ['META_DIA_PLUS100',   'Meta do Dia (Meta 4)',   'Grupo atinge a meta 4 do dia (valor fixo configurado por equipe)',     '🚀', 20],
       ['META_SEMANA',        'Meta da Semana',         'Grupo atinge a meta semanal de valor referência',                     '📅', 10],
       ['CONVERSAO',          'Taxa de Conversão',     'Taxa de pagamento do dia >= 80%',                                '📈', 5],
       ['INDICACAO',          'Vendas por Indicação',  'A cada 5 contratos pagos em que origem contém "Indicação"',        '👥', 10],
@@ -76,10 +78,10 @@ async function seed() {
         [name, label, desc, icon, pts]
       );
     }
-    // Remove regras descontinuadas (CLT/FGTS/PLUS100) do banco
+    // Remove regras descontinuadas (CLT/FGTS) do banco
     try {
       await db.query(
-        `DELETE FROM scoring_rules WHERE rule_name IN ('META_DIA_PLUS100','META_DIA_CLT','META_DIA_FGTS','META_SEMANA_CLT','META_SEMANA_FGTS')`
+        `DELETE FROM scoring_rules WHERE rule_name IN ('META_DIA_CLT','META_DIA_FGTS','META_SEMANA_CLT','META_SEMANA_FGTS')`
       );
     } catch (e) { /* ignora se tabela ainda não existir */ }
 
