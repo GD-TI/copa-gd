@@ -2,7 +2,7 @@ const router = require('express').Router()
 const { invalidateResponseCache } = require('../middleware/responseCache')
 
 const clients = new Set()
-const MAX_SSE_CLIENTS = 50
+const MAX_SSE_CLIENTS = parseInt(process.env.MAX_SSE_CLIENTS || '200')
 
 // GET /api/events/stream — SSE: sem auth (só envia notificação, dados vêm de endpoints autenticados)
 router.get('/stream', (req, res) => {
@@ -32,7 +32,7 @@ router.get('/stream', (req, res) => {
       clients.delete(res)
       console.log(`[SSE] conexão morta removida. Total: ${clients.size}`)
     }
-  }, 25000)
+  }, 15000)
 
   req.on('close', () => {
     clearInterval(keepAlive)
