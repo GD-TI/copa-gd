@@ -22,11 +22,10 @@ function isWeekdayCadastro(proposal) {
   return Boolean(d && isBusinessDay(d));
 }
 
-/** Proposta paga em dia útil (cadastro e pagamento em dia útil). */
+/** Proposta paga com cadastro em dia útil (pagamento pode ser em qualquer dia). */
 function isWeekdayPaid(proposal) {
   if (!proposal?.datas?.pagamento) return false;
-  const pay = getPagamentoDateStr(proposal);
-  return isWeekdayCadastro(proposal) && Boolean(pay && isBusinessDay(pay));
+  return isWeekdayCadastro(proposal);
 }
 
 function filterByWeekdayCadastro(proposals) {
