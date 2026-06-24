@@ -763,4 +763,48 @@ router.get('/newcorban-users/lookup', async (req, res) => {
   }
 });
 
+// GET /api/admin/scoring-log — histórico de mudanças de pontuação (master only)
+router.get('/scoring-log', adminOnly, async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit || 100), 500);
+  try {
+    const { rows: runs } = await db.query(`
+      SELECT sr.id, sr.ran_at, u.display_name AS triggered_by_name,
+             COUNT(sre.id)::int AS change_count
+      FROM scoring_runs sr
+      LEFT JOIN users u ON sr.triggered_by = u.id
+      LEFT JOIN scoring_run_events sre ON sre.run_id = sr.id
+      GROUP BY sr.id, sr.ran_at, u.display_name
+      HAVING COUNT(sre.id) > 0
+      ORDER BY sr.ran_at DESC
+      LIMIT $1
+    `, [limit]);
+
+    if (runs.length === 0) return res.json([]);
+
+    const { rows: events } = await db.query(`
+      SELECT run_id, group_id, group_name, event_date::text, rule_name,
+             old_points, new_points, delta
+      FROM scoring_run_events
+      WHERE run_id = ANY($1)
+      ORDER BY run_id DESC, ABS(delta) DESC
+    `, [runs.map(r => r.id)]);
+
+    const byRun = {};
+    events.forEach(e => {
+      if (!byRun[e.run_id]) byRun[e.run_id] = [];
+      byRun[e.run_id].push(e);
+    });
+
+    res.json(runs.map(r => ({
+      id: r.id,
+      ran_at: r.ran_at,
+      triggered_by: r.triggered_by_name || 'Cron automático',
+      changes: byRun[r.id] || [],
+    })));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao buscar histórico' });
+  }
+});
+
 module.exports = router;

@@ -29,6 +29,23 @@ async function seed() {
       `ALTER TABLE groups ADD COLUMN IF NOT EXISTS daily_goal_meta2 NUMERIC DEFAULT 0`,
       `ALTER TABLE groups ADD COLUMN IF NOT EXISTS daily_goal_meta3 NUMERIC DEFAULT 0`,
       `ALTER TABLE groups ADD COLUMN IF NOT EXISTS daily_goal_meta4 NUMERIC DEFAULT 0`,
+      `CREATE TABLE IF NOT EXISTS scoring_runs (
+        id SERIAL PRIMARY KEY,
+        ran_at TIMESTAMP DEFAULT NOW(),
+        triggered_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS scoring_run_events (
+        id SERIAL PRIMARY KEY,
+        run_id INTEGER NOT NULL REFERENCES scoring_runs(id) ON DELETE CASCADE,
+        group_id INTEGER NOT NULL,
+        group_name VARCHAR(100),
+        event_date DATE NOT NULL,
+        rule_name VARCHAR(50) NOT NULL,
+        old_points NUMERIC DEFAULT 0,
+        new_points NUMERIC DEFAULT 0,
+        delta NUMERIC NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_sre_run_id ON scoring_run_events(run_id)`,
     ];
     for (const sql of migrations) {
       try { await db.query(sql); } catch (err) {

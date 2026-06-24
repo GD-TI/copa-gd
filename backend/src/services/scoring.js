@@ -92,6 +92,20 @@ async function calculateScores(triggeredBy = null) {
   );
   const campaignStart = campRows[0] ? toDateStr(new Date(campRows[0].start_date)) : todayStr;
 
+  // Snapshot antes do cálculo (para log de deltas)
+  const { rows: beforeRows } = await db.query(`
+    SELECT se.group_id, se.event_date::text, se.rule_name, se.points, g.name AS group_name
+    FROM score_events se JOIN groups g ON se.group_id = g.id
+    WHERE se.event_date >= $1
+  `, [campaignStart]);
+  const beforeMap = {};
+  beforeRows.forEach(r => {
+    beforeMap[`${r.group_id}:${String(r.event_date).slice(0,10)}:${r.rule_name}`] = {
+      points: parseFloat(r.points), group_name: r.group_name,
+      group_id: r.group_id, event_date: String(r.event_date).slice(0,10), rule_name: r.rule_name,
+    };
+  });
+
   if (isForce) {
     console.log('[Scoring] Force: recalculando campanha inteira (mudança de equipe/membro)...');
     // Não apaga tudo de uma vez — limpa dia a dia no loop para evitar zeragem do ranking
@@ -520,6 +534,59 @@ async function calculateScores(triggeredBy = null) {
   );
 
   console.log(`[Scoring] ✅ ${totalEvents.length} eventos diários gerados`);
+
+  // ── 11. Log de histórico de pontuação ────────────────────────────────────
+  try {
+    const { rows: afterRows } = await db.query(`
+      SELECT se.group_id, se.event_date::text, se.rule_name, se.points, g.name AS group_name
+      FROM score_events se JOIN groups g ON se.group_id = g.id
+      WHERE se.event_date >= $1
+    `, [campaignStart]);
+    const afterMap = {};
+    afterRows.forEach(r => {
+      afterMap[`${r.group_id}:${String(r.event_date).slice(0,10)}:${r.rule_name}`] = {
+        points: parseFloat(r.points), group_name: r.group_name,
+        group_id: r.group_id, event_date: String(r.event_date).slice(0,10), rule_name: r.rule_name,
+      };
+    });
+
+    const allKeys = new Set([...Object.keys(beforeMap), ...Object.keys(afterMap)]);
+    const changes = [];
+    for (const key of allKeys) {
+      const b = beforeMap[key];
+      const a = afterMap[key];
+      const oldPts = b ? b.points : 0;
+      const newPts = a ? a.points : 0;
+      if (Math.abs(newPts - oldPts) > 0.001) {
+        const ref = a || b;
+        changes.push({ group_id: ref.group_id, group_name: ref.group_name,
+          event_date: ref.event_date, rule_name: ref.rule_name,
+          old_points: oldPts, new_points: newPts, delta: newPts - oldPts });
+      }
+    }
+
+    const { rows: runRows } = await db.query(
+      'INSERT INTO scoring_runs (triggered_by) VALUES ($1) RETURNING id',
+      [triggeredBy]
+    );
+    const runId = runRows[0].id;
+
+    if (changes.length > 0) {
+      const params = [runId];
+      const clauses = changes.map((c, i) => {
+        const b = i * 7 + 2;
+        params.push(c.group_id, c.group_name, c.event_date, c.rule_name, c.old_points, c.new_points, c.delta);
+        return `($1,$${b},$${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6})`;
+      });
+      await db.query(
+        `INSERT INTO scoring_run_events (run_id,group_id,group_name,event_date,rule_name,old_points,new_points,delta) VALUES ${clauses.join(',')}`,
+        params
+      );
+    }
+  } catch (logErr) {
+    console.error('[Scoring] Erro ao salvar log:', logErr.message);
+  }
+
   return totalEvents;
 }
 

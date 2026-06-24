@@ -37,6 +37,109 @@ function fmtDate(d) {
   return new Date(d + 'T12:00:00Z').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
+const RULE_LABELS = {
+  META_DIA: 'Meta 1', META_DIA_PLUS30: 'Meta 2', META_DIA_PLUS50: 'Meta 3', META_DIA_PLUS100: 'Meta 4',
+  META_SEMANA: 'Meta Semana', CONVERSAO: 'Conversão', INDICACAO: 'Indicação',
+  CONTRATO_10K: 'Contrato 10K', GOL_DE_PLACA: 'Gol de Placa',
+  ARTILHEIRO: 'Artilheiro', TORCIDA_ORGANIZADA: 'Torcida',
+}
+
+function fmtDateTime(ts) {
+  if (!ts) return '—'
+  return new Date(ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+// ── Histórico de Pontuação ──────────────────────────────────────────────────
+function ScoringLog() {
+  const [runs, setRuns]       = useState([])
+  const [loading, setLoading] = useState(true)
+  const [open, setOpen]       = useState({})
+
+  const load = useCallback(() => {
+    setLoading(true)
+    api.get('/admin/scoring-log?limit=100')
+      .then(r => setRuns(r.data || []))
+      .catch(() => setRuns([]))
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const toggle = id => setOpen(p => ({ ...p, [id]: !p[id] }))
+
+  if (loading) return <div style={{ padding: '16px 0', opacity: .5, fontSize: 13 }}>Carregando histórico…</div>
+  if (runs.length === 0) return <div style={{ padding: '16px 0', opacity: .5, fontSize: 13 }}>Nenhum registro ainda. Aguarde a próxima rodada do cron.</div>
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+        <button className="btn-sm" onClick={load} style={{ fontSize: 12 }}>↺ Atualizar</button>
+      </div>
+      {runs.map(run => (
+        <div key={run.id} style={{ border: '1px solid var(--brd)', borderRadius: 10, overflow: 'hidden' }}>
+          {/* Cabeçalho do run */}
+          <button
+            onClick={() => toggle(run.id)}
+            style={{ width: '100%', background: 'var(--surf2)', border: 'none', cursor: 'pointer',
+              padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left' }}
+          >
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', flex: 1 }}>
+              {fmtDateTime(run.ran_at)}
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--txt3)', background: 'var(--surf)', borderRadius: 6, padding: '2px 8px' }}>
+              {run.triggered_by}
+            </span>
+            <span style={{ fontSize: 11, color: run.changes.length > 0 ? 'var(--accent)' : 'var(--txt3)',
+              fontWeight: 700, minWidth: 60, textAlign: 'right' }}>
+              {run.changes.length} mudança{run.changes.length !== 1 ? 's' : ''}
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--txt3)' }}>{open[run.id] ? '▲' : '▼'}</span>
+          </button>
+
+          {/* Detalhes */}
+          {open[run.id] && (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: 'var(--surf2)', borderBottom: '1px solid var(--brd)' }}>
+                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600, color: 'var(--txt2)' }}>Equipe</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600, color: 'var(--txt2)' }}>Regra</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'center', fontWeight: 600, color: 'var(--txt2)' }}>Data evento</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'right', fontWeight: 600, color: 'var(--txt2)' }}>Antes</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'right', fontWeight: 600, color: 'var(--txt2)' }}>Depois</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'right', fontWeight: 600, color: 'var(--txt2)' }}>Delta</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {run.changes.map((c, i) => {
+                    const delta = parseFloat(c.delta)
+                    const isPos = delta > 0
+                    return (
+                      <tr key={i} style={{ borderBottom: '1px solid var(--brd)', background: i % 2 === 0 ? 'transparent' : 'var(--surf2)' }}>
+                        <td style={{ padding: '6px 12px', fontWeight: 600 }}>{c.group_name}</td>
+                        <td style={{ padding: '6px 12px', color: 'var(--txt2)' }}>{RULE_LABELS[c.rule_name] || c.rule_name}</td>
+                        <td style={{ padding: '6px 12px', textAlign: 'center', color: 'var(--txt3)' }}>
+                          {c.event_date ? new Date(c.event_date + 'T12:00:00Z').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '—'}
+                        </td>
+                        <td style={{ padding: '6px 12px', textAlign: 'right', color: 'var(--txt3)' }}>{parseFloat(c.old_points)} pts</td>
+                        <td style={{ padding: '6px 12px', textAlign: 'right', color: 'var(--txt3)' }}>{parseFloat(c.new_points)} pts</td>
+                        <td style={{ padding: '6px 12px', textAlign: 'right', fontWeight: 700,
+                          color: isPos ? '#22c55e' : '#ef4444' }}>
+                          {isPos ? '+' : ''}{delta} pts
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── Seção de Ajustes de Pontos ──────────────────────────────────────────────
 function PointAdjustments({ groups }) {
   const [selectedGroup, setSelectedGroup] = useState('')
@@ -799,6 +902,14 @@ export default function ShellConfig() {
         <>
           <div className="sec-label">⚖️ Ajuste Manual de Pontos</div>
           <PointAdjustments groups={groups} />
+        </>
+      )}
+
+      {/* ── Histórico de pontuação (master only) ── */}
+      {isMaster && (
+        <>
+          <div className="sec-label">📋 Histórico de Pontuação</div>
+          <ScoringLog />
         </>
       )}
     </div>
