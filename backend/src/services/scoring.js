@@ -250,14 +250,25 @@ async function calculateScores(triggeredBy = null) {
       const gPaid = gDay.filter(isWeekdayPaid);
       const gValor = sumValorRef(gPaid);
       const gMaxC  = gPaid.reduce((mx, p) => Math.max(mx, parseFloat(p.proposta?.valor_referencia || 0)), 0);
-      gStats[g.id] = { cids, gDay, gPaid, gValor, gMaxC };
+
+      // ARTILHEIRO: melhor vendedor individual do time (não total do time)
+      const paidPerCid = {};
+      gPaid.forEach(p => {
+        const cid = String(p.vendedor_id);
+        paidPerCid[cid] = (paidPerCid[cid] || 0) + 1;
+      });
+      const topEntry = Object.entries(paidPerCid).sort(([, a], [, b]) => b - a)[0];
+      const gMaxIndividualP = topEntry ? topEntry[1] : 0;
+      const gTopArtCid      = topEntry ? topEntry[0] : null;
+
+      gStats[g.id] = { cids, gDay, gPaid, gValor, gMaxC, gMaxIndividualP, gTopArtCid };
     }
 
     // Máximos globais para regras competitivas
     const globalMaxC = groups.reduce((mx, g) => Math.max(mx, gStats[g.id].gMaxC), 0);
-    const globalMaxP = groups.reduce((mx, g) => Math.max(mx, gStats[g.id].gPaid.length), 0);
+    const globalMaxP = groups.reduce((mx, g) => Math.max(mx, gStats[g.id].gMaxIndividualP), 0);
     const golWinners = globalMaxC > 0 ? groups.filter(g => gStats[g.id].gMaxC === globalMaxC).map(g => g.id) : [];
-    const artWinners = globalMaxP > 0 ? groups.filter(g => gStats[g.id].gPaid.length === globalMaxP).map(g => g.id) : [];
+    const artWinners = globalMaxP > 0 ? groups.filter(g => gStats[g.id].gMaxIndividualP === globalMaxP).map(g => g.id) : [];
 
     // Consultor que fez o maior contrato em cada grupo vencedor
     const golConsultor = {};
@@ -269,17 +280,12 @@ async function calculateScores(triggeredBy = null) {
       if (maxProp) golConsultor[g.id] = corbanToName[String(maxProp.vendedor_id)] || null;
     }
 
-    // Consultor com mais contratos pagos em cada grupo vencedor
+    // Consultor artilheiro de cada grupo vencedor (já calculado no gStats)
     const artConsultor = {};
     for (const g of groups) {
       if (!artWinners.includes(g.id)) continue;
-      const paidPerCid = {};
-      gStats[g.id].gPaid.forEach(p => {
-        const cid = String(p.vendedor_id);
-        paidPerCid[cid] = (paidPerCid[cid] || 0) + 1;
-      });
-      const top = Object.entries(paidPerCid).sort(([, a], [, b]) => b - a)[0];
-      if (top) artConsultor[g.id] = corbanToName[top[0]] || null;
+      const cid = gStats[g.id].gTopArtCid;
+      if (cid) artConsultor[g.id] = corbanToName[cid] || null;
     }
 
     // Limpar perdedores das regras competitivas (hoje ou recálculo retroativo de dia de jogo)
@@ -397,7 +403,7 @@ async function calculateScores(triggeredBy = null) {
         dayEvents.push({
           group_id: g.id, event_date: dateStr, rule_name: 'ARTILHEIRO',
           points: rulePts.ARTILHEIRO * mult,
-          description: `Artilheiro: ${globalMaxP} contratos pagos${consultor ? ` · líder: ${consultor}` : ''}`,
+          description: `Artilheiro: ${globalMaxP} contratos pagos (melhor vendedor)${consultor ? ` · ${consultor}` : ''}`,
           is_double: mult > 1,
         });
       }
