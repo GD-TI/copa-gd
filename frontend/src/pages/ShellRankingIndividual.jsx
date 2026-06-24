@@ -53,13 +53,19 @@ export default function ShellRankingIndividual() {
   const debounceRef = useRef(null)
 
   const loadAll = useCallback(async () => {
-    const [r1, r2] = await Promise.allSettled([
-      api.get('/scores/individual-rankings'),
-      api.get('/groups/ranking'),
-    ])
-    if (r1.status === 'fulfilled') setData(r1.value.data)
-    if (r2.status === 'fulfilled' && r2.value.data.campaign) setCampaign(r2.value.data.campaign)
+    // 1. Campaign: só DB, responde em ~30ms
+    try {
+      const r2 = await api.get('/groups/ranking')
+      if (r2.data.campaign) setCampaign(r2.data.campaign)
+    } catch (e) {}
     setLoading(false)
+    setLastUpdate(new Date())
+
+    // 2. Rankings individuais em background (chama NewCorban — pode demorar)
+    try {
+      const r1 = await api.get('/scores/individual-rankings')
+      setData(r1.data)
+    } catch (e) {}
     setLastUpdate(new Date())
   }, [])
 
