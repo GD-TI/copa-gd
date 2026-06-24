@@ -21,7 +21,7 @@ function validateDatabaseUrl() {
   }
 
   const host = parseDbHost(url);
-  const placeholders = ['host', 'localhost', 'seu-host', 'hostname'];
+  const placeholders = ['host', 'seu-host', 'hostname'];
 
   if (!host || placeholders.includes(host.toLowerCase())) {
     return {
