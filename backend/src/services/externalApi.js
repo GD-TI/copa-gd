@@ -170,7 +170,7 @@ function buildRankingFilter(startDate, endDate) {
     not_promotora: [],
     status: [],
     not_status: [],
-    produto: [],
+    produto: ['7', '13'],
     not_produto: [],
     convenio: [],
     not_convenio: [],
