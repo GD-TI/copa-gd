@@ -431,7 +431,7 @@ router.get('/groups', async (req, res) => {
 
     const { rows } = await db.query(`
       SELECT g.id, g.name, g.photo_url, g.created_by, g.active, g.created_at, g.updated_at,
-             g.daily_goal_value, g.weekly_goal_value, g.goal_points, g.daily_goal_meta2, g.daily_goal_meta3,
+             g.daily_goal_value, g.weekly_goal_value, g.goal_points, g.daily_goal_meta2, g.daily_goal_meta3, g.daily_goal_meta4,
              COUNT(DISTINCT gm.user_id) as member_count
       FROM groups g
       LEFT JOIN group_memberships gm ON g.id = gm.group_id
