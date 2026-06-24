@@ -259,6 +259,7 @@ async function getProposals(startDate, endDate, vendedorIds = [], _retry = true)
     requestType: 'getPropostas',
     filters: {
       data: { tipo: 'cadastro', startDate, endDate },
+      produto: ['7', '13'],
       ...(vendedorIds.length > 0 ? { vendedor: vendedorIds.map(Number) } : {}),
     },
   };
