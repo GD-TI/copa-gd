@@ -31,7 +31,7 @@ function getWeekStart(date) {
   return d;
 }
 
-const DAILY_RULES = ['META_DIA', 'META_DIA_PLUS30', 'META_DIA_PLUS50', 'META_DIA_PLUS100', 'META_DIA_CLT', 'META_DIA_FGTS', 'CONVERSAO', 'GOL_DE_PLACA', 'ARTILHEIRO', 'TORCIDA_ORGANIZADA'];
+const DAILY_RULES = ['META_DIA', 'META_DIA_PLUS30', 'META_DIA_PLUS50', 'META_DIA_PLUS100', 'META_DIA_CLT', 'META_DIA_FGTS', 'CONVERSAO', 'CONTRATO_10K', 'GOL_DE_PLACA', 'ARTILHEIRO', 'TORCIDA_ORGANIZADA'];
 
 function getProductoId(p) {
   return String(p.produto_id || p.proposta?.produto_id || '');
@@ -367,6 +367,19 @@ async function calculateScores(triggeredBy = null) {
         await deleteEvent(g.id, dateStr, 'CONVERSAO');
       }
 
+      // CONTRATO_10K: contratos pagos hoje com valor > R$ 10.000
+      const hvCount = s.gPaid.filter(p => parseFloat(p.proposta?.valor_referencia || 0) > 10000).length;
+      if (hvCount > 0) {
+        dayEvents.push({
+          group_id: g.id, event_date: dateStr, rule_name: 'CONTRATO_10K',
+          points: hvCount * (rulePts.CONTRATO_10K || 5) * mult,
+          description: `${hvCount} contrato(s) acima de R$ 10.000`,
+          is_double: mult > 1,
+        });
+      } else if (recalcDay) {
+        await deleteEvent(g.id, dateStr, 'CONTRATO_10K');
+      }
+
       // GOL_DE_PLACA: maior contrato pago do dia (competitivo)
       if (golWinners.includes(g.id)) {
         const consultor = golConsultor[g.id];
@@ -489,13 +502,8 @@ async function calculateScores(triggeredBy = null) {
       await deleteEvent(g.id, campaignStart, 'INDICACAO');
     }
 
-    const hvCount = paidAll.filter(p => parseFloat(p.proposta?.valor_referencia || 0) > 10000).length;
-    if (hvCount > 0) {
-      await upsertEvent(g.id, campaignStart, 'CONTRATO_10K', hvCount * rulePts.CONTRATO_10K,
-        `${hvCount} contrato(s) acima de R$ 10.000`, false);
-    } else {
-      await deleteEvent(g.id, campaignStart, 'CONTRATO_10K');
-    }
+    // Limpar evento legado de CONTRATO_10K acumulado (migração para regra diária)
+    await deleteEvent(g.id, campaignStart, 'CONTRATO_10K');
   }
 
   // ── 10. Marcar hoje no daily_calculations ────────────────────────────────
