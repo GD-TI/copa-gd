@@ -275,7 +275,9 @@ async function calculateScores(triggeredBy = null) {
       const gMaxIndividualP = topEntry ? topEntry[1] : 0;
       const gTopArtCid      = topEntry ? topEntry[0] : null;
 
-      gStats[g.id] = { cids, gDay, gPaid, gValor, gMaxC, gMaxIndividualP, gTopArtCid };
+      const gDayConversao = gDay.filter(p => p.status_api !== 'CANCELADA');
+
+      gStats[g.id] = { cids, gDay, gPaid, gValor, gMaxC, gMaxIndividualP, gTopArtCid, gDayConversao };
     }
 
     // Máximos globais para regras competitivas
@@ -374,13 +376,13 @@ async function calculateScores(triggeredBy = null) {
         await deleteEvent(g.id, dateStr, 'META_DIA_FGTS');
       }
 
-      // CONVERSAO: taxa de pagamento do dia >= 80% (padrão)
-      if (s.gDay.length > 0 && s.gPaid.length / s.gDay.length >= CONVERSION_MIN_RATE) {
-        const rate = s.gPaid.length / s.gDay.length;
+      // CONVERSAO: taxa de pagamento do dia >= 80% (padrão); propostas CANCELADA excluídas
+      if (s.gDayConversao.length > 0 && s.gPaid.length / s.gDayConversao.length >= CONVERSION_MIN_RATE) {
+        const rate = s.gPaid.length / s.gDayConversao.length;
         dayEvents.push({
           group_id: g.id, event_date: dateStr, rule_name: 'CONVERSAO',
           points: rulePts.CONVERSAO * mult,
-          description: `Conversão ${Math.round(rate * 100)}%: ${s.gPaid.length}/${s.gDay.length} pagos (meta ${Math.round(CONVERSION_MIN_RATE * 100)}%)`,
+          description: `Conversão ${Math.round(rate * 100)}%: ${s.gPaid.length}/${s.gDayConversao.length} pagos (meta ${Math.round(CONVERSION_MIN_RATE * 100)}%)`,
           is_double: mult > 1,
         });
       } else if (recalcDay) {
