@@ -402,9 +402,9 @@ Senha padrão `admin2026` — hash gerado por `bcrypt` no `seed.js` (10 rounds).
 
 > Pontos base vêm de `scoring_rules.base_points` (editável pelo admin master).  
 > **Pontos em dobro (×2)** em dias com jogo do Brasil (`brazil_matches.double_points = true`):
-> - Regras **diárias** (em dia útil): META_DIA, CONVERSAO, GOL_DE_PLACA, ARTILHEIRO, TORCIDA_ORGANIZADA
+> - Regras **diárias** (em dia útil): META_DIA, CONVERSAO, CONTRATO_10K, GOL_DE_PLACA, ARTILHEIRO, TORCIDA_ORGANIZADA
 > - **META_SEMANA**: ×2 se **qualquer dia útil** da semana tiver jogo do Brasil
-> - **INDICACAO** e **CONTRATO_10K** (campanha acumulada): **não** dobram
+> - **INDICACAO** (campanha acumulada): **não** dobra
 > - Campo `score_events.is_double_points` + breakdown em `/api/groups/:id/members/points`
 > - Breakdown UI: badge `🇧🇷 ×2` no dia, `base_points`, `multiplier`, `brazil_match` (adversário)
 > - **Retroativo:** dias em `brazil_matches` são recalculados mesmo após `daily_calculations`; alterar jogos ou "Recalcular campanha" aplica ×2 no passado; TORCIDA retroativa busca ranking histórico no force recalc
@@ -417,7 +417,7 @@ Senha padrão `admin2026` — hash gerado por `bcrypt` no `seed.js` (10 rounds).
 | META_SEMANA | 10 | Semanal | `max(weekStart, campaignStart)` | `valor_referencia` da semana >= `weekly_goal_value` |
 | CONVERSAO | 5 | Diária | `dateStr` | Taxa de pagamento do dia >= **80%** (`CONVERSION_MIN_RATE`, default `0.80`) |
 | INDICACAO | 10/lote | Campanha acumulada | `campaignStart` | A cada **5 contratos pagos** em que o campo **`origem` contém "Indicação"** |
-| CONTRATO_10K | 5/contrato | Campanha acumulada | `campaignStart` | Por contrato com `valor_referencia > 10000` |
+| CONTRATO_10K | 5/contrato | **Diária** | `dateStr` | Por contrato **pago hoje** com `valor_referencia > 10000` (conta ×2 em dia de jogo) |
 | GOL_DE_PLACA | 15 | **Diária competitiva** | `dateStr` | Grupo com o maior contrato **pago** hoje entre todos os grupos |
 | ARTILHEIRO | 15 | **Diária competitiva** | `dateStr` | Grupo com mais contratos **pagos hoje** entre todos os grupos |
 | TORCIDA_ORGANIZADA | 20 | Diária | `dateStr` | Grupo com ≥5 membros, todos com >10 propostas hoje (via ranking) |
@@ -459,16 +459,16 @@ Senha padrão `admin2026` — hash gerado por `bcrypt` no `seed.js` (10 rounds).
 - `mult = doubleDays.has(dateStr) ? 2 : 1` para regras diárias
 - `recalcDay = isToday || isForce || doubleDays.has(dateStr)` — limpa eventos obsoletos e regras competitivas
 - TORCIDA: hoje via ranking ao vivo; retroativo em dias de jogo no **force** (ranking histórico por data)
-- Após loop: META_SEMANA (recalcula semanas com jogo do Brasil), INDICACAO + CONTRATO_10K acumulados
+- Após loop: META_SEMANA (recalcula semanas com jogo do Brasil), INDICACAO acumulado
 - Datas PostgreSQL: `pgDateStr()` evita shift de fuso em `match_date` e `event_date`
 - UI admin: **"🔄 Recalcular toda a campanha"** → `POST /api/scores/calculate` (master only, timeout 180s)
 
 ### Fluxo por dia útil
 1. Filtra propostas com `getCadastroDateStr(p) === dateStr` (já só dias úteis)
 2. Pagos: `isWeekdayPaid` (cadastro + pagamento em dia útil)
-3. META_DIA, CONVERSAO, GOL_DE_PLACA, ARTILHEIRO × `mult`
+3. META_DIA, CONVERSAO, CONTRATO_10K, GOL_DE_PLACA, ARTILHEIRO × `mult`
 4. TORCIDA_ORGANIZADA: hoje ou retroativo (force + dia de jogo)
-5. Após loop: META_SEMANA; INDICACAO + CONTRATO_10K (sem ×2)
+5. Após loop: META_SEMANA; INDICACAO (sem ×2)
 
 ---
 
@@ -918,3 +918,5 @@ VITE_API_URL=http://localhost:3001
 | Jun/23 | Metas CLT/FGTS removidas; bônus de meta passaram de percentuais para valores fixos | Colunas CLT/FGTS ficam no banco (legado). Adicionadas `daily_goal_meta2` e `daily_goal_meta3` — thresholds fixos independentes para Meta 2 (10 pts) e Meta 3 (15 pts). META_DIA_PLUS100 removido. ShellConfig: tabela de metas atualizada. Seed: regras CLT/FGTS/PLUS100 deletadas do banco |
 | Jun/23 | Pontos perdidos em massa no ranking a cada rodada do cron | 2 causas: (1) `getProposals` lançava exceção → `allProposals=[]` → cron deletava CONVERSAO, INDICACAO, CONTRATO_10K para todos os grupos sem re-inserir; (2) `getRanking` lançava exceção → `vendorMap={}` → TORCIDA deletada para todos. Corrigido: flag `proposalsOk` — se `getProposals` lança, `return []` imediatamente (abort); flag `rankingOk` — se `getRanking` lança, TORCIDA é preservada (`torcidaDataAvailable`) |
 | Jun/23 | Cron documentado como "15 min" mas rodava a cada 5 min | `scheduler.js` usa `*/5 * * * *`. Corrigido no CLAUDE.md |
+| Jun/25 | CONTRATO_10K tratado como regra de campanha acumulada (sem ×2) | Corrigido para regra diária: `event_date = dateStr`, aplica `mult` (×2 em dia de jogo). `OUTROS_RULES` em `groups.js` agora só contém `INDICACAO` |
+| Jun/25 | CONVERSAO incluía propostas CANCELADA no denominador | `gDayConversao = gDay.filter(p => p.api?.status_api !== 'CANCELADA')` — campo aninhado em `p.api.status_api`, não top-level |

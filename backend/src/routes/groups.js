@@ -181,7 +181,7 @@ router.get('/:id/members/points', authMiddleware, async (req, res) => {
     };
 
     // Regras acumuladas de campanha — exibidas em seção própria sem data
-    const OUTROS_RULES = new Set(['INDICACAO', 'CONTRATO_10K']);
+    const OUTROS_RULES = new Set(['INDICACAO']);
 
     // Agrupar por data (excluindo regras de campanha)
     const dayMap = new Map();
