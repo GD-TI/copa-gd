@@ -204,7 +204,7 @@ function PointsTab({ group }) {
     <div style={{ padding: 24, textAlign: 'center', color: 'var(--red)', fontSize: 13 }}>{err}</div>
   )
 
-  const { days = [], adjustments = [], grand_total = 0, total_points = 0, adj_total = 0 } = data || {}
+  const { days = [], outros = [], adjustments = [], grand_total = 0, total_points = 0, adj_total = 0 } = data || {}
   const todayStr = new Date().toISOString().slice(0, 10)
 
   return (
@@ -316,6 +316,36 @@ function PointsTab({ group }) {
           </div>
         )
       })}
+
+      {/* Outros (Indicações e Contratos 10K — acumulados da campanha) */}
+      {outros.length > 0 && (
+        <div>
+          <div style={{
+            padding: '7px 16px', background: 'var(--bg)',
+            font: '700 9px/1 var(--font)', color: 'var(--txt3)', letterSpacing: 2, textTransform: 'uppercase',
+            borderBottom: '1px solid var(--border)',
+          }}>Outros</div>
+          {outros.map((e, i) => (
+            <div key={i} style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '6px 16px 6px 24px', borderBottom: '1px solid var(--border)',
+            }}>
+              <span style={{ fontSize: 13, flexShrink: 0 }}>{e.icon}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ font: '600 12px/1 var(--font)', color: 'var(--txt)' }}>{e.label}</div>
+                {e.description && (
+                  <div style={{ font: '400 10px/1.4 var(--font)', color: 'var(--txt3)', marginTop: 1 }}>
+                    {e.description}
+                  </div>
+                )}
+              </div>
+              <span style={{ font: '700 13px/1 var(--mono)', color: RULE_COLOR[e.rule_name] || 'var(--gold)' }}>
+                +{e.points}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Ajustes admin */}
       {adjustments.length > 0 && (

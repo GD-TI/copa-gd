@@ -180,21 +180,30 @@ router.get('/:id/members/points', authMiddleware, async (req, res) => {
       ARTILHEIRO:         { icon: '🏆', label: 'Artilheiro' },
     };
 
-    // Agrupar por data
+    // Regras acumuladas de campanha — exibidas em seção própria sem data
+    const OUTROS_RULES = new Set(['INDICACAO', 'CONTRATO_10K']);
+
+    // Agrupar por data (excluindo regras de campanha)
     const dayMap = new Map();
+    const outros = [];
     for (const e of events) {
+      const entry = {
+        rule_name:   e.rule_name,
+        points:      Number(e.points),
+        base_points: e.is_double_points ? Number(e.points) / 2 : Number(e.points),
+        multiplier:  e.is_double_points ? 2 : 1,
+        description: e.description,
+        is_double:   e.is_double_points,
+        icon:        RULE_META[e.rule_name]?.icon  || '⭐',
+        label:       RULE_META[e.rule_name]?.label || e.rule_name,
+      };
+      if (OUTROS_RULES.has(e.rule_name)) {
+        outros.push(entry);
+        continue;
+      }
       const d = new Date(e.event_date).toISOString().slice(0, 10);
       if (!dayMap.has(d)) dayMap.set(d, []);
-      dayMap.get(d).push({
-        rule_name:  e.rule_name,
-        points:     Number(e.points),
-        base_points: e.is_double_points ? Number(e.points) / 2 : Number(e.points),
-        multiplier: e.is_double_points ? 2 : 1,
-        description: e.description,
-        is_double:  e.is_double_points,
-        icon:       RULE_META[e.rule_name]?.icon  || '⭐',
-        label:      RULE_META[e.rule_name]?.label || e.rule_name,
-      });
+      dayMap.get(d).push(entry);
     }
 
     const days = [...dayMap.entries()]
@@ -212,6 +221,7 @@ router.get('/:id/members/points', authMiddleware, async (req, res) => {
 
     res.json({
       days,
+      outros,
       adjustments: adjs.map(a => ({ ...a, date: String(a.date).slice(0, 10) })),
       total_points,
       adj_total,
