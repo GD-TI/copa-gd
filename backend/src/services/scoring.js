@@ -275,7 +275,7 @@ async function calculateScores(triggeredBy = null) {
       const gMaxIndividualP = topEntry ? topEntry[1] : 0;
       const gTopArtCid      = topEntry ? topEntry[0] : null;
 
-      const gDayConversao = gDay.filter(p => p.status_api !== 'CANCELADA');
+      const gDayConversao = gDay.filter(p => p.api?.status_api !== 'CANCELADA');
 
       gStats[g.id] = { cids, gDay, gPaid, gValor, gMaxC, gMaxIndividualP, gTopArtCid, gDayConversao };
     }
