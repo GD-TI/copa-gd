@@ -274,17 +274,25 @@ async function calculateScores(triggeredBy = null) {
       const topEntry = Object.entries(paidPerCid).sort(([, a], [, b]) => b - a)[0];
       const gMaxIndividualP = topEntry ? topEntry[1] : 0;
       const gTopArtCid      = topEntry ? topEntry[0] : null;
+      // Desempate: soma dos valores dos contratos pagos do melhor vendedor
+      const gTopArtValor = gTopArtCid
+        ? gPaid.filter(p => String(p.vendedor_id) === gTopArtCid)
+               .reduce((s, p) => s + parseFloat(p.proposta?.valor_referencia || 0), 0)
+        : 0;
 
       const gDayConversao = gDay.filter(p => p.api?.status_api !== 'CANCELADA');
 
-      gStats[g.id] = { cids, gDay, gPaid, gValor, gMaxC, gMaxIndividualP, gTopArtCid, gDayConversao };
+      gStats[g.id] = { cids, gDay, gPaid, gValor, gMaxC, gMaxIndividualP, gTopArtCid, gTopArtValor, gDayConversao };
     }
 
     // Máximos globais para regras competitivas
     const globalMaxC = groups.reduce((mx, g) => Math.max(mx, gStats[g.id].gMaxC), 0);
     const globalMaxP = groups.reduce((mx, g) => Math.max(mx, gStats[g.id].gMaxIndividualP), 0);
     const golWinners = globalMaxC > 0 ? groups.filter(g => gStats[g.id].gMaxC === globalMaxC).map(g => g.id) : [];
-    const artWinners = globalMaxP > 0 ? groups.filter(g => gStats[g.id].gMaxIndividualP === globalMaxP).map(g => g.id) : [];
+    // Empate em qtd de contratos → desempate pela soma de valores do melhor vendedor
+    const artTied = globalMaxP > 0 ? groups.filter(g => gStats[g.id].gMaxIndividualP === globalMaxP) : [];
+    const globalMaxArtValor = artTied.reduce((mx, g) => Math.max(mx, gStats[g.id].gTopArtValor), 0);
+    const artWinners = artTied.filter(g => gStats[g.id].gTopArtValor >= globalMaxArtValor).map(g => g.id);
 
     // Consultor que fez o maior contrato em cada grupo vencedor
     const golConsultor = {};
@@ -414,13 +422,15 @@ async function calculateScores(triggeredBy = null) {
         });
       }
 
-      // ARTILHEIRO: mais contratos pagos do dia (competitivo)
+      // ARTILHEIRO: mais contratos pagos do dia (competitivo; desempate por valor)
       if (artWinners.includes(g.id)) {
         const consultor = artConsultor[g.id];
+        const artValor = gStats[g.id].gTopArtValor;
+        const hasTie = artTied.length > artWinners.length || (artTied.length > 1 && artWinners.length > 0);
         dayEvents.push({
           group_id: g.id, event_date: dateStr, rule_name: 'ARTILHEIRO',
           points: rulePts.ARTILHEIRO * mult,
-          description: `Artilheiro: ${globalMaxP} contratos pagos (melhor vendedor)${consultor ? ` · ${consultor}` : ''}`,
+          description: `Artilheiro: ${globalMaxP} contratos pagos${hasTie ? ` · desempate R$ ${artValor.toFixed(2)}` : ''}${consultor ? ` · ${consultor}` : ''}`,
           is_double: mult > 1,
         });
       }
