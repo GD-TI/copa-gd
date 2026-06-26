@@ -415,7 +415,7 @@ Senha padrão `admin2026` — hash gerado por `bcrypt` no `seed.js` (10 rounds).
 | META_DIA_PLUS30 | 10 | Diária (bônus) | `dateStr` | Meta 2: valor pago hoje >= `groups.daily_goal_meta2` (threshold fixo); tier mais alto vence (PLUS30 < PLUS50) |
 | META_DIA_PLUS50 | 15 | Diária (bônus) | `dateStr` | Meta 3: valor pago hoje >= `groups.daily_goal_meta3` (threshold fixo) |
 | META_SEMANA | 10 | Semanal | `max(weekStart, campaignStart)` | `valor_referencia` da semana >= `weekly_goal_value` |
-| CONVERSAO | 5 | Diária | `dateStr` | Taxa de pagamento do dia >= **80%** (`CONVERSION_MIN_RATE`, default `0.80`) |
+| CONVERSAO | 5 | Diária | `dateStr` | **Mínimo 10 propostas** no dia + taxa de pagamento >= **80%** (`CONVERSION_MIN_RATE`, default `0.80`); propostas CANCELADA excluídas |
 | INDICACAO | 10/lote | Campanha acumulada | `campaignStart` | A cada **5 contratos pagos** em que o campo **`origem` contém "Indicação"** |
 | CONTRATO_10K | 5/contrato | **Diária** | `dateStr` | Por contrato **pago hoje** com `valor_referencia > 10000` (conta ×2 em dia de jogo) |
 | GOL_DE_PLACA | 15 | **Diária competitiva** | `dateStr` | Grupo com o maior contrato **pago** hoje entre todos os grupos |
