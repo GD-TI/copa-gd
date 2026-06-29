@@ -143,19 +143,6 @@ async function calculateScores(triggeredBy = null) {
   const allCorbanIds = [...new Set(groups.flatMap(g => g.corban_ids || []))];
   if (allCorbanIds.length === 0) { console.log('[Scoring] Nenhum corban_id configurado.'); return []; }
 
-  // ── 2. Ranking de hoje (TORCIDA_ORGANIZADA) ──────────────────────────────
-  let rankingOk = false;
-  const vendorMap = {};
-  try {
-    const rd = await externalApi.getRanking(todayStr, todayStr);
-    rankingOk = true; // API respondeu (pode ser vazio — válido)
-    if (rd?.result) {
-      Object.values(rd.result).forEach(v => {
-        if (v.filter_value) vendorMap[String(v.filter_value)] = v;
-      });
-    }
-  } catch (e) { console.error('[Scoring] Ranking error:', e.message); }
-
   // ── 4. Todas as propostas da campanha (uma chamada, cacheada) ─────────────
   let allProposals = [];
   let proposalsOk = false;
@@ -195,26 +182,6 @@ async function calculateScores(triggeredBy = null) {
 
   const campaignDays = getDaysInRange(campaignStart, todayStr);
   let totalEvents = [];
-
-  // Ranking histórico para TORCIDA em dias de jogo passados (recálculo retroativo) — em paralelo
-  const vendorMapByDate = {};
-  if (isForce && doubleDays.size > 0) {
-    const retroDays = [...doubleDays].filter(d => isBusinessDay(d) && d !== todayStr);
-    await Promise.all(retroDays.map(async (d) => {
-      try {
-        const rd = await externalApi.getRanking(d, d);
-        const vm = {};
-        if (rd?.result) {
-          Object.values(rd.result).forEach(v => {
-            if (v.filter_value) vm[String(v.filter_value)] = v;
-          });
-        }
-        vendorMapByDate[d] = vm;
-      } catch (e) {
-        console.warn(`[Scoring] Ranking ${d} indisponível (TORCIDA retroativa):`, e.message);
-      }
-    }));
-  }
 
   // ── 7. Regras diárias: para cada dia da campanha ─────────────────────────
   for (const dateStr of campaignDays) {
@@ -282,7 +249,16 @@ async function calculateScores(triggeredBy = null) {
 
       const gDayConversao = gDay.filter(p => p.api?.status_api !== 'CANCELADA');
 
-      gStats[g.id] = { cids, gDay, gPaid, gValor, gMaxC, gMaxIndividualP, gTopArtCid, gTopArtValor, gDayConversao };
+      // TORCIDA_ORGANIZADA: propostas pagas por membro (independe da data de pagamento)
+      const torcidaPaidByCid = {};
+      gDay.forEach(p => {
+        if (p.datas?.pagamento) {
+          const cid = String(p.vendedor_id);
+          torcidaPaidByCid[cid] = (torcidaPaidByCid[cid] || 0) + 1;
+        }
+      });
+
+      gStats[g.id] = { cids, gDay, gPaid, gValor, gMaxC, gMaxIndividualP, gTopArtCid, gTopArtValor, gDayConversao, torcidaPaidByCid };
     }
 
     // Máximos globais para regras competitivas
@@ -435,22 +411,18 @@ async function calculateScores(triggeredBy = null) {
         });
       }
 
-      // TORCIDA_ORGANIZADA: hoje (ranking ao vivo) ou retroativo em dia de jogo (force)
-      const torcidaMap = (isToday ? vendorMap : vendorMapByDate[dateStr]) || {};
-      const torcidaDataAvailable = isToday ? rankingOk : (vendorMapByDate[dateStr] !== undefined);
-      if (isToday || (isForce && doubleDays.has(dateStr) && torcidaMap)) {
-        if (!torcidaDataAvailable) {
-          // Ranking indisponível — preserva evento existente sem avaliar
-        } else if (g.member_count >= 5 && s.cids.every(cid => (torcidaMap[cid]?.qtd_propostas || 0) > 10)) {
-          dayEvents.push({
-            group_id: g.id, event_date: dateStr, rule_name: 'TORCIDA_ORGANIZADA',
-            points: rulePts.TORCIDA_ORGANIZADA * mult,
-            description: `Todos os ${g.member_count} integrantes com >10 propostas${mult > 1 ? ' (jogo do Brasil ×2)' : ''}`,
-            is_double: mult > 1,
-          });
-        } else if (recalcDay) {
-          await deleteEvent(g.id, dateStr, 'TORCIDA_ORGANIZADA');
-        }
+      // TORCIDA_ORGANIZADA: todos os membros com >= 10 propostas pagas no dia (independe data pagamento)
+      const allTorcidaMet = s.cids.length > 0 && s.cids.every(cid => (s.torcidaPaidByCid[cid] || 0) >= 10);
+      if (allTorcidaMet) {
+        const minPaid = Math.min(...s.cids.map(cid => s.torcidaPaidByCid[cid] || 0));
+        dayEvents.push({
+          group_id: g.id, event_date: dateStr, rule_name: 'TORCIDA_ORGANIZADA',
+          points: rulePts.TORCIDA_ORGANIZADA * mult,
+          description: `Todos os ${s.cids.length} integrante(s) com ≥10 propostas pagas (mín. ${minPaid})${mult > 1 ? ' (jogo do Brasil ×2)' : ''}`,
+          is_double: mult > 1,
+        });
+      } else if (recalcDay) {
+        await deleteEvent(g.id, dateStr, 'TORCIDA_ORGANIZADA');
       }
     }
 
