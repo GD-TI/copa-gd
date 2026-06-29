@@ -381,7 +381,119 @@ function PointsTab({ group }) {
   )
 }
 
+function PropostasTab({ group }) {
+  const [date, setDate] = useState(today())
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState(null)
+
+  useEffect(() => {
+    if (!group?.id) return
+    setLoading(true)
+    setErr(null)
+    api.get(`/groups/${group.id}/members/stats?date=${date}`)
+      .then(r => setData(r.data))
+      .catch(e => setErr(e.response?.data?.error || 'Erro ao carregar propostas'))
+      .finally(() => setLoading(false))
+  }, [group?.id, date])
+
+  return (
+    <div style={{ paddingBottom: 8 }}>
+      {/* Seletor de data */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surf3)',
+        gap: 12,
+      }}>
+        <span style={{ font: '600 11px/1 var(--font)', color: 'var(--txt3)' }}>Data</span>
+        <input
+          type="date"
+          value={date}
+          max={today()}
+          onChange={e => setDate(e.target.value)}
+          className="field-input"
+          style={{ font: '600 12px/1 var(--mono)', padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surf)', color: 'var(--txt)' }}
+        />
+      </div>
+
+      {loading && (
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt3)', fontSize: 13 }}>Carregando…</div>
+      )}
+      {err && (
+        <div style={{ padding: 24, textAlign: 'center', color: 'var(--red)', fontSize: 13 }}>{err}</div>
+      )}
+
+      {!loading && !err && data && !data.is_business_day && (
+        <div style={{ padding: 32, textAlign: 'center', color: 'var(--txt3)', fontSize: 13 }}>
+          Fim de semana — sem propostas
+        </div>
+      )}
+
+      {!loading && !err && data && data.is_business_day && (
+        <>
+          {/* Totais do dia */}
+          <div style={{
+            display: 'flex', gap: 0,
+            borderBottom: '1px solid var(--border)',
+          }}>
+            {[
+              { label: 'Propostas', value: data.totals.qtd_propostas },
+              { label: 'Pagos', value: data.totals.contratos_pagos },
+              { label: 'Valor', value: fBRL(data.totals.valor_referencia) },
+            ].map((t, i) => (
+              <div key={i} style={{
+                flex: 1, padding: '10px 14px', textAlign: 'center',
+                borderRight: i < 2 ? '1px solid var(--border)' : 'none',
+              }}>
+                <div style={{ font: '700 14px/1 var(--mono)', color: 'var(--txt)' }}>{t.value}</div>
+                <div style={{ font: '500 9px/1 var(--font)', color: 'var(--txt3)', marginTop: 3, textTransform: 'uppercase', letterSpacing: 1 }}>{t.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Membros */}
+          {data.members.length === 0 && (
+            <div style={{ padding: 32, textAlign: 'center', color: 'var(--txt3)', fontSize: 13 }}>
+              Nenhum membro com dados para essa data
+            </div>
+          )}
+          {data.members.map(m => (
+            <div key={m.id} style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '10px 16px', borderBottom: '1px solid var(--border)',
+            }}>
+              <div style={{
+                width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+                background: 'var(--surf3)', border: '1.5px solid var(--border)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                font: '600 11px/1 var(--font)', color: 'var(--txt2)',
+              }}>
+                {ini(m.display_name)}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ font: '600 12px/1 var(--font)', color: 'var(--txt)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                  {m.display_name}
+                  {m.is_captain && <span style={{ font: '500 9px/1 var(--font)', color: 'var(--gold)', background: 'var(--gold-soft)', padding: '1px 5px', borderRadius: 3 }}>C</span>}
+                </div>
+                <div style={{ font: '400 10px/1 var(--font)', color: 'var(--txt3)', marginTop: 2 }}>
+                  {m.qtd_propostas} prop. · {m.contratos_pagos} pago{m.contratos_pagos !== 1 ? 's' : ''}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <div style={{ font: '700 13px/1 var(--mono)', color: 'var(--txt)' }}>{fBRL(m.valor_referencia)}</div>
+                <div style={{ font: '400 10px/1 var(--font)', color: 'var(--txt3)', marginTop: 2 }}>valor ref.</div>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function MembersModal({ group, onClose }) {
+  const [tab, setTab] = useState('pontos')
+
   useEffect(() => {
     const fn = e => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', fn)
@@ -426,9 +538,6 @@ export default function MembersModal({ group, onClose }) {
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ font: '700 14px/1 var(--font)', color: 'var(--txt)' }}>{group.name}</div>
-            <div style={{ font: '500 11px/1 var(--font)', color: 'var(--txt3)', marginTop: 3 }}>
-              Pontos do grupo
-            </div>
           </div>
           <button
             onClick={onClose}
@@ -442,9 +551,36 @@ export default function MembersModal({ group, onClose }) {
           >✕</button>
         </div>
 
+        {/* Tabs */}
+        <div style={{
+          display: 'flex', borderBottom: '1px solid var(--border)',
+          flexShrink: 0, background: 'var(--bg)',
+        }}>
+          {[
+            { key: 'pontos', label: 'Pontos da Equipe' },
+            { key: 'propostas', label: 'Propostas' },
+          ].map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              style={{
+                flex: 1, padding: '10px 16px',
+                font: `${tab === t.key ? '700' : '500'} 12px/1 var(--font)`,
+                color: tab === t.key ? 'var(--gold)' : 'var(--txt3)',
+                background: 'none', border: 'none', cursor: 'pointer',
+                borderBottom: tab === t.key ? '2px solid var(--gold)' : '2px solid transparent',
+                transition: 'color .15s',
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
         {/* Body */}
         <div style={{ overflowY: 'auto', flex: 1 }}>
-          <PointsTab group={group} />
+          {tab === 'pontos'    && <PointsTab group={group} />}
+          {tab === 'propostas' && <PropostasTab group={group} />}
         </div>
 
         {/* Footer */}
