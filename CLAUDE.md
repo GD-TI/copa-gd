@@ -395,8 +395,8 @@ Senha padrão `admin2026` — hash gerado por `bcrypt` no `seed.js` (10 rounds).
 | Fim de semana | Não pontua, propostas ignoradas | `isBusinessDay()`, `filterByWeekdayCadastro`, `isWeekdayPaid` |
 | ×2 Brasil | Datas em `brazil_matches` com `double_points=true` | Set `doubleDays` no `scoring.js` |
 
-**Proposta válida:** cadastro (`datas.cadastro` ou `inclusao`) em dia útil.  
-**Pago válido:** além disso, `datas.pagamento` também em dia útil.
+**Proposta válida (CONVERSAO/ARTILHEIRO/GOL_DE_PLACA/CONTRATO_10K):** cadastro em dia útil; pagamento também em dia útil.  
+**META_DIA / META_SEMANA:** usa **data de pagamento** (`datas.pagamento`) como referência — proposta cadastrada em 22/06 mas paga em 29/06 conta no valor do dia 29/06.
 
 **Não há lista fixa de jogos no código** — só o que estiver em `brazil_matches` no banco.
 
@@ -411,10 +411,10 @@ Senha padrão `admin2026` — hash gerado por `bcrypt` no `seed.js` (10 rounds).
 
 | Regra | Pontos (padrão) | Tipo | event_date | Critério |
 |-------|-----------------|------|------------|----------|
-| META_DIA | 5 | Diária | `dateStr` (hoje) | Valor pago hoje >= `groups.daily_goal_value` (Meta 1) |
-| META_DIA_PLUS30 | 10 | Diária (bônus) | `dateStr` | Meta 2: valor pago hoje >= `groups.daily_goal_meta2` (threshold fixo); tier mais alto vence (PLUS30 < PLUS50) |
-| META_DIA_PLUS50 | 15 | Diária (bônus) | `dateStr` | Meta 3: valor pago hoje >= `groups.daily_goal_meta3` (threshold fixo) |
-| META_SEMANA | 10 | Semanal | `max(weekStart, campaignStart)` | `valor_referencia` da semana >= `weekly_goal_value` |
+| META_DIA | 5 | Diária | `dateStr` (hoje) | Soma do `valor_referencia` das propostas com **pagamento = dateStr** >= `groups.daily_goal_value` (Meta 1) |
+| META_DIA_PLUS30 | 10 | Diária (bônus) | `dateStr` | Meta 2: mesmo valor acumulado >= `groups.daily_goal_meta2`; tier mais alto vence |
+| META_DIA_PLUS50 | 15 | Diária (bônus) | `dateStr` | Meta 3: mesmo valor acumulado >= `groups.daily_goal_meta3` |
+| META_SEMANA | 10 | Semanal | `max(weekStart, campaignStart)` | Soma do `valor_referencia` das propostas com **pagamento dentro da semana** >= `weekly_goal_value` |
 | CONVERSAO | 5 | Diária | `dateStr` | **Mínimo 10 propostas** no dia + taxa de pagamento >= **80%** (`CONVERSION_MIN_RATE`, default `0.80`); propostas CANCELADA excluídas |
 | INDICACAO | 10/lote | Campanha acumulada | `campaignStart` | A cada **5 contratos pagos** em que o campo **`origem` contém "Indicação"** |
 | CONTRATO_10K | 5/contrato | **Diária** | `dateStr` | Por contrato **pago hoje** com `valor_referencia > 10000` (conta ×2 em dia de jogo) |

@@ -17,6 +17,13 @@ function toDateStr(date) {
   return date.toISOString().split('T')[0];
 }
 
+/** Retorna a data de pagamento da proposta como YYYY-MM-DD, ou null se não paga. */
+function getPayDateStr(p) {
+  const raw = p.datas?.pagamento;
+  if (!raw) return null;
+  return String(raw).slice(0, 10);
+}
+
 /** Data PostgreSQL → YYYY-MM-DD sem shift de fuso. */
 function pgDateStr(val) {
   if (!val) return null;
@@ -229,7 +236,9 @@ async function calculateScores(triggeredBy = null) {
       const cids  = (g.corban_ids || []).map(String);
       const gDay  = dayProps.filter(p => cids.includes(String(p.vendedor_id)));
       const gPaid = gDay.filter(isWeekdayPaid);
-      const gValor = sumValorRef(gPaid);
+      // META_DIA/META_SEMANA: valor baseado na data de pagamento (não cadastro)
+      const gPaidOnDate = allProposals.filter(p => cids.includes(String(p.vendedor_id)) && getPayDateStr(p) === dateStr);
+      const gValor = sumValorRef(gPaidOnDate);
       const gMaxC  = gPaid.reduce((mx, p) => Math.max(mx, parseFloat(p.proposta?.valor_referencia || 0)), 0);
 
       // ARTILHEIRO: melhor vendedor individual do time (não total do time)
@@ -461,8 +470,9 @@ async function calculateScores(triggeredBy = null) {
     // Multiplier: dobro se algum dia útil da semana foi dia de jogo
     const weekMult = weekHasDouble ? 2 : 1;
 
+    // META_SEMANA: soma por data de pagamento dentro da semana
     const weekProps = allProposals.filter(p => {
-      const d = getCadastroDateStr(p);
+      const d = getPayDateStr(p);
       return d && d >= wsStr && d <= weStr;
     });
 
