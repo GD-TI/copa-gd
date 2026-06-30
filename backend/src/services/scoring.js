@@ -150,14 +150,28 @@ async function calculateScores(triggeredBy = null) {
   const allCorbanIds = [...new Set(groups.flatMap(g => g.corban_ids || []))];
   if (allCorbanIds.length === 0) { console.log('[Scoring] Nenhum corban_id configurado.'); return []; }
 
-  // ── 4. Todas as propostas da campanha (uma chamada, cacheada) ─────────────
-  let allProposals = [];
+  // ── 4. Propostas: dois conjuntos ─────────────────────────────────────────
+  // rawProposals: 90 dias antes da campanha → hoje, sem filtro de cadastro.
+  //   Captura contratos submetidos antes da campanha mas pagos durante ela.
+  //   Usado em regras por data de PAGAMENTO (META_DIA, GOL_DE_PLACA, ARTILHEIRO,
+  //   TORCIDA, CONTRATO_10K, META_SEMANA).
+  // campaignWeekdayProposals: período da campanha + cadastro em dia útil.
+  //   Usado em regras por data de CADASTRO (CONVERSAO, INDICACAO).
+  const earlyStartDate = new Date(campaignStart + 'T12:00:00Z');
+  earlyStartDate.setDate(earlyStartDate.getDate() - 90);
+  const earlyStart = toDateStr(earlyStartDate);
+
+  let rawProposals = [];
+  let campaignWeekdayProposals = [];
   let proposalsOk = false;
   try {
-    const pd = await externalApi.getProposals(campaignStart, todayStr, allCorbanIds);
-    allProposals = pd ? filterByWeekdayCadastro(Object.values(pd)) : [];
+    const pd = await externalApi.getProposals(earlyStart, todayStr, allCorbanIds);
+    rawProposals = pd ? Object.values(pd) : [];
+    campaignWeekdayProposals = filterByWeekdayCadastro(
+      rawProposals.filter(p => (getCadastroDateStr(p) || '') >= campaignStart)
+    );
     proposalsOk = true;
-    console.log(`[Scoring] ${allProposals.length} propostas em dias úteis (${campaignStart}→${todayStr})`);
+    console.log(`[Scoring] ${rawProposals.length} propostas totais (${earlyStart}→${todayStr}); ${campaignWeekdayProposals.length} com cadastro na campanha em dia útil`);
   } catch (e) { console.error('[Scoring] Proposals error:', e.message); }
 
   if (!proposalsOk) {
@@ -231,8 +245,8 @@ async function calculateScores(triggeredBy = null) {
     const mult = doubleDays.has(dateStr) ? 2 : 1;
     const recalcDay = isToday || isForce || doubleDays.has(dateStr);
 
-    // Propostas deste dia específico (cadastro em dia útil)
-    const dayProps = allProposals.filter(p => getCadastroDateStr(p) === dateStr);
+    // Propostas deste dia específico (cadastro em dia útil, dentro da campanha) — para CONVERSAO
+    const dayProps = campaignWeekdayProposals.filter(p => getCadastroDateStr(p) === dateStr);
 
     // Estatísticas por grupo para este dia
     const gStats = {};
@@ -240,8 +254,8 @@ async function calculateScores(triggeredBy = null) {
       const cids  = (g.corban_ids || []).map(String);
       const gDay  = dayProps.filter(p => cids.includes(String(p.vendedor_id)));
       const gPaid = gDay.filter(isWeekdayPaid);
-      // META_DIA/META_SEMANA: valor baseado na data de pagamento (não cadastro)
-      const gPaidOnDate = allProposals.filter(p => cids.includes(String(p.vendedor_id)) && getPayDateStr(p) === dateStr);
+      // Contratos pagos neste dia (por data de pagamento) — inclui propostas de qualquer cadastro
+      const gPaidOnDate = rawProposals.filter(p => cids.includes(String(p.vendedor_id)) && getPayDateStr(p) === dateStr);
       const gValor = sumValorRef(gPaidOnDate);
       // GOL_DE_PLACA: maior contrato pago neste dia (por data de pagamento)
       const gMaxC  = gPaidOnDate.reduce((mx, p) => Math.max(mx, parseFloat(p.proposta?.valor_referencia || 0)), 0);
@@ -474,8 +488,8 @@ async function calculateScores(triggeredBy = null) {
     // Multiplier: dobro se algum dia útil da semana foi dia de jogo
     const weekMult = weekHasDouble ? 2 : 1;
 
-    // META_SEMANA: soma por data de pagamento dentro da semana
-    const weekProps = allProposals.filter(p => {
+    // META_SEMANA: soma por data de pagamento dentro da semana (inclui propostas de qualquer cadastro)
+    const weekProps = rawProposals.filter(p => {
       const d = getPayDateStr(p);
       return d && d >= wsStr && d <= weStr;
     });
@@ -503,10 +517,10 @@ async function calculateScores(triggeredBy = null) {
     }
   }
 
-  // ── 9. INDICACAO + CONTRATO_10K: acumulado da campanha (sem dobro — regras de campanha) ──
+  // ── 9. INDICACAO: acumulado da campanha (usa propostas com cadastro na campanha em dia útil) ──
   for (const g of groups) {
     const cids   = (g.corban_ids || []).map(String);
-    const gAll   = allProposals.filter(p => cids.includes(String(p.vendedor_id)));
+    const gAll   = campaignWeekdayProposals.filter(p => cids.includes(String(p.vendedor_id)));
     const paidAll = gAll.filter(isWeekdayPaid);
 
     const paidRefs = filterPaidIndicacoes(paidAll);
