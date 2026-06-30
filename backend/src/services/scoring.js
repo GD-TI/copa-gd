@@ -202,6 +202,10 @@ async function calculateScores(triggeredBy = null) {
       );
     }
 
+    // Em cron automático: dias passados de jogo só podem ADICIONAR/ATUALIZAR pontos, nunca deletar
+    // Apenas hoje ou recálculo force (manual) podem remover eventos históricos
+    const canDelete = isToday || isForce;
+
     // Fins de semana não entram na campanha
     if (!isBusinessDay(dateStr)) {
       if (isToday && !isForce) {
@@ -341,7 +345,7 @@ async function calculateScores(triggeredBy = null) {
 
         // Limpar tiers que possam ter sido gravados em rodadas anteriores
         const allBonusTiers = ['META_DIA_PLUS30', 'META_DIA_PLUS50', 'META_DIA_PLUS100'];
-        if (recalcDay) {
+        if (recalcDay && canDelete) {
           for (const tier of allBonusTiers) {
             if (!bonusRule || tier !== bonusRule.rule_name) {
               await deleteEvent(g.id, dateStr, tier);
@@ -358,7 +362,7 @@ async function calculateScores(triggeredBy = null) {
             is_double: mult > 1,
           });
         }
-      } else if (recalcDay) {
+      } else if (recalcDay && canDelete) {
         await deleteEvent(g.id, dateStr, 'META_DIA');
         await deleteEvent(g.id, dateStr, 'META_DIA_PLUS30');
         await deleteEvent(g.id, dateStr, 'META_DIA_PLUS50');
@@ -377,7 +381,7 @@ async function calculateScores(triggeredBy = null) {
           description: `Conversão ${Math.round(rate * 100)}%: ${s.gPaid.length}/${s.gDayConversao.length} pagos (mín. ${CONVERSION_MIN_PROPOSALS} propostas)`,
           is_double: mult > 1,
         });
-      } else if (recalcDay) {
+      } else if (recalcDay && canDelete) {
         await deleteEvent(g.id, dateStr, 'CONVERSAO');
       }
 
@@ -390,7 +394,7 @@ async function calculateScores(triggeredBy = null) {
           description: `${hvCount} contrato(s) acima de R$ 10.000`,
           is_double: mult > 1,
         });
-      } else if (recalcDay) {
+      } else if (recalcDay && canDelete) {
         await deleteEvent(g.id, dateStr, 'CONTRATO_10K');
       }
 
@@ -428,7 +432,7 @@ async function calculateScores(triggeredBy = null) {
           description: `Todos os ${s.cids.length} integrante(s) com ≥10 propostas pagas (mín. ${minPaid})${mult > 1 ? ' (jogo do Brasil ×2)' : ''}`,
           is_double: mult > 1,
         });
-      } else if (recalcDay) {
+      } else if (recalcDay && canDelete) {
         await deleteEvent(g.id, dateStr, 'TORCIDA_ORGANIZADA');
       }
     }
@@ -484,7 +488,8 @@ async function calculateScores(triggeredBy = null) {
         await upsertEvent(g.id, wsStr, 'META_SEMANA', rulePts.META_SEMANA * weekMult,
           `Meta semanal: R$ ${gValorWeek.toFixed(2)} / meta R$ ${weeklyGoal.toFixed(2)} (${wsStr}→${weStr})${weekMult > 1 ? ' · jogo do Brasil na semana ×2' : ''}`,
           weekMult > 1);
-      } else if (isCurrentWeek || isForce || weekHasDouble) {
+      } else if (isCurrentWeek || isForce) {
+        // Semanas passadas com jogo: cron automático não deleta (só force ou semana atual)
         await deleteEvent(g.id, wsStr, 'META_SEMANA');
       }
 
