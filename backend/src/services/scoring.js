@@ -180,10 +180,11 @@ async function calculateScores(triggeredBy = null) {
     return [];
   }
 
-  // API retornou resposta vazia (sem error=true) — provavelmente instabilidade.
-  // Em cron automático, abortar para não zerar pontuações já gravadas.
-  if (!isForce && rawProposals.length === 0) {
-    console.warn('[Scoring] ⚠️  API retornou 0 propostas em modo cron — rodada abortada para preservar pontuações');
+  // Sanidade da resposta da API: abortar se os dados parecerem truncados.
+  // Em force, o código deleta eventos ANTES de reinserir — resposta parcial zeraria tudo.
+  // Critério: menos propostas que consultores ativos em 30 dias = API com problema.
+  if (rawProposals.length < allCorbanIds.length) {
+    console.warn(`[Scoring] ⚠️  API retornou ${rawProposals.length} propostas para ${allCorbanIds.length} consultores ativos — resposta inválida, recálculo abortado`);
     return [];
   }
 
