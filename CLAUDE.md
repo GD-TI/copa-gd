@@ -419,8 +419,8 @@ Senha padrão `admin2026` — hash gerado por `bcrypt` no `seed.js` (10 rounds).
 | INDICACAO | 10/lote | Campanha acumulada | `campaignStart` | A cada **5 contratos pagos** em que o campo **`origem` contém "Indicação"** |
 | CONTRATO_10K | 5/contrato | **Diária** | `dateStr` | Por contrato **pago hoje** com `valor_referencia > 10000` (conta ×2 em dia de jogo) |
 | GOL_DE_PLACA | 15 | **Diária competitiva** | `dateStr` | Grupo com o maior contrato **pago** hoje entre todos os grupos |
-| ARTILHEIRO | 15 | **Diária competitiva** | `dateStr` | Grupo com mais contratos **pagos hoje** entre todos os grupos |
-| TORCIDA_ORGANIZADA | 20 | Diária | `dateStr` | Todos os membros do grupo com **≥10 propostas pagas** (cadastradas hoje, qualquer data de pagamento); sem mínimo de membros |
+| ARTILHEIRO | 15 | **Diária competitiva** | `dateStr` | Grupo com mais contratos com **pagamento = dateStr** entre todos os grupos (data de pagamento, não cadastro) |
+| TORCIDA_ORGANIZADA | 20 | Diária | `dateStr` | Todos os membros do grupo com **≥10 contratos com pagamento = dateStr**; sem mínimo de membros |
 
 ### Regras competitivas diárias (GOL_DE_PLACA e ARTILHEIRO)
 - Comparam todos os grupos entre si

@@ -241,30 +241,28 @@ async function calculateScores(triggeredBy = null) {
       const gValor = sumValorRef(gPaidOnDate);
       const gMaxC  = gPaid.reduce((mx, p) => Math.max(mx, parseFloat(p.proposta?.valor_referencia || 0)), 0);
 
-      // ARTILHEIRO: melhor vendedor individual do time (não total do time)
+      // ARTILHEIRO: melhor vendedor individual — conta contratos pagos neste dia (por data de pagamento)
       const paidPerCid = {};
-      gPaid.forEach(p => {
+      gPaidOnDate.forEach(p => {
         const cid = String(p.vendedor_id);
         paidPerCid[cid] = (paidPerCid[cid] || 0) + 1;
       });
       const topEntry = Object.entries(paidPerCid).sort(([, a], [, b]) => b - a)[0];
       const gMaxIndividualP = topEntry ? topEntry[1] : 0;
       const gTopArtCid      = topEntry ? topEntry[0] : null;
-      // Desempate: soma dos valores dos contratos pagos do melhor vendedor
+      // Desempate: soma dos valores dos contratos pagos neste dia do melhor vendedor
       const gTopArtValor = gTopArtCid
-        ? gPaid.filter(p => String(p.vendedor_id) === gTopArtCid)
-               .reduce((s, p) => s + parseFloat(p.proposta?.valor_referencia || 0), 0)
+        ? gPaidOnDate.filter(p => String(p.vendedor_id) === gTopArtCid)
+                     .reduce((s, p) => s + parseFloat(p.proposta?.valor_referencia || 0), 0)
         : 0;
 
       const gDayConversao = gDay.filter(p => p.api?.status_api !== 'CANCELADA');
 
-      // TORCIDA_ORGANIZADA: propostas pagas por membro (independe da data de pagamento)
+      // TORCIDA_ORGANIZADA: todos os membros com >= 10 contratos pagos neste dia (por data de pagamento)
       const torcidaPaidByCid = {};
-      gDay.forEach(p => {
-        if (p.datas?.pagamento) {
-          const cid = String(p.vendedor_id);
-          torcidaPaidByCid[cid] = (torcidaPaidByCid[cid] || 0) + 1;
-        }
+      gPaidOnDate.forEach(p => {
+        const cid = String(p.vendedor_id);
+        torcidaPaidByCid[cid] = (torcidaPaidByCid[cid] || 0) + 1;
       });
 
       gStats[g.id] = { cids, gDay, gPaid, gValor, gMaxC, gMaxIndividualP, gTopArtCid, gTopArtValor, gDayConversao, torcidaPaidByCid };
