@@ -243,7 +243,8 @@ async function calculateScores(triggeredBy = null) {
       // META_DIA/META_SEMANA: valor baseado na data de pagamento (não cadastro)
       const gPaidOnDate = allProposals.filter(p => cids.includes(String(p.vendedor_id)) && getPayDateStr(p) === dateStr);
       const gValor = sumValorRef(gPaidOnDate);
-      const gMaxC  = gPaid.reduce((mx, p) => Math.max(mx, parseFloat(p.proposta?.valor_referencia || 0)), 0);
+      // GOL_DE_PLACA: maior contrato pago neste dia (por data de pagamento)
+      const gMaxC  = gPaidOnDate.reduce((mx, p) => Math.max(mx, parseFloat(p.proposta?.valor_referencia || 0)), 0);
 
       // ARTILHEIRO: melhor vendedor individual — conta contratos pagos neste dia (por data de pagamento)
       const paidPerCid = {};
@@ -269,7 +270,7 @@ async function calculateScores(triggeredBy = null) {
         torcidaPaidByCid[cid] = (torcidaPaidByCid[cid] || 0) + 1;
       });
 
-      gStats[g.id] = { cids, gDay, gPaid, gValor, gMaxC, gMaxIndividualP, gTopArtCid, gTopArtValor, gDayConversao, torcidaPaidByCid };
+      gStats[g.id] = { cids, gDay, gPaid, gPaidOnDate, gValor, gMaxC, gMaxIndividualP, gTopArtCid, gTopArtValor, gDayConversao, torcidaPaidByCid };
     }
 
     // Máximos globais para regras competitivas
@@ -281,13 +282,14 @@ async function calculateScores(triggeredBy = null) {
     const globalMaxArtValor = artTied.reduce((mx, g) => Math.max(mx, gStats[g.id].gTopArtValor), 0);
     const artWinners = artTied.filter(g => gStats[g.id].gTopArtValor >= globalMaxArtValor).map(g => g.id);
 
-    // Consultor que fez o maior contrato em cada grupo vencedor
+    // Consultor que fez o maior contrato pago no dia (por data de pagamento) em cada grupo vencedor
     const golConsultor = {};
     for (const g of groups) {
       if (!golWinners.includes(g.id)) continue;
-      const maxProp = gStats[g.id].gPaid.reduce((mx, p) => {
+      const arr = gStats[g.id].gPaidOnDate;
+      const maxProp = arr.reduce((mx, p) => {
         return parseFloat(p.proposta?.valor_referencia || 0) >= parseFloat(mx?.proposta?.valor_referencia || 0) ? p : mx;
-      }, gStats[g.id].gPaid[0] || null);
+      }, arr[0] || null);
       if (maxProp) golConsultor[g.id] = corbanToName[String(maxProp.vendedor_id)] || null;
     }
 
@@ -385,8 +387,8 @@ async function calculateScores(triggeredBy = null) {
         await deleteEvent(g.id, dateStr, 'CONVERSAO');
       }
 
-      // CONTRATO_10K: contratos pagos hoje com valor > R$ 10.000
-      const hvCount = s.gPaid.filter(p => parseFloat(p.proposta?.valor_referencia || 0) > 10000).length;
+      // CONTRATO_10K: contratos pagos neste dia (por data de pagamento) com valor > R$ 10.000
+      const hvCount = s.gPaidOnDate.filter(p => parseFloat(p.proposta?.valor_referencia || 0) > 10000).length;
       if (hvCount > 0) {
         dayEvents.push({
           group_id: g.id, event_date: dateStr, rule_name: 'CONTRATO_10K',
