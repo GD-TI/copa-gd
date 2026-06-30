@@ -180,6 +180,13 @@ async function calculateScores(triggeredBy = null) {
     return [];
   }
 
+  // API retornou resposta vazia (sem error=true) — provavelmente instabilidade.
+  // Em cron automático, abortar para não zerar pontuações já gravadas.
+  if (!isForce && rawProposals.length === 0) {
+    console.warn('[Scoring] ⚠️  API retornou 0 propostas em modo cron — rodada abortada para preservar pontuações');
+    return [];
+  }
+
   // ── 5. Dias com pontos em dobro ──────────────────────────────────────────
   const { rows: matchRows } = await db.query(
     `SELECT match_date FROM brazil_matches
@@ -533,7 +540,8 @@ async function calculateScores(triggeredBy = null) {
         `${paidRefs.length} contrato(s) pagos com Indicação — ${refBatches} lote(s) de 5 × ${rulePts.INDICACAO} pts`,
         false
       );
-    } else {
+    } else if (isForce) {
+      // Só remove INDICACAO em recálculo manual — cron nunca apaga evento histórico acumulado
       await deleteEvent(g.id, campaignStart, 'INDICACAO');
     }
 
