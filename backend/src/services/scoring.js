@@ -157,8 +157,9 @@ async function calculateScores(triggeredBy = null) {
   //   TORCIDA, CONTRATO_10K, META_SEMANA).
   // campaignWeekdayProposals: período da campanha + cadastro em dia útil.
   //   Usado em regras por data de CADASTRO (CONVERSAO, INDICACAO).
-  const earlyStartDate = new Date(campaignStart + 'T12:00:00Z');
-  earlyStartDate.setDate(earlyStartDate.getDate() - 90);
+  // A API aceita no máximo 31 dias de intervalo — usa hoje-30 como início do lookback
+  const earlyStartDate = new Date(todayStr + 'T12:00:00Z');
+  earlyStartDate.setDate(earlyStartDate.getDate() - 30);
   const earlyStart = toDateStr(earlyStartDate);
 
   let rawProposals = [];
