@@ -171,6 +171,9 @@ router.get('/:id/members/points', authMiddleware, async (req, res) => {
 
     const RULE_META = {
       META_DIA:           { icon: '🎯', label: 'Meta do Dia' },
+      META_DIA_PLUS30:    { icon: '🎯', label: 'Meta do Dia 2' },
+      META_DIA_PLUS50:    { icon: '🎯', label: 'Meta do Dia 3' },
+      META_DIA_PLUS100:   { icon: '🎯', label: 'Meta do Dia 4' },
       META_SEMANA:        { icon: '📅', label: 'Meta da Semana' },
       CONVERSAO:          { icon: '📈', label: 'Taxa de Conversão' },
       INDICACAO:          { icon: '👥', label: 'Indicações' },
