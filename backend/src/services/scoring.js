@@ -410,7 +410,7 @@ async function calculateScores(triggeredBy = null) {
       }
 
       // CONTRATO_10K: contratos pagos neste dia (por data de pagamento) com valor > R$ 10.000
-      const hvCount = s.gPaidOnDate.filter(p => parseFloat(p.proposta?.valor_referencia || 0) > 10000).length;
+      const hvCount = s.gPaidOnDate.filter(p => parseFloat(p.proposta?.valor_referencia || 0) >= 10000).length;
       if (hvCount > 0) {
         dayEvents.push({
           group_id: g.id, event_date: dateStr, rule_name: 'CONTRATO_10K',
