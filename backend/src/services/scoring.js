@@ -284,8 +284,9 @@ async function calculateScores(triggeredBy = null) {
                      .reduce((s, p) => s + parseFloat(p.proposta?.valor_referencia || 0), 0)
         : 0;
 
-      const gDayConversao = gDay.filter(p => p.api?.status_api !== 'CANCELADA');
-
+      const gDayConversao = gDay.filter(
+        p => !['CANCELADA', 'REPROVADA'].includes(p.api?.status_api) && !['Cancelado'].includes(p.status_nome)
+      );
       // TORCIDA_ORGANIZADA: todos os membros com >= 10 contratos pagos neste dia (por data de pagamento)
       const torcidaPaidByCid = {};
       gPaidOnDate.forEach(p => {
