@@ -235,17 +235,16 @@ async function getRanking(startDate, endDate, _retry = true) {
   }
 }
 
-async function getProposals(startDate, endDate, vendedorIds = [], _retry = true) {
+// Chamada direta à API da NewCorban para um intervalo de até 30 dias.
+async function _fetchProposalsApi(startDate, endDate, vendedorIds) {
   const cacheKey = `proposals:${startDate}:${endDate}:${[...vendedorIds].sort().join(',')}`;
 
-  // Retorna do cache se ainda válido
   const cached = cacheGet(cacheKey);
   if (cached !== null) {
     console.log(`[NewCorban] propostas (cache): ${Object.keys(cached).length} registros (${startDate}→${endDate})`);
     return cached;
   }
 
-  // Se já há uma chamada em andamento com os mesmos params, aguarda ela
   if (_inflight.has(cacheKey)) {
     return _inflight.get(cacheKey);
   }
@@ -284,8 +283,68 @@ async function getProposals(startDate, endDate, vendedorIds = [], _retry = true)
   try {
     return await promise;
   } catch (err) {
-    // getProposals usa auth própria (não o token v2), sem retry de token aqui
     throw new Error(`Falha ao buscar propostas: ${err.response?.data?.message || err.message}`);
+  }
+}
+
+// Divide um intervalo longo em chunks de 30 dias e retorna as datas de início/fim de cada um.
+function _chunkDateRange(startDate, endDate) {
+  const chunks = [];
+  let cur = new Date(startDate + 'T12:00:00Z');
+  const end = new Date(endDate + 'T12:00:00Z');
+  while (cur <= end) {
+    const chunkEnd = new Date(cur);
+    chunkEnd.setDate(chunkEnd.getDate() + 29); // até 30 dias inclusive
+    if (chunkEnd > end) chunkEnd.setTime(end.getTime());
+    chunks.push([cur.toISOString().slice(0, 10), chunkEnd.toISOString().slice(0, 10)]);
+    cur = new Date(chunkEnd);
+    cur.setDate(cur.getDate() + 1);
+  }
+  return chunks;
+}
+
+// Busca propostas do período completo, dividindo automaticamente em chunks de 30 dias
+// quando o intervalo ultrapassa o limite da API. O resultado mesclado é cacheado.
+async function getProposals(startDate, endDate, vendedorIds = []) {
+  const diffDays = Math.round(
+    (new Date(endDate + 'T12:00:00Z') - new Date(startDate + 'T12:00:00Z')) / 86400000
+  );
+
+  if (diffDays <= 30) {
+    return _fetchProposalsApi(startDate, endDate, vendedorIds);
+  }
+
+  // Intervalo > 30 dias: buscar em chunks paralelos e mesclar
+  const mergedKey = `proposals:${startDate}:${endDate}:${[...vendedorIds].sort().join(',')}`;
+
+  const cached = cacheGet(mergedKey);
+  if (cached !== null) {
+    console.log(`[NewCorban] propostas (cache merged): ${Object.keys(cached).length} registros (${startDate}→${endDate})`);
+    return cached;
+  }
+
+  if (_inflight.has(mergedKey)) {
+    return _inflight.get(mergedKey);
+  }
+
+  const chunks = _chunkDateRange(startDate, endDate);
+  const promise = Promise.all(
+    chunks.map(([cs, ce]) => _fetchProposalsApi(cs, ce, vendedorIds).catch(() => ({})))
+  ).then(results => {
+    const merged = Object.assign({}, ...results);
+    console.log(`[NewCorban] propostas (${chunks.length} chunks): ${Object.keys(merged).length} registros (${startDate}→${endDate})`);
+    cacheSet(mergedKey, merged);
+    return merged;
+  }).finally(() => {
+    _inflight.delete(mergedKey);
+  });
+
+  _inflight.set(mergedKey, promise);
+
+  try {
+    return await promise;
+  } catch (err) {
+    throw new Error(`Falha ao buscar propostas: ${err.message}`);
   }
 }
 

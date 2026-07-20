@@ -126,11 +126,7 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
     if (!cs[0]) return res.json({ melhor_vendedor: [], rei_assistencias: [] });
 
     const today     = new Date().toISOString().slice(0, 10);
-    const campaignRaw = new Date(cs[0].start_date).toISOString().slice(0, 10);
-    // API limita a 31 dias — usar max(campaignStart, hoje-30) para não estourar o limite
-    const earlyLimit = new Date(today + 'T12:00:00Z');
-    earlyLimit.setDate(earlyLimit.getDate() - 30);
-    const startDate = campaignRaw > earlyLimit.toISOString().slice(0, 10) ? campaignRaw : earlyLimit.toISOString().slice(0, 10);
+    const startDate = new Date(cs[0].start_date).toISOString().slice(0, 10);
     // end_date pode ser NULL (campanha em andamento) → usa today como limite
     const endRaw    = cs[0].end_date ? new Date(cs[0].end_date).toISOString().slice(0, 10) : null;
     const endDate   = endRaw && endRaw < today ? endRaw : today;
@@ -237,11 +233,7 @@ router.get('/today-activity', authMiddleware, responseCache(30_000), async (req,
     const playerStats = {};
     try {
       const { rows: cs } = await db.query('SELECT start_date FROM campaign_settings ORDER BY id DESC LIMIT 1');
-      const csRaw = cs[0] ? new Date(cs[0].start_date).toISOString().slice(0, 10) : todayStr;
-      // API limita a 31 dias — usar max(campaignStart, hoje-30)
-      const earlyLimitTA = new Date(todayStr + 'T12:00:00Z');
-      earlyLimitTA.setDate(earlyLimitTA.getDate() - 30);
-      const campaignStart = csRaw > earlyLimitTA.toISOString().slice(0, 10) ? csRaw : earlyLimitTA.toISOString().slice(0, 10);
+      const campaignStart = cs[0] ? new Date(cs[0].start_date).toISOString().slice(0, 10) : todayStr;
       const allCorbans = memberRows.map(r => r.corban_id).filter(Boolean);
       if (allCorbans.length > 0) {
         const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('proposals timeout')), 5000));
