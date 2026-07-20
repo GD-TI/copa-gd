@@ -217,6 +217,12 @@ async function calculateScores(triggeredBy = null) {
   for (const dateStr of campaignDays) {
     const isToday = dateStr === todayStr;
 
+    // A API da NewCorban só devolve propostas dos últimos 30 dias (earlyStart).
+    // Em force, não deletar/recalcular datas fora dessa janela — sem dados = pontos zerados permanentemente.
+    if (isForce && dateStr < earlyStart) {
+      continue;
+    }
+
     // Force: limpar eventos diários deste dia antes de recalcular (evita zeragem total do ranking)
     if (isForce) {
       await db.query(
@@ -542,8 +548,9 @@ async function calculateScores(triggeredBy = null) {
         `${paidRefs.length} contrato(s) pagos com Indicação — ${refBatches} lote(s) de 5 × ${rulePts.INDICACAO} pts`,
         false
       );
-    } else if (isForce) {
-      // Só remove INDICACAO em recálculo manual — cron nunca apaga evento histórico acumulado
+    } else if (isForce && campaignStart >= earlyStart) {
+      // Só remove INDICACAO em force quando TODO o período da campanha está na janela da API (30 dias).
+      // Se a campanha começou há mais de 30 dias, preservar o acumulado histórico que a API não devolve mais.
       await deleteEvent(g.id, campaignStart, 'INDICACAO');
     }
 
