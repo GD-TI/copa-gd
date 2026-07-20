@@ -251,6 +251,7 @@ Token v2: `POST https://apiv2.newcorban.com.br/api/v2/auth/login`
 - TTL: 3 minutos em memória (`_cache` Map em `externalApi.js`)
 - Inflight dedup: se a mesma key já está em andamento, aguarda a Promise existente
 - Chave: `proposals:startDate:endDate:corbanIds_sorted`
+- **Chunking automático:** se `endDate - startDate > 30 dias`, `getProposals` divide em chunks de 30 dias, faz chamadas paralelas via `_fetchProposalsApi` e mescla (`Object.assign`). O resultado mesclado é cacheado pela chave original. Necessário pois a API rejeita períodos > 31 dias.
 
 ---
 
@@ -924,4 +925,4 @@ VITE_API_URL=http://localhost:3001
 | Jun/30 | GOL_DE_PLACA e CONTRATO_10K contavam por data de cadastro | Corrigido: ambos usam `gPaidOnDate` (data de pagamento = dateStr), igual a META_DIA e ARTILHEIRO |
 | Jun/30 | ARTILHEIRO contava apenas contratos com cadastro na campanha | `getProposals` agora busca de `hoje-30 dias` (não só `campaignStart`) para capturar contratos submetidos antes da campanha mas pagos durante ela. API limita a 31 dias. `rawProposals` (sem filtro de weekday cadastro) usado para regras por data de pagamento; `campaignWeekdayProposals` (cadastro na campanha, dia útil) para CONVERSAO e INDICACAO |
 | Jun/30 | INDICACAO e CONTRATO_10K oscilavam a cada 5min | API NewCorban retornava `{}` (sem `error:true`) em rodadas alternadas → `proposalsOk=true` mas `rawProposals=[]` → cron deletava eventos. Fix: (1) INDICACAO: `else` → `else if (isForce)` — cron nunca remove evento histórico acumulado; (2) guard de sanidade: `rawProposals.length < allCorbanIds.length` aborta o cálculo (cobre tanto resposta vazia quanto resposta parcial que zerava force recalc) |
-| Jul/20 | Force recalc zerava eventos de datas > 30 dias atrás | API retorna apenas 30 dias de histórico (`earlyStart = hoje-30`). Force deletava eventos de TODOS os dias da campanha, mas para datas antes de `earlyStart` não havia dados para recompor — pontos sumiam permanentemente. Fix: loop diário pula (`continue`) datas `< earlyStart` em force; INDICACAO só deleta em force quando `campaignStart >= earlyStart` (campanha < 30 dias). Datas afetadas precisam ser restauradas via Ajuste Manual. |
+| Jul/20 | Force recalc zerava eventos de datas > 30 dias atrás / API rejeitava período > 31 dias | `getProposals` chamava API com período completo da campanha (> 31 dias → erro). Band-aid usava `oggi-30` mas causava perda de dados históricos no force recalc. Fix definitivo: `getProposals` divide automaticamente em chunks de 30 dias (`_chunkDateRange`), faz chamadas paralelas e mescla resultado — transparente para todos os callers. `scoring.js` e `scores.js` voltaram a usar `campaignStart` diretamente. |
