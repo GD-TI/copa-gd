@@ -329,7 +329,8 @@ async function getProposals(startDate, endDate, vendedorIds = []) {
 
   const chunks = _chunkDateRange(startDate, endDate);
   const promise = Promise.all(
-    chunks.map(([cs, ce]) => _fetchProposalsApi(cs, ce, vendedorIds).catch(() => ({})))
+    chunks.map(([cs, ce]) => _fetchProposalsApi(cs, ce, vendedorIds))
+    // Sem .catch: erro num chunk propaga e impede que {} seja cacheado como resultado válido
   ).then(results => {
     const merged = Object.assign({}, ...results);
     console.log(`[NewCorban] propostas (${chunks.length} chunks): ${Object.keys(merged).length} registros (${startDate}→${endDate})`);
