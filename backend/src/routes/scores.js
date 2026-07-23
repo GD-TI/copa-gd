@@ -125,8 +125,13 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
     );
     if (!cs[0]) return res.json({ melhor_vendedor: [], rei_assistencias: [] });
 
-    const today     = new Date().toISOString().slice(0, 10);
-    const startDate = new Date(cs[0].start_date).toISOString().slice(0, 10);
+    const today          = new Date().toISOString().slice(0, 10);
+    const campaignStart  = new Date(cs[0].start_date).toISOString().slice(0, 10);
+    // A API rejeita startDate > 30 dias atrás → usar earlyStart como limite real
+    const earlyDate = new Date(today + 'T12:00:00Z');
+    earlyDate.setDate(earlyDate.getDate() - 30);
+    const earlyStart = earlyDate.toISOString().slice(0, 10);
+    const startDate  = earlyStart > campaignStart ? earlyStart : campaignStart;
     // end_date pode ser NULL (campanha em andamento) → usa today como limite
     const endRaw    = cs[0].end_date ? new Date(cs[0].end_date).toISOString().slice(0, 10) : null;
     const endDate   = endRaw && endRaw < today ? endRaw : today;
@@ -233,7 +238,12 @@ router.get('/today-activity', authMiddleware, responseCache(30_000), async (req,
     const playerStats = {};
     try {
       const { rows: cs } = await db.query('SELECT start_date FROM campaign_settings ORDER BY id DESC LIMIT 1');
-      const campaignStart = cs[0] ? new Date(cs[0].start_date).toISOString().slice(0, 10) : todayStr;
+      const rawCampStart  = cs[0] ? new Date(cs[0].start_date).toISOString().slice(0, 10) : todayStr;
+      // A API rejeita startDate > 30 dias atrás → usar earlyStart como limite real
+      const tEarly = new Date(todayStr + 'T12:00:00Z');
+      tEarly.setDate(tEarly.getDate() - 30);
+      const tEarlyStr  = tEarly.toISOString().slice(0, 10);
+      const campaignStart = tEarlyStr > rawCampStart ? tEarlyStr : rawCampStart;
       const allCorbans = memberRows.map(r => r.corban_id).filter(Boolean);
       if (allCorbans.length > 0) {
         const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('proposals timeout')), 5000));

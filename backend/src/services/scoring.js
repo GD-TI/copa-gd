@@ -151,22 +151,22 @@ async function calculateScores(triggeredBy = null) {
   if (allCorbanIds.length === 0) { console.log('[Scoring] Nenhum corban_id configurado.'); return []; }
 
   // ── 4. Propostas: dois conjuntos ─────────────────────────────────────────
-  // rawProposals: início da campanha → hoje, sem filtro de cadastro.
-  //   Captura contratos submetidos antes ou durante a campanha mas pagos após o início.
-  //   Usado em regras por data de PAGAMENTO (META_DIA, GOL_DE_PLACA, ARTILHEIRO,
-  //   TORCIDA, CONTRATO_10K, META_SEMANA).
-  // campaignWeekdayProposals: período da campanha + cadastro em dia útil.
-  //   Usado em regras por data de CADASTRO (CONVERSAO, INDICACAO).
-  // getProposals divide automaticamente em chunks de 30 dias quando necessário.
+  // A API NewCorban rejeita startDate > 30 dias atrás (retorna 502).
+  // earlyStart = max(campaignStart, hoje-30) é o limite real da janela da API.
+  // Datas anteriores a earlyStart são preservadas no banco sem re-busca (guard no loop).
+  const earlyStartDate = new Date(todayStr + 'T12:00:00Z');
+  earlyStartDate.setDate(earlyStartDate.getDate() - 30);
+  const earlyStart = toDateStr(earlyStartDate) > campaignStart ? toDateStr(earlyStartDate) : campaignStart;
+
   let rawProposals = [];
   let campaignWeekdayProposals = [];
   let proposalsOk = false;
   try {
-    const pd = await externalApi.getProposals(campaignStart, todayStr, allCorbanIds);
+    const pd = await externalApi.getProposals(earlyStart, todayStr, allCorbanIds);
     rawProposals = pd ? Object.values(pd) : [];
     campaignWeekdayProposals = filterByWeekdayCadastro(rawProposals);
     proposalsOk = true;
-    console.log(`[Scoring] ${rawProposals.length} propostas totais (${campaignStart}→${todayStr}); ${campaignWeekdayProposals.length} em dia útil`);
+    console.log(`[Scoring] ${rawProposals.length} propostas totais (${earlyStart}→${todayStr}); ${campaignWeekdayProposals.length} em dia útil`);
   } catch (e) { console.error('[Scoring] Proposals error:', e.message); }
 
   if (!proposalsOk) {
@@ -210,6 +210,10 @@ async function calculateScores(triggeredBy = null) {
   // ── 7. Regras diárias: para cada dia da campanha ─────────────────────────
   for (const dateStr of campaignDays) {
     const isToday = dateStr === todayStr;
+
+    // Datas anteriores ao limite da API (hoje-30): preservar eventos históricos.
+    // A API retorna 502 para startDate > 30 dias atrás; deletar sem re-inserir zeraria o ranking.
+    if (isForce && dateStr < earlyStart) continue;
 
     // Force: limpar eventos diários deste dia antes de recalcular (evita zeragem total do ranking)
     if (isForce) {
@@ -536,8 +540,9 @@ async function calculateScores(triggeredBy = null) {
         `${paidRefs.length} contrato(s) pagos com Indicação — ${refBatches} lote(s) de 5 × ${rulePts.INDICACAO} pts`,
         false
       );
-    } else if (isForce) {
-      // Só remove INDICACAO em recálculo manual — cron nunca apaga evento histórico acumulado
+    } else if (isForce && campaignStart >= earlyStart) {
+      // Só remove INDICACAO em recálculo force E apenas se a campanha inteira está na janela da API.
+      // Se campaignStart < earlyStart, a API não cobre o período completo — preservar o evento histórico.
       await deleteEvent(g.id, campaignStart, 'INDICACAO');
     }
 
