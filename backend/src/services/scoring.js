@@ -493,6 +493,10 @@ async function calculateScores(triggeredBy = null) {
     // Semanas passadas: recalcular se force, semana atual ou semana com jogo do Brasil (retroativo)
     if (!isCurrentWeek && !isForce && !weekHasDouble) continue;
 
+    // Guard: semanas que COMEÇAM antes da janela da API (earlyStart) não podem ser recalculadas
+    // corretamente em force — rawProposals não cobre esse período. Preservar o evento histórico.
+    if (isForce && wsStr < earlyStart) continue;
+
     // Multiplier: dobro se algum dia útil da semana foi dia de jogo
     const weekMult = weekHasDouble ? 2 : 1;
 
@@ -533,14 +537,33 @@ async function calculateScores(triggeredBy = null) {
 
     const paidRefs = filterPaidIndicacoes(paidAll);
     const refBatches = Math.floor(paidRefs.length / 5);
+    const newIndicacaoPts = refBatches * rulePts.INDICACAO;
+    const canFullyRecalcIndicacao = campaignStart >= earlyStart;
+
     if (refBatches > 0) {
-      await upsertEvent(
-        g.id, campaignStart, 'INDICACAO',
-        refBatches * rulePts.INDICACAO,
-        `${paidRefs.length} contrato(s) pagos com Indicação — ${refBatches} lote(s) de 5 × ${rulePts.INDICACAO} pts`,
-        false
-      );
-    } else if (isForce && campaignStart >= earlyStart) {
+      if (canFullyRecalcIndicacao) {
+        // Campanha inteira na janela da API: pode sobrescrever livremente.
+        await upsertEvent(
+          g.id, campaignStart, 'INDICACAO',
+          newIndicacaoPts,
+          `${paidRefs.length} contrato(s) pagos com Indicação — ${refBatches} lote(s) de 5 × ${rulePts.INDICACAO} pts`,
+          false
+        );
+      } else {
+        // Dados parciais (campanha antes da janela de 30 dias): nunca reduzir pontos históricos.
+        // GREATEST garante que só atualiza se o novo valor for maior que o existente.
+        await db.query(
+          `INSERT INTO score_events (group_id, event_date, rule_name, points, description, is_double_points)
+           VALUES ($1, $2::date, 'INDICACAO', $3, $4, false)
+           ON CONFLICT (group_id, event_date, rule_name) DO UPDATE
+             SET points      = GREATEST(score_events.points, EXCLUDED.points),
+                 description = CASE WHEN EXCLUDED.points > score_events.points
+                               THEN EXCLUDED.description ELSE score_events.description END`,
+          [g.id, campaignStart, newIndicacaoPts,
+           `${paidRefs.length} contrato(s) pagos com Indicação — ${refBatches} lote(s) de 5 × ${rulePts.INDICACAO} pts`]
+        );
+      }
+    } else if (isForce && canFullyRecalcIndicacao) {
       // Só remove INDICACAO em recálculo force E apenas se a campanha inteira está na janela da API.
       // Se campaignStart < earlyStart, a API não cobre o período completo — preservar o evento histórico.
       await deleteEvent(g.id, campaignStart, 'INDICACAO');
