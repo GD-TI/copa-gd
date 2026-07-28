@@ -150,8 +150,7 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
       return res.json({ melhor_vendedor: [], rei_assistencias: [] });
     }
 
-    // tipo='pagamento': filtra por DATA DE PAGAMENTO — captura contratos registrados antes do earlyStart mas pagos na janela
-    const proposalsMap = await getProposals(startDate, endDate, [...activeCorbans], 'pagamento');
+    const proposalsMap = await getProposals(startDate, endDate, [...activeCorbans]);
     const proposals    = Object.values(proposalsMap || {});
 
     // Apenas propostas pagas de vendedores em equipes ativas
@@ -246,18 +245,17 @@ router.get('/today-activity', authMiddleware, responseCache(30_000), async (req,
       const campaignStart = tEarlyStr > rawCampStart ? tEarlyStr : rawCampStart;
       const allCorbans = memberRows.map(r => r.corban_id).filter(Boolean);
       if (allCorbans.length > 0) {
-        // tipo='pagamento' + janela só de hoje: captura contratos pagos hoje independentemente
-        // de quando foram registrados — alinhado com o que scoring.js conta para META_DIA
         const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('proposals timeout')), 8000));
-        const pd = await Promise.race([getProposals(todayStr, todayStr, allCorbans, 'pagamento'), timeout]);
+        const pd = await Promise.race([getProposals(campaignStart, todayStr, allCorbans), timeout]);
         Object.values(pd || {}).forEach(p => {
-          const payDate = p.datas?.pagamento ? String(p.datas.pagamento).slice(0, 10) : null;
-          if (payDate !== todayStr) return;
+          if (getCadastroDateStr(p) !== todayStr) return;
           const vid = String(p.vendedor_id);
           if (!playerStats[vid]) playerStats[vid] = { valor: 0, contratos: 0, pagos: 0 };
-          playerStats[vid].pagos++;
           playerStats[vid].contratos++;
-          playerStats[vid].valor += parseFloat(p.proposta?.valor_referencia || 0);
+          if (isWeekdayPaid(p)) {
+            playerStats[vid].pagos++;
+            playerStats[vid].valor += parseFloat(p.proposta?.valor_referencia || 0);
+          }
         });
       }
     } catch (e) {

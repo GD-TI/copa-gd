@@ -158,26 +158,20 @@ async function calculateScores(triggeredBy = null) {
   earlyStartDate.setDate(earlyStartDate.getDate() - 30);
   const earlyStart = toDateStr(earlyStartDate) > campaignStart ? toDateStr(earlyStartDate) : campaignStart;
 
-  // Duas chamadas à API NewCorban com filtros de data distintos:
-  // 1. tipo='pagamento' → rawProposals: propostas filtradas por DATA DE PAGAMENTO
-  //    Para: META_DIA, GOL_DE_PLACA, ARTILHEIRO, CONTRATO_10K, META_SEMANA
-  //    Captura contratos registrados antes do earlyStart mas pagos dentro da janela.
-  // 2. tipo='cadastro'  → campaignWeekdayProposals: propostas filtradas por DATA DE CADASTRO
-  //    Para: CONVERSAO (precisa de todos os registros do dia, pagos e não pagos), INDICACAO
+  // A API NewCorban suporta apenas tipo='cadastro' (por data de registro).
+  // rawProposals contém todas as propostas registradas em [earlyStart, hoje].
+  // Regras por data de pagamento (META_DIA, GOL_DE_PLACA, etc.) filtram pelo campo
+  // datas.pagamento dentro de rawProposals — funciona para contratos registrados
+  // e pagos dentro da janela de 30 dias.
   let rawProposals = [];
-  let cadastroProposals = [];
   let campaignWeekdayProposals = [];
   let proposalsOk = false;
   try {
-    const [pdPagamento, pdCadastro] = await Promise.all([
-      externalApi.getProposals(earlyStart, todayStr, allCorbanIds, 'pagamento'),
-      externalApi.getProposals(earlyStart, todayStr, allCorbanIds, 'cadastro'),
-    ]);
-    rawProposals     = pdPagamento ? Object.values(pdPagamento) : [];
-    cadastroProposals = pdCadastro  ? Object.values(pdCadastro)  : [];
-    campaignWeekdayProposals = filterByWeekdayCadastro(cadastroProposals);
+    const pd = await externalApi.getProposals(earlyStart, todayStr, allCorbanIds);
+    rawProposals = pd ? Object.values(pd) : [];
+    campaignWeekdayProposals = filterByWeekdayCadastro(rawProposals);
     proposalsOk = true;
-    console.log(`[Scoring] ${rawProposals.length} propostas pagamento; ${cadastroProposals.length} cadastro (${earlyStart}→${todayStr}); ${campaignWeekdayProposals.length} em dia útil`);
+    console.log(`[Scoring] ${rawProposals.length} propostas (${earlyStart}→${todayStr}); ${campaignWeekdayProposals.length} em dia útil`);
   } catch (e) { console.error('[Scoring] Proposals error:', e.message); }
 
   if (!proposalsOk) {
@@ -185,9 +179,9 @@ async function calculateScores(triggeredBy = null) {
     return [];
   }
 
-  // Sanidade: ambas as chamadas retornando 0 com consultores ativos = API com problema.
-  if (rawProposals.length === 0 && cadastroProposals.length === 0 && allCorbanIds.length > 0) {
-    console.warn(`[Scoring] ⚠️  Ambas as chamadas retornaram 0 propostas para ${allCorbanIds.length} consultores — API com problema, recálculo abortado`);
+  // Sanidade: menos propostas que consultores = API com problema (resposta truncada/vazia).
+  if (rawProposals.length < allCorbanIds.length) {
+    console.warn(`[Scoring] ⚠️  API retornou ${rawProposals.length} propostas para ${allCorbanIds.length} consultores ativos — resposta inválida, recálculo abortado`);
     return [];
   }
 
