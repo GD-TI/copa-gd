@@ -235,6 +235,48 @@ async function getRanking(startDate, endDate, _retry = true) {
   }
 }
 
+// Ranking por data de PAGAMENTO — o ranking.php suporta tipo="pagamento" corretamente.
+// Usado para individual-rankings (melhor_vendedor por valor_referencia pago).
+// Retorna { result: { vendorName: { filter_value: corban_id, valor_referencia, qtd_propostas, ... } } }
+async function getRankingByPayment(startDate, endDate, vendedorIds = [], _retry = true) {
+  const cacheKey = `ranking_pgto:${startDate}:${endDate}:${[...vendedorIds].sort().join(',')}`;
+  const cached = cacheGet(cacheKey);
+  if (cached !== null) return cached;
+  if (_inflight.has(cacheKey)) return _inflight.get(cacheKey);
+
+  const token = await getToken();
+  const filter = {
+    ...buildRankingFilter(startDate, endDate),
+    vendedor: vendedorIds.length > 0 ? vendedorIds.map(Number) : [],
+    data: { tipo: 'pagamento', startDate, endDate, intervalo: 'custom' },
+  };
+  const encodedFilter = encodeFilter(filter);
+
+  const promise = axios.get(`${SERVER_BASE}/ranking.php`, {
+    params: { action: 'performance', i: encodedFilter },
+    headers: authHeaders(token),
+    timeout: 30000,
+  }).then(({ data }) => {
+    if (data && typeof data === 'object' && isTokenError(null, data)) {
+      if (!_retry) throw new Error('Token inválido no ranking_pgto');
+      clearToken();
+      return getRankingByPayment(startDate, endDate, vendedorIds, false);
+    }
+    cacheSet(cacheKey, data);
+    console.log(`[NewCorban] ranking pagamento: ${Object.keys(data?.result || {}).length} vendedores (${startDate}→${endDate})`);
+    return data;
+  }).catch(err => {
+    if (isTokenError(err) && _retry) {
+      clearToken();
+      return getRankingByPayment(startDate, endDate, vendedorIds, false);
+    }
+    throw new Error(`Falha ao buscar ranking pagamento: ${err.response?.data?.message || err.message}`);
+  }).finally(() => _inflight.delete(cacheKey));
+
+  _inflight.set(cacheKey, promise);
+  return promise;
+}
+
 async function getProposals(startDate, endDate, vendedorIds = [], tipo = 'cadastro', _retry = true) {
   const cacheKey = `proposals:${tipo}:${startDate}:${endDate}:${[...vendedorIds].sort().join(',')}`;
 
@@ -296,5 +338,6 @@ module.exports = {
   getUsersPage,
   findUserByUsername,
   getRanking,
+  getRankingByPayment,
   getProposals,
 };

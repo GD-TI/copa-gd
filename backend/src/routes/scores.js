@@ -4,7 +4,7 @@ const { authMiddleware } = require('../middleware/auth');
 const { calculateScores } = require('../services/scoring');
 const { broadcast } = require('./events');
 const { getRulesList } = require('../services/scoringRules');
-const { getProposals } = require('../services/externalApi');
+const { getProposals, getRankingByPayment } = require('../services/externalApi');
 const { isIndicacaoProposal } = require('../utils/proposals');
 const { getCadastroDateStr, isWeekdayPaid } = require('../utils/businessDays');
 const { responseCache } = require('../middleware/responseCache');
@@ -150,26 +150,32 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
       return res.json({ melhor_vendedor: [], rei_assistencias: [] });
     }
 
-    // tipo='pagamento' para capturar contratos pagos na janela independente do cadastro.
-    // Fallback para cadastro se a API retornar resposta truncada (comportamento intermitente).
-    let proposalsMap = await getProposals(startDate, endDate, [...activeCorbans], 'pagamento');
-    let proposals    = Object.values(proposalsMap || {});
-    if (proposals.length < activeCorbans.size) {
-      console.warn(`[IndividualRankings] pagamento retornou ${proposals.length} — fallback para cadastro`);
-      proposalsMap = await getProposals(startDate, endDate, [...activeCorbans]);
-      proposals    = Object.values(proposalsMap || {});
+    // ranking.php com tipo='pagamento' → valor correto por data de pagamento (API confiável)
+    const byVendor = {};
+    try {
+      const rankData = await getRankingByPayment(startDate, endDate, [...activeCorbans]);
+      for (const entry of Object.values(rankData?.result || {})) {
+        const vid = String(entry.filter_value || '');
+        if (!vid || !activeCorbans.has(vid)) continue;
+        if (!byVendor[vid]) byVendor[vid] = { vendedor_id: vid, total_valor: 0, indicacao_count: 0 };
+        byVendor[vid].total_valor += parseFloat(entry.valor_referencia || 0);
+      }
+    } catch (e) {
+      console.warn('[IndividualRankings] ranking pagamento error:', e.message);
     }
 
-    // Apenas propostas pagas de vendedores em equipes ativas
-    const paid = proposals.filter(p => p?.datas?.pagamento && activeCorbans.has(String(p.vendedor_id)));
-
-    // Agrupa por vendedor_id
-    const byVendor = {};
-    for (const p of paid) {
-      const vid = String(p.vendedor_id);
-      if (!byVendor[vid]) byVendor[vid] = { vendedor_id: vid, total_valor: 0, indicacao_count: 0 };
-      byVendor[vid].total_valor    += parseFloat(p.proposta?.valor_referencia || 0);
-      if (isIndicacaoProposal(p)) byVendor[vid].indicacao_count++;
+    // proposals API (cadastro) para contagem de Indicação — ranking API não expõe origem por texto
+    try {
+      let proposalsMap = await getProposals(startDate, endDate, [...activeCorbans]);
+      let proposals    = Object.values(proposalsMap || {});
+      const paid = proposals.filter(p => p?.datas?.pagamento && activeCorbans.has(String(p.vendedor_id)));
+      for (const p of paid) {
+        const vid = String(p.vendedor_id);
+        if (!byVendor[vid]) byVendor[vid] = { vendedor_id: vid, total_valor: 0, indicacao_count: 0 };
+        if (isIndicacaoProposal(p)) byVendor[vid].indicacao_count++;
+      }
+    } catch (e) {
+      console.warn('[IndividualRankings] proposals indicacao error:', e.message);
     }
 
     const vendorList = Object.values(byVendor);
