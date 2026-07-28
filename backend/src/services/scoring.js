@@ -215,17 +215,20 @@ async function calculateScores(triggeredBy = null) {
     // A API retorna 502 para startDate > 30 dias atrás; deletar sem re-inserir zeraria o ranking.
     if (isForce && dateStr < earlyStart) continue;
 
-    // Force: limpar eventos diários deste dia antes de recalcular (evita zeragem total do ranking)
-    if (isForce) {
+    // Force + hoje: limpar eventos do dia antes de recalcular com dados frescos.
+    // Force + histórico: NÃO apagar upfront — rawProposals filtra por cadastro (earlyStart→hoje),
+    // então propostas registradas antes de earlyStart mas pagas em datas históricas ficam invisíveis.
+    // Apagar sem re-inserir removeria pontos legitimamente ganhos.
+    if (isForce && isToday) {
       await db.query(
         `DELETE FROM score_events WHERE event_date = $1::date AND rule_name = ANY($2::text[])`,
         [dateStr, DAILY_RULES]
       );
     }
 
-    // Em cron automático: dias passados de jogo só podem ADICIONAR/ATUALIZAR pontos, nunca deletar
-    // Apenas hoje ou recálculo force (manual) podem remover eventos históricos
-    const canDelete = isToday || isForce;
+    // Datas históricas (mesmo em force): não remover eventos — API pode não ter dados completos.
+    // Apenas hoje pode deletar; eventos passados só sobem via upsert, nunca são removidos.
+    const canDelete = isToday;
 
     // Fins de semana não entram na campanha
     if (!isBusinessDay(dateStr)) {
