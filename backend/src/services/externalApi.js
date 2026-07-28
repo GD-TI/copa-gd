@@ -235,13 +235,13 @@ async function getRanking(startDate, endDate, _retry = true) {
   }
 }
 
-async function getProposals(startDate, endDate, vendedorIds = [], _retry = true) {
-  const cacheKey = `proposals:${startDate}:${endDate}:${[...vendedorIds].sort().join(',')}`;
+async function getProposals(startDate, endDate, vendedorIds = [], tipo = 'cadastro', _retry = true) {
+  const cacheKey = `proposals:${tipo}:${startDate}:${endDate}:${[...vendedorIds].sort().join(',')}`;
 
   // Retorna do cache se ainda válido
   const cached = cacheGet(cacheKey);
   if (cached !== null) {
-    console.log(`[NewCorban] propostas (cache): ${Object.keys(cached).length} registros (${startDate}→${endDate})`);
+    console.log(`[NewCorban] propostas (cache/${tipo}): ${Object.keys(cached).length} registros (${startDate}→${endDate})`);
     return cached;
   }
 
@@ -258,7 +258,7 @@ async function getProposals(startDate, endDate, vendedorIds = [], _retry = true)
     },
     requestType: 'getPropostas',
     filters: {
-      data: { tipo: 'cadastro', startDate, endDate },
+      data: { tipo, startDate, endDate },
       produto: ['7', '13'],
       ...(vendedorIds.length > 0 ? { vendedor: vendedorIds.map(Number) } : {}),
     },
