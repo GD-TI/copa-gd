@@ -150,8 +150,15 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
       return res.json({ melhor_vendedor: [], rei_assistencias: [] });
     }
 
-    const proposalsMap = await getProposals(startDate, endDate, [...activeCorbans]);
-    const proposals    = Object.values(proposalsMap || {});
+    // tipo='pagamento' para capturar contratos pagos na janela independente do cadastro.
+    // Fallback para cadastro se a API retornar resposta truncada (comportamento intermitente).
+    let proposalsMap = await getProposals(startDate, endDate, [...activeCorbans], 'pagamento');
+    let proposals    = Object.values(proposalsMap || {});
+    if (proposals.length < activeCorbans.size) {
+      console.warn(`[IndividualRankings] pagamento retornou ${proposals.length} — fallback para cadastro`);
+      proposalsMap = await getProposals(startDate, endDate, [...activeCorbans]);
+      proposals    = Object.values(proposalsMap || {});
+    }
 
     // Apenas propostas pagas de vendedores em equipes ativas
     const paid = proposals.filter(p => p?.datas?.pagamento && activeCorbans.has(String(p.vendedor_id)));

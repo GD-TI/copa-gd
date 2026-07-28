@@ -158,20 +158,33 @@ async function calculateScores(triggeredBy = null) {
   earlyStartDate.setDate(earlyStartDate.getDate() - 30);
   const earlyStart = toDateStr(earlyStartDate) > campaignStart ? toDateStr(earlyStartDate) : campaignStart;
 
-  // A API NewCorban suporta apenas tipo='cadastro' (por data de registro).
-  // rawProposals contém todas as propostas registradas em [earlyStart, hoje].
-  // Regras por data de pagamento (META_DIA, GOL_DE_PLACA, etc.) filtram pelo campo
-  // datas.pagamento dentro de rawProposals — funciona para contratos registrados
-  // e pagos dentro da janela de 30 dias.
+  // Duas chamadas à API NewCorban:
+  // 1. tipo='pagamento': rawProposals — por data de pagamento (META_DIA, GOL, ARTILHEIRO, etc.)
+  //    Captura contratos registrados antes do earlyStart mas pagos na janela.
+  //    Fallback automático para cadastro se a API retornar resposta truncada/inválida.
+  // 2. tipo='cadastro': campaignWeekdayProposals — por data de cadastro (CONVERSAO, INDICACAO)
   let rawProposals = [];
+  let cadastroProposals = [];
   let campaignWeekdayProposals = [];
   let proposalsOk = false;
   try {
-    const pd = await externalApi.getProposals(earlyStart, todayStr, allCorbanIds);
-    rawProposals = pd ? Object.values(pd) : [];
-    campaignWeekdayProposals = filterByWeekdayCadastro(rawProposals);
+    const [pdPagamento, pdCadastro] = await Promise.all([
+      externalApi.getProposals(earlyStart, todayStr, allCorbanIds, 'pagamento'),
+      externalApi.getProposals(earlyStart, todayStr, allCorbanIds, 'cadastro'),
+    ]);
+    rawProposals      = pdPagamento ? Object.values(pdPagamento) : [];
+    cadastroProposals = pdCadastro  ? Object.values(pdCadastro)  : [];
+    campaignWeekdayProposals = filterByWeekdayCadastro(cadastroProposals);
     proposalsOk = true;
-    console.log(`[Scoring] ${rawProposals.length} propostas (${earlyStart}→${todayStr}); ${campaignWeekdayProposals.length} em dia útil`);
+
+    // Sanidade: se pagamento retornou menos propostas que consultores ativos, a resposta
+    // é inválida (API NC retorna ocasionalmente respostas truncadas). Usar cadastro como fallback.
+    if (rawProposals.length < allCorbanIds.length) {
+      console.warn(`[Scoring] ⚠️ tipo=pagamento retornou ${rawProposals.length} (esperado >=${allCorbanIds.length}) — fallback para cadastro`);
+      rawProposals = cadastroProposals;
+    }
+
+    console.log(`[Scoring] ${rawProposals.length} propostas raw; ${campaignWeekdayProposals.length} em dia útil (${earlyStart}→${todayStr})`);
   } catch (e) { console.error('[Scoring] Proposals error:', e.message); }
 
   if (!proposalsOk) {
@@ -179,9 +192,9 @@ async function calculateScores(triggeredBy = null) {
     return [];
   }
 
-  // Sanidade: menos propostas que consultores = API com problema (resposta truncada/vazia).
+  // Sanidade final: cadastro também vazio = API com problema sério.
   if (rawProposals.length < allCorbanIds.length) {
-    console.warn(`[Scoring] ⚠️  API retornou ${rawProposals.length} propostas para ${allCorbanIds.length} consultores ativos — resposta inválida, recálculo abortado`);
+    console.warn(`[Scoring] ⚠️  API retornou ${rawProposals.length} propostas para ${allCorbanIds.length} consultores — resposta inválida, recálculo abortado`);
     return [];
   }
 
