@@ -170,9 +170,10 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
       for (const entry of Object.values(indicacaoData?.result || {})) {
         const vid = String(entry.filter_value || '');
         if (!vid || !activeCorbans.has(vid)) continue;
-        if (!byVendor[vid]) byVendor[vid] = { vendedor_id: vid, total_valor: 0, valor_meta: 0, valor_financiado: 0, qtd_propostas: 0, indicacao_count: 0, indicacao_valor: 0 };
-        byVendor[vid].indicacao_count += parseInt(entry.qtd_propostas    || 0, 10);
+        if (!byVendor[vid]) byVendor[vid] = { vendedor_id: vid, total_valor: 0, valor_meta: 0, valor_financiado: 0, qtd_propostas: 0, indicacao_count: 0, indicacao_valor: 0, indicacao_meta: 0 };
+        byVendor[vid].indicacao_count += parseInt(entry.qtd_propostas     || 0, 10);
         byVendor[vid].indicacao_valor += parseFloat(entry.valor_referencia || 0);
+        byVendor[vid].indicacao_meta  += parseFloat(entry.valor_meta       || 0);
       }
     } catch (e) {
       console.warn('[IndividualRankings] ranking indicacao error:', e.message);
@@ -180,17 +181,16 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
 
     const vendorList = Object.values(byVendor);
 
-    // Ordena por atingimento (valor_referencia / valor_meta) — mesmo critério do ranking real
-    // Desempate: total_valor absoluto
-    const topVendor = [...vendorList].sort((a, b) => {
-      const ratioA = a.valor_meta > 0 ? a.total_valor / a.valor_meta : 0;
-      const ratioB = b.valor_meta > 0 ? b.total_valor / b.valor_meta : 0;
-      return ratioB - ratioA || b.total_valor - a.total_valor;
-    });
+    // melhor_vendedor: maior valor total pago no período
+    const topVendor = [...vendorList].sort((a, b) => b.total_valor - a.total_valor);
 
-    // Desempate por valor total das Indicações quando indicacao_count igual
+    // rei_assistencias: ordena por atingimento (indicacao_valor / indicacao_meta); desempate por count e valor
     const topAssistencias = vendorList.filter(v => v.indicacao_count > 0)
-                              .sort((a, b) => b.indicacao_count - a.indicacao_count || b.indicacao_valor - a.indicacao_valor);
+                              .sort((a, b) => {
+                                const ratioA = a.indicacao_meta > 0 ? a.indicacao_valor / a.indicacao_meta : 0;
+                                const ratioB = b.indicacao_meta > 0 ? b.indicacao_valor / b.indicacao_meta : 0;
+                                return ratioB - ratioA || b.indicacao_count - a.indicacao_count || b.indicacao_valor - a.indicacao_valor;
+                              });
 
     // Resolve nomes via DB (corban_id → display_name)
     const allVids = [...new Set([...topVendor, ...topAssistencias].map(v => v.vendedor_id))];
