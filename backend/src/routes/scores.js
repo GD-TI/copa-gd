@@ -147,14 +147,17 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
     // ranking.php não tem limite de 30 dias → usa campaignStart diretamente para período completo
     const byVendor = {};
 
-    // Chamada 1: todos os contratos por pagamento → melhor_vendedor (total_valor)
+    // Chamada 1: todos os contratos por pagamento → melhor_vendedor (total_valor + valor_meta)
     try {
       const rankData = await getRankingByPayment(campaignStart, endDate, [...activeCorbans], []);
       for (const entry of Object.values(rankData?.result || {})) {
         const vid = String(entry.filter_value || '');
         if (!vid || !activeCorbans.has(vid)) continue;
-        if (!byVendor[vid]) byVendor[vid] = { vendedor_id: vid, total_valor: 0, indicacao_count: 0 };
-        byVendor[vid].total_valor += parseFloat(entry.valor_referencia || 0);
+        if (!byVendor[vid]) byVendor[vid] = { vendedor_id: vid, total_valor: 0, valor_meta: 0, valor_financiado: 0, qtd_propostas: 0, indicacao_count: 0, indicacao_valor: 0 };
+        byVendor[vid].total_valor      += parseFloat(entry.valor_referencia || 0);
+        byVendor[vid].valor_meta       += parseFloat(entry.valor_meta       || 0);
+        byVendor[vid].valor_financiado += parseFloat(entry.valor_financiado || 0);
+        byVendor[vid].qtd_propostas    += parseInt(entry.qtd_propostas      || 0, 10);
       }
     } catch (e) {
       console.warn('[IndividualRankings] ranking pagamento error:', e.message);
@@ -167,9 +170,9 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
       for (const entry of Object.values(indicacaoData?.result || {})) {
         const vid = String(entry.filter_value || '');
         if (!vid || !activeCorbans.has(vid)) continue;
-        if (!byVendor[vid]) byVendor[vid] = { vendedor_id: vid, total_valor: 0, indicacao_count: 0, indicacao_valor: 0 };
-        byVendor[vid].indicacao_count += parseInt(entry.qtd_propostas || 0, 10);
-        byVendor[vid].indicacao_valor  += parseFloat(entry.valor_referencia || 0);
+        if (!byVendor[vid]) byVendor[vid] = { vendedor_id: vid, total_valor: 0, valor_meta: 0, valor_financiado: 0, qtd_propostas: 0, indicacao_count: 0, indicacao_valor: 0 };
+        byVendor[vid].indicacao_count += parseInt(entry.qtd_propostas    || 0, 10);
+        byVendor[vid].indicacao_valor += parseFloat(entry.valor_referencia || 0);
       }
     } catch (e) {
       console.warn('[IndividualRankings] ranking indicacao error:', e.message);
@@ -177,7 +180,14 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
 
     const vendorList = Object.values(byVendor);
 
-    const topVendor       = [...vendorList].sort((a, b) => b.total_valor - a.total_valor);
+    // Ordena por atingimento (valor_referencia / valor_meta) — mesmo critério do ranking real
+    // Desempate: total_valor absoluto
+    const topVendor = [...vendorList].sort((a, b) => {
+      const ratioA = a.valor_meta > 0 ? a.total_valor / a.valor_meta : 0;
+      const ratioB = b.valor_meta > 0 ? b.total_valor / b.valor_meta : 0;
+      return ratioB - ratioA || b.total_valor - a.total_valor;
+    });
+
     // Desempate por valor total das Indicações quando indicacao_count igual
     const topAssistencias = vendorList.filter(v => v.indicacao_count > 0)
                               .sort((a, b) => b.indicacao_count - a.indicacao_count || b.indicacao_valor - a.indicacao_valor);
@@ -193,13 +203,18 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
       uRows.forEach(u => { nameMap[String(u.corban_id)] = u.display_name || u.corban_username; });
     }
 
+    const round2 = n => Math.round((n || 0) * 100) / 100;
     const enrich = (v, rank) => ({
       rank: rank + 1,
       name: nameMap[v.vendedor_id] || `Vendedor ${v.vendedor_id}`,
       vendedor_id: v.vendedor_id,
-      total_valor: Math.round(v.total_valor * 100) / 100,
+      total_valor: round2(v.total_valor),
+      valor_meta: round2(v.valor_meta),
+      valor_financiado: round2(v.valor_financiado),
+      qtd_propostas: v.qtd_propostas || 0,
+      atingimento: v.valor_meta > 0 ? Math.round(v.total_valor / v.valor_meta * 10000) / 100 : 0,
       indicacao_count: v.indicacao_count,
-      indicacao_valor: Math.round((v.indicacao_valor || 0) * 100) / 100,
+      indicacao_valor: round2(v.indicacao_valor),
     });
 
     res.json({
