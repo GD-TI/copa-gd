@@ -5,7 +5,6 @@ const { calculateScores } = require('../services/scoring');
 const { broadcast } = require('./events');
 const { getRulesList } = require('../services/scoringRules');
 const { getProposals, getRankingByPayment } = require('../services/externalApi');
-const { isIndicacaoProposal } = require('../utils/proposals');
 const { getCadastroDateStr, isWeekdayPaid } = require('../utils/businessDays');
 const { responseCache } = require('../middleware/responseCache');
 
@@ -127,11 +126,6 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
 
     const today          = new Date().toISOString().slice(0, 10);
     const campaignStart  = new Date(cs[0].start_date).toISOString().slice(0, 10);
-    // A API rejeita startDate > 30 dias atrás → usar earlyStart como limite real
-    const earlyDate = new Date(today + 'T12:00:00Z');
-    earlyDate.setDate(earlyDate.getDate() - 30);
-    const earlyStart = earlyDate.toISOString().slice(0, 10);
-    const startDate  = earlyStart > campaignStart ? earlyStart : campaignStart;
     // end_date pode ser NULL (campanha em andamento) → usa today como limite
     const endRaw    = cs[0].end_date ? new Date(cs[0].end_date).toISOString().slice(0, 10) : null;
     const endDate   = endRaw && endRaw < today ? endRaw : today;
@@ -150,10 +144,12 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
       return res.json({ melhor_vendedor: [], rei_assistencias: [] });
     }
 
-    // ranking.php com tipo='pagamento' → valor correto por data de pagamento (API confiável)
+    // ranking.php não tem limite de 30 dias → usa campaignStart diretamente para período completo
     const byVendor = {};
+
+    // Chamada 1: todos os contratos por pagamento → melhor_vendedor (total_valor)
     try {
-      const rankData = await getRankingByPayment(startDate, endDate, [...activeCorbans]);
+      const rankData = await getRankingByPayment(campaignStart, endDate, [...activeCorbans], []);
       for (const entry of Object.values(rankData?.result || {})) {
         const vid = String(entry.filter_value || '');
         if (!vid || !activeCorbans.has(vid)) continue;
@@ -164,18 +160,18 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
       console.warn('[IndividualRankings] ranking pagamento error:', e.message);
     }
 
-    // proposals API (cadastro) para contagem de Indicação — ranking API não expõe origem por texto
+    // Chamada 2: apenas origem=14 (Indicação) por pagamento → rei_assistencias (indicacao_count)
+    const INDICACAO_ORIGEM_ID = process.env.NEWCORBAN_INDICACAO_ORIGEM_ID || '14';
     try {
-      let proposalsMap = await getProposals(startDate, endDate, [...activeCorbans]);
-      let proposals    = Object.values(proposalsMap || {});
-      const paid = proposals.filter(p => p?.datas?.pagamento && activeCorbans.has(String(p.vendedor_id)));
-      for (const p of paid) {
-        const vid = String(p.vendedor_id);
+      const indicacaoData = await getRankingByPayment(campaignStart, endDate, [...activeCorbans], [INDICACAO_ORIGEM_ID]);
+      for (const entry of Object.values(indicacaoData?.result || {})) {
+        const vid = String(entry.filter_value || '');
+        if (!vid || !activeCorbans.has(vid)) continue;
         if (!byVendor[vid]) byVendor[vid] = { vendedor_id: vid, total_valor: 0, indicacao_count: 0 };
-        if (isIndicacaoProposal(p)) byVendor[vid].indicacao_count++;
+        byVendor[vid].indicacao_count += parseInt(entry.qtd_propostas || 0, 10);
       }
     } catch (e) {
-      console.warn('[IndividualRankings] proposals indicacao error:', e.message);
+      console.warn('[IndividualRankings] ranking indicacao error:', e.message);
     }
 
     const vendorList = Object.values(byVendor);

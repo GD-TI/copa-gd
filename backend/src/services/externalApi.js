@@ -238,8 +238,9 @@ async function getRanking(startDate, endDate, _retry = true) {
 // Ranking por data de PAGAMENTO — o ranking.php suporta tipo="pagamento" corretamente.
 // Usado para individual-rankings (melhor_vendedor por valor_referencia pago).
 // Retorna { result: { vendorName: { filter_value: corban_id, valor_referencia, qtd_propostas, ... } } }
-async function getRankingByPayment(startDate, endDate, vendedorIds = [], _retry = true) {
-  const cacheKey = `ranking_pgto:${startDate}:${endDate}:${[...vendedorIds].sort().join(',')}`;
+// origemIds: array de IDs de origem (ex: ["14"] para Indicação). Vazio = sem filtro.
+async function getRankingByPayment(startDate, endDate, vendedorIds = [], origemIds = [], _retry = true) {
+  const cacheKey = `ranking_pgto:${startDate}:${endDate}:${[...vendedorIds].sort().join(',')}:${origemIds.join(',')}`;
   const cached = cacheGet(cacheKey);
   if (cached !== null) return cached;
   if (_inflight.has(cacheKey)) return _inflight.get(cacheKey);
@@ -248,6 +249,7 @@ async function getRankingByPayment(startDate, endDate, vendedorIds = [], _retry 
   const filter = {
     ...buildRankingFilter(startDate, endDate),
     vendedor: vendedorIds.length > 0 ? vendedorIds.map(Number) : [],
+    origem: origemIds,
     data: { tipo: 'pagamento', startDate, endDate, intervalo: 'custom' },
   };
   const encodedFilter = encodeFilter(filter);
@@ -260,15 +262,16 @@ async function getRankingByPayment(startDate, endDate, vendedorIds = [], _retry 
     if (data && typeof data === 'object' && isTokenError(null, data)) {
       if (!_retry) throw new Error('Token inválido no ranking_pgto');
       clearToken();
-      return getRankingByPayment(startDate, endDate, vendedorIds, false);
+      return getRankingByPayment(startDate, endDate, vendedorIds, origemIds, false);
     }
     cacheSet(cacheKey, data);
-    console.log(`[NewCorban] ranking pagamento: ${Object.keys(data?.result || {}).length} vendedores (${startDate}→${endDate})`);
+    const origemLabel = origemIds.length ? ` origem=${origemIds.join(',')}` : '';
+    console.log(`[NewCorban] ranking pagamento${origemLabel}: ${Object.keys(data?.result || {}).length} vendedores (${startDate}→${endDate})`);
     return data;
   }).catch(err => {
     if (isTokenError(err) && _retry) {
       clearToken();
-      return getRankingByPayment(startDate, endDate, vendedorIds, false);
+      return getRankingByPayment(startDate, endDate, vendedorIds, origemIds, false);
     }
     throw new Error(`Falha ao buscar ranking pagamento: ${err.response?.data?.message || err.message}`);
   }).finally(() => _inflight.delete(cacheKey));
