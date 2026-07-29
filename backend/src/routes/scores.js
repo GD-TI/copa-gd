@@ -160,15 +160,16 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
       console.warn('[IndividualRankings] ranking pagamento error:', e.message);
     }
 
-    // Chamada 2: apenas origem=14 (Indicação) por pagamento → rei_assistencias (indicacao_count)
+    // Chamada 2: apenas origem=14 (Indicação) por pagamento → rei_assistencias (indicacao_count + indicacao_valor)
     const INDICACAO_ORIGEM_ID = process.env.NEWCORBAN_INDICACAO_ORIGEM_ID || '14';
     try {
       const indicacaoData = await getRankingByPayment(campaignStart, endDate, [...activeCorbans], [INDICACAO_ORIGEM_ID]);
       for (const entry of Object.values(indicacaoData?.result || {})) {
         const vid = String(entry.filter_value || '');
         if (!vid || !activeCorbans.has(vid)) continue;
-        if (!byVendor[vid]) byVendor[vid] = { vendedor_id: vid, total_valor: 0, indicacao_count: 0 };
+        if (!byVendor[vid]) byVendor[vid] = { vendedor_id: vid, total_valor: 0, indicacao_count: 0, indicacao_valor: 0 };
         byVendor[vid].indicacao_count += parseInt(entry.qtd_propostas || 0, 10);
+        byVendor[vid].indicacao_valor  += parseFloat(entry.valor_referencia || 0);
       }
     } catch (e) {
       console.warn('[IndividualRankings] ranking indicacao error:', e.message);
@@ -177,8 +178,9 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
     const vendorList = Object.values(byVendor);
 
     const topVendor       = [...vendorList].sort((a, b) => b.total_valor - a.total_valor);
+    // Desempate por valor total das Indicações quando indicacao_count igual
     const topAssistencias = vendorList.filter(v => v.indicacao_count > 0)
-                              .sort((a, b) => b.indicacao_count - a.indicacao_count);
+                              .sort((a, b) => b.indicacao_count - a.indicacao_count || b.indicacao_valor - a.indicacao_valor);
 
     // Resolve nomes via DB (corban_id → display_name)
     const allVids = [...new Set([...topVendor, ...topAssistencias].map(v => v.vendedor_id))];
@@ -197,6 +199,7 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
       vendedor_id: v.vendedor_id,
       total_valor: Math.round(v.total_valor * 100) / 100,
       indicacao_count: v.indicacao_count,
+      indicacao_valor: Math.round((v.indicacao_valor || 0) * 100) / 100,
     });
 
     res.json({
