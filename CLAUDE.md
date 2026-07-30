@@ -226,19 +226,23 @@ base_points NUMERIC NOT NULL
 
 ## APIs Externas (NewCorban)
 
-### Propostas
+### Propostas (API v3 — sem limite de 30 dias)
 ```
-POST https://api.newcorban.com.br/api/propostas/
-Body: {
-  auth: { username: "botapi", password: "api@bot321", empresa: "grupodigital" },
-  requestType: "getPropostas",
-  filters: {
-    data: { tipo: "cadastro", startDate, endDate },
-    vendedor: [corban_id_1, corban_id_2, ...]  // opcional
-  }
-}
+GET https://developers.newcorban.com.br/v1/proposals
+Authorization: Bearer <NEWCORBAN_PROPOSALS_TOKEN>
+Params:
+  date_type=payment|created  start_date=YYYY-MM-DD  end_date=YYYY-MM-DD
+  seller[]=<corban_id>  (repetido por vendor)  stage[]=paid  per_page=100  page=N
 ```
-Retorno: objeto keyed por ID de proposta. `datas.pagamento` não-null = pago. `vendedor_id` = corban_id do vendedor.
+Retorno: `{ success, data: [...], meta: { current_page, last_page } }`. Paginação automática em `getProposalsV3()`.  
+Campo chave: `assignment.seller.id` = corban_id, `proposal.reference_amount` = valor, `dates.payment_date` e `dates.created_at`.
+
+> **API legada** (`POST api.newcorban.com.br/api/propostas/`) ainda existe em `getProposals()` mas não é mais usada pelo scoring. Limite de 30 dias a partir de hoje.
+
+### Chave da API v3
+- Env var: `NEWCORBAN_PROPOSALS_TOKEN`
+- Formato: `nc_live_...` (Bearer)
+- Obter/rotacionar em: **Empresa → API** no painel NewCorban
 
 ### Ranking (para qtd_propostas do dia — TORCIDA_ORGANIZADA)
 ```
@@ -251,7 +255,8 @@ Token v2: `POST https://apiv2.newcorban.com.br/api/v2/auth/login`
 - TTL: 3 minutos em memória (`_cache` Map em `externalApi.js`)
 - Inflight dedup: se a mesma key já está em andamento, aguarda a Promise existente
 - Chave: `proposals:startDate:endDate:corbanIds_sorted`
-- **Janela da API:** a API NewCorban rejeita `startDate` anterior a ~30 dias (retorna 502). `getProposals` aceita qualquer período mas a prática é sempre chamar com `max(campaignStart, hoje-30)` como startDate real. Períodos > 31 dias também são rejeitados — o scoring sempre usa janelas de ≤ 30 dias.
+- **Janela da API v3:** sem limite de data — pode buscar desde `campaignStart`. `getProposalsV3()` usa `campaignStart → today` diretamente.
+- **API legada:** a antiga `POST /api/propostas/` tinha limite de 30 dias e está em `getProposals()` (não usada pelo scoring).
 
 ---
 
@@ -725,6 +730,7 @@ Se aparecer só `(API)`: falta `SERVE_STATIC=true` ou `frontend/dist` não foi g
 | `HOST` | Não | Default `0.0.0.0` |
 | `FOOTBALL_API_KEY` | Recomendado | football-data.org — sync automático na startup + `POST /api/worldcup/sync` |
 | `CONVERSION_MIN_RATE` | Não | Default `0.80` (80% de conversão no dia) |
+| `NEWCORBAN_PROPOSALS_TOKEN` | **Sim** | Bearer token da API v3 (`nc_live_...`) — scoring usa essa API para buscar propostas sem limite de 30 dias |
 
 Template completo: `.env.example` na raiz.
 
@@ -931,4 +937,5 @@ VITE_API_URL=http://localhost:3001
 | Jul/28 | META_DIA/META_SEMANA/GOL/ARTILHEIRO/CONTRATO_10K não contavam contratos registrados antes da janela de 30 dias | `getProposals` usava `tipo: 'cadastro'` — filtrava por data de registro. Contratos registrados antes do earlyStart mas pagos dentro da janela eram invisíveis. Fix: duas chamadas à API — `tipo: 'pagamento'` para `rawProposals` (regras por data de pagamento) + `tipo: 'cadastro'` para `campaignWeekdayProposals` (CONVERSAO/INDICACAO). `externalApi.getProposals()` aceita parâmetro `tipo` (default `'cadastro'`). |
 | Jul/28 | Force recalc removia META_DIA/META_SEMANA de datas históricas dentro da janela 30 dias | A API filtra propostas por data de **cadastro** (earlyStart→hoje). Proposta registrada antes de earlyStart mas **paga** em data histórica (ex: cadastro 20/jun, pago 29/jun, earlyStart 28/jun) some da janela → recalc retorna 0 → evento deletado. Fix: `canDelete = isToday` (não `isToday\|\|isForce`) — eventos históricos só sobem via upsert, nunca são removidos em force. DELETE upfront só roda para hoje. |
 | Jul/28 | tipo=pagamento retorna 2 registros intermitentemente (API NC instável) | A API NewCorban retorna ocasionalmente respostas truncadas para `tipo='pagamento'`. Fix: fallback automático — se `rawProposals.length < allCorbanIds.length`, usa `cadastroProposals` no lugar. Log: `⚠️ tipo=pagamento retornou N (esperado >=M) — fallback para cadastro`. Mesmo fallback em `individual-rankings`. |
+| Jul/30 | Pontos não contavam desde início da campanha (17/06) — API velha rejeitava datas > 30 dias | Substituída por API v3 `developers.newcorban.com.br/v1/proposals` com token Bearer sem limite de janela. `getProposalsV3()` usa `campaignStart→today` com paginação. Removidos: `earlyStart`, guards de loop e META_SEMANA, lógica GREATEST do INDICACAO. `canDelete = isForce \|\| isToday`. Requer `NEWCORBAN_PROPOSALS_TOKEN` no `.env`. |
 | Jul/28 | Force recalc removia META_DIA/META_SEMANA de datas históricas dentro da janela 30 dias | A API filtra propostas por data de **cadastro** (earlyStart→hoje). Proposta registrada antes de earlyStart mas **paga** em data histórica (ex: cadastro 20/jun, pago 29/jun, earlyStart 28/jun) some da janela → recalc retorna 0 → evento deletado. Fix: `canDelete = isToday` (não `isToday\|\|isForce`) — eventos históricos só sobem via upsert, nunca são removidos em force. DELETE upfront só roda para hoje. |
