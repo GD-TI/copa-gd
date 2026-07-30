@@ -2,6 +2,7 @@ const axios = require("axios");
 
 const SERVER_BASE = "https://server.newcorban.com.br/system";
 const APIV2_BASE = "https://apiv2.newcorban.com.br/api/v2";
+const NC_DEV_BASE = "https://developers.newcorban.com.br/v1";
 
 // Cache simples para evitar chamadas concorrentes à API externa
 // TTL de 3 minutos — suficiente para absorver picos sem dados muito desatualizados
@@ -334,6 +335,88 @@ async function getProposals(startDate, endDate, vendedorIds = [], tipo = 'cadast
   }
 }
 
+// ---- API v3 (developers.newcorban.com.br) — sem limite de 30 dias ----
+
+function convertV3Proposal(item) {
+  const payDate = item.dates?.payment_date ? String(item.dates.payment_date).slice(0, 10) : null;
+  const cadDate = item.dates?.created_at   ? String(item.dates.created_at).slice(0, 10)   : null;
+  return {
+    vendedor_id:  String(item.assignment?.seller?.id || ''),
+    origem:       item.proposal?.origin?.name || '',
+    proposta: {
+      valor_referencia: String(item.proposal?.reference_amount || '0'),
+      produto_id:       String(item.proposal?.product?.id || ''),
+    },
+    datas: {
+      pagamento: item.stage === 'paid' ? payDate : null,
+      cadastro:  cadDate,
+      inclusao:  cadDate,
+    },
+    api: {
+      status_api: item.stage === 'canceled' ? 'CANCELADA'
+                : item.stage === 'paid'     ? 'PAGO'
+                : 'EM_ANDAMENTO',
+    },
+    status_nome: item.proposal?.status?.name || '',
+  };
+}
+
+// dateType: 'payment' | 'created' | 'updated' | ...  (date_type da API)
+// stages:   [] = todos   ['paid'] = só pagos
+async function getProposalsV3(startDate, endDate, sellerIds = [], dateType = 'payment', stages = []) {
+  const token = process.env.NEWCORBAN_PROPOSALS_TOKEN;
+  if (!token) throw new Error('NEWCORBAN_PROPOSALS_TOKEN não configurado');
+
+  const cacheKey = `v3:${dateType}:${[...stages].sort().join(',')}:${startDate}:${endDate}:${[...sellerIds].sort().join(',')}`;
+
+  const cached = cacheGet(cacheKey);
+  if (cached !== null) {
+    console.log(`[NC v3] (cache/${dateType}): ${Object.keys(cached).length} registros (${startDate}→${endDate})`);
+    return cached;
+  }
+  if (_inflight.has(cacheKey)) return _inflight.get(cacheKey);
+
+  const promise = (async () => {
+    const acc = {};
+    let page = 1;
+    let lastPage = 1;
+
+    do {
+      const qs = new URLSearchParams({
+        date_type: dateType,
+        start_date: startDate,
+        end_date:   endDate,
+        per_page:   '100',
+        page:       String(page),
+      });
+      sellerIds.forEach(id => qs.append('seller[]', String(id)));
+      stages.forEach(s   => qs.append('stage[]',  s));
+
+      const { data: resp } = await axios.get(`${NC_DEV_BASE}/proposals?${qs.toString()}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        timeout: 60000,
+      });
+
+      if (!resp?.success) throw new Error(`NC v3: ${resp?.message || 'erro desconhecido'}`);
+
+      for (const item of (resp.data || [])) {
+        acc[String(item.id)] = convertV3Proposal(item);
+      }
+
+      lastPage = resp.meta?.last_page || 1;
+      page++;
+    } while (page <= lastPage);
+
+    cacheSet(cacheKey, acc);
+    console.log(`[NC v3] ${dateType}${stages.length ? ` stage=${stages.join(',')}` : ''}: ${Object.keys(acc).length} registros (${startDate}→${endDate})`);
+    return acc;
+  })();
+
+  _inflight.set(cacheKey, promise);
+  promise.finally(() => _inflight.delete(cacheKey));
+  return promise;
+}
+
 module.exports = {
   getToken,
   clearToken,
@@ -343,4 +426,5 @@ module.exports = {
   getRanking,
   getRankingByPayment,
   getProposals,
+  getProposalsV3,
 };

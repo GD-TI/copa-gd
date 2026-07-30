@@ -150,51 +150,27 @@ async function calculateScores(triggeredBy = null) {
   const allCorbanIds = [...new Set(groups.flatMap(g => g.corban_ids || []))];
   if (allCorbanIds.length === 0) { console.log('[Scoring] Nenhum corban_id configurado.'); return []; }
 
-  // ── 4. Propostas: dois conjuntos ─────────────────────────────────────────
-  // A API NewCorban rejeita startDate > 30 dias atrás (retorna 502).
-  // earlyStart = max(campaignStart, hoje-30) é o limite real da janela da API.
-  // Datas anteriores a earlyStart são preservadas no banco sem re-busca (guard no loop).
-  const earlyStartDate = new Date(todayStr + 'T12:00:00Z');
-  earlyStartDate.setDate(earlyStartDate.getDate() - 30);
-  const earlyStart = toDateStr(earlyStartDate) > campaignStart ? toDateStr(earlyStartDate) : campaignStart;
-
-  // Duas chamadas à API NewCorban:
-  // 1. tipo='pagamento': rawProposals — por data de pagamento (META_DIA, GOL, ARTILHEIRO, etc.)
-  //    Captura contratos registrados antes do earlyStart mas pagos na janela.
-  //    Fallback automático para cadastro se a API retornar resposta truncada/inválida.
-  // 2. tipo='cadastro': campaignWeekdayProposals — por data de cadastro (CONVERSAO, INDICACAO)
+  // ── 4. Propostas: dois conjuntos via API v3 (sem limite de 30 dias) ────────
+  // 1. date_type=payment + stage=paid → rawProposals (META_DIA, GOL, ARTILHEIRO, etc.)
+  // 2. date_type=created (todos os stages) → cadastroProposals (CONVERSAO, INDICACAO)
   let rawProposals = [];
   let cadastroProposals = [];
   let campaignWeekdayProposals = [];
   let proposalsOk = false;
   try {
     const [pdPagamento, pdCadastro] = await Promise.all([
-      externalApi.getProposals(earlyStart, todayStr, allCorbanIds, 'pagamento'),
-      externalApi.getProposals(earlyStart, todayStr, allCorbanIds, 'cadastro'),
+      externalApi.getProposalsV3(campaignStart, todayStr, allCorbanIds, 'payment', ['paid']),
+      externalApi.getProposalsV3(campaignStart, todayStr, allCorbanIds, 'created', []),
     ]);
-    rawProposals      = pdPagamento ? Object.values(pdPagamento) : [];
-    cadastroProposals = pdCadastro  ? Object.values(pdCadastro)  : [];
+    rawProposals             = pdPagamento ? Object.values(pdPagamento) : [];
+    cadastroProposals        = pdCadastro  ? Object.values(pdCadastro)  : [];
     campaignWeekdayProposals = filterByWeekdayCadastro(cadastroProposals);
     proposalsOk = true;
-
-    // Sanidade: se pagamento retornou menos propostas que consultores ativos, a resposta
-    // é inválida (API NC retorna ocasionalmente respostas truncadas). Usar cadastro como fallback.
-    if (rawProposals.length < allCorbanIds.length) {
-      console.warn(`[Scoring] ⚠️ tipo=pagamento retornou ${rawProposals.length} (esperado >=${allCorbanIds.length}) — fallback para cadastro`);
-      rawProposals = cadastroProposals;
-    }
-
-    console.log(`[Scoring] ${rawProposals.length} propostas raw; ${campaignWeekdayProposals.length} em dia útil (${earlyStart}→${todayStr})`);
+    console.log(`[Scoring] ${rawProposals.length} propostas raw; ${campaignWeekdayProposals.length} em dia útil (${campaignStart}→${todayStr})`);
   } catch (e) { console.error('[Scoring] Proposals error:', e.message); }
 
   if (!proposalsOk) {
     console.warn('[Scoring] ⚠️  API de propostas indisponível — rodada abortada para preservar pontuações');
-    return [];
-  }
-
-  // Sanidade final: cadastro também vazio = API com problema sério.
-  if (rawProposals.length < allCorbanIds.length) {
-    console.warn(`[Scoring] ⚠️  API retornou ${rawProposals.length} propostas para ${allCorbanIds.length} consultores — resposta inválida, recálculo abortado`);
     return [];
   }
 
@@ -227,24 +203,15 @@ async function calculateScores(triggeredBy = null) {
   for (const dateStr of campaignDays) {
     const isToday = dateStr === todayStr;
 
-    // Datas anteriores ao limite da API (hoje-30): preservar eventos históricos.
-    // A API retorna 502 para startDate > 30 dias atrás; deletar sem re-inserir zeraria o ranking.
-    if (isForce && dateStr < earlyStart) continue;
-
-    // Force + hoje: limpar eventos do dia antes de recalcular com dados frescos.
-    // Force + histórico: NÃO apagar upfront — rawProposals filtra por cadastro (earlyStart→hoje),
-    // então propostas registradas antes de earlyStart mas pagas em datas históricas ficam invisíveis.
-    // Apagar sem re-inserir removeria pontos legitimamente ganhos.
-    if (isForce && isToday) {
+    // API v3 cobre todo o período da campanha: limpar e recalcular em force ou hoje.
+    if (isForce || isToday) {
       await db.query(
         `DELETE FROM score_events WHERE event_date = $1::date AND rule_name = ANY($2::text[])`,
         [dateStr, DAILY_RULES]
       );
     }
 
-    // Datas históricas (mesmo em force): não remover eventos — API pode não ter dados completos.
-    // Apenas hoje pode deletar; eventos passados só sobem via upsert, nunca são removidos.
-    const canDelete = isToday;
+    const canDelete = isForce || isToday;
 
     // Fins de semana não entram na campanha
     if (!isBusinessDay(dateStr)) {
@@ -512,10 +479,6 @@ async function calculateScores(triggeredBy = null) {
     // Semanas passadas: recalcular se force, semana atual ou semana com jogo do Brasil (retroativo)
     if (!isCurrentWeek && !isForce && !weekHasDouble) continue;
 
-    // Guard: semanas que COMEÇAM antes da janela da API (earlyStart) não podem ser recalculadas
-    // corretamente em force — rawProposals não cobre esse período. Preservar o evento histórico.
-    if (isForce && wsStr < earlyStart) continue;
-
     // Multiplier: dobro se algum dia útil da semana foi dia de jogo
     const weekMult = weekHasDouble ? 2 : 1;
 
@@ -557,34 +520,16 @@ async function calculateScores(triggeredBy = null) {
     const paidRefs = filterPaidIndicacoes(paidAll);
     const refBatches = Math.floor(paidRefs.length / 5);
     const newIndicacaoPts = refBatches * rulePts.INDICACAO;
-    const canFullyRecalcIndicacao = campaignStart >= earlyStart;
 
     if (refBatches > 0) {
-      if (canFullyRecalcIndicacao) {
-        // Campanha inteira na janela da API: pode sobrescrever livremente.
-        await upsertEvent(
-          g.id, campaignStart, 'INDICACAO',
-          newIndicacaoPts,
-          `${paidRefs.length} contrato(s) pagos com Indicação — ${refBatches} lote(s) de 5 × ${rulePts.INDICACAO} pts`,
-          false
-        );
-      } else {
-        // Dados parciais (campanha antes da janela de 30 dias): nunca reduzir pontos históricos.
-        // GREATEST garante que só atualiza se o novo valor for maior que o existente.
-        await db.query(
-          `INSERT INTO score_events (group_id, event_date, rule_name, points, description, is_double_points)
-           VALUES ($1, $2::date, 'INDICACAO', $3, $4, false)
-           ON CONFLICT (group_id, event_date, rule_name) DO UPDATE
-             SET points      = GREATEST(score_events.points, EXCLUDED.points),
-                 description = CASE WHEN EXCLUDED.points > score_events.points
-                               THEN EXCLUDED.description ELSE score_events.description END`,
-          [g.id, campaignStart, newIndicacaoPts,
-           `${paidRefs.length} contrato(s) pagos com Indicação — ${refBatches} lote(s) de 5 × ${rulePts.INDICACAO} pts`]
-        );
-      }
-    } else if (isForce && canFullyRecalcIndicacao) {
-      // Só remove INDICACAO em recálculo force E apenas se a campanha inteira está na janela da API.
-      // Se campaignStart < earlyStart, a API não cobre o período completo — preservar o evento histórico.
+      // API v3 cobre campanha completa: sobrescrever livremente.
+      await upsertEvent(
+        g.id, campaignStart, 'INDICACAO',
+        newIndicacaoPts,
+        `${paidRefs.length} contrato(s) pagos com Indicação — ${refBatches} lote(s) de 5 × ${rulePts.INDICACAO} pts`,
+        false
+      );
+    } else if (isForce) {
       await deleteEvent(g.id, campaignStart, 'INDICACAO');
     }
 
