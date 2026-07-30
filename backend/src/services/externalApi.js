@@ -16,8 +16,8 @@ function cacheGet(key) {
   return entry.value;
 }
 
-function cacheSet(key, value) {
-  _cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+function cacheSet(key, value, ttlMs = CACHE_TTL_MS) {
+  _cache.set(key, { value, expiresAt: Date.now() + ttlMs });
 }
 
 // Limpeza periódica de entradas expiradas (evita leak de memória — cada dia cria uma nova chave)
@@ -386,16 +386,32 @@ async function getProposalsV3(startDate, endDate, sellerIds = [], dateType = 'pa
         date_type: dateType,
         start_date: startDate,
         end_date:   endDate,
-        per_page:   '100',
+        per_page:   '500',
         page:       String(page),
       });
       sellerIds.forEach(id => qs.append('seller[]', String(id)));
       stages.forEach(s   => qs.append('stage[]',  s));
 
-      const { data: resp } = await axios.get(`${NC_DEV_BASE}/proposals?${qs.toString()}`, {
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-        timeout: 60000,
-      });
+      let resp;
+      // Retry com backoff para 429 (rate limit)
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          const res = await axios.get(`${NC_DEV_BASE}/proposals?${qs.toString()}`, {
+            headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+            timeout: 60000,
+          });
+          resp = res.data;
+          break;
+        } catch (err) {
+          if (err.response?.status === 429 && attempt < 3) {
+            const delay = (attempt + 1) * 10000; // 10s, 20s, 30s
+            console.warn(`[NC v3] 429 rate limit (p${page}) — aguardando ${delay/1000}s antes de retentar...`);
+            await new Promise(r => setTimeout(r, delay));
+          } else {
+            throw err;
+          }
+        }
+      }
 
       if (!resp?.success) throw new Error(`NC v3: ${resp?.message || 'erro desconhecido'}`);
 
@@ -407,7 +423,8 @@ async function getProposalsV3(startDate, endDate, sellerIds = [], dateType = 'pa
       page++;
     } while (page <= lastPage);
 
-    cacheSet(cacheKey, acc);
+    // TTL de 8 min — maior que o intervalo do cron (5 min) para evitar re-fetch a cada rodada
+    cacheSet(cacheKey, acc, 8 * 60 * 1000);
     console.log(`[NC v3] ${dateType}${stages.length ? ` stage=${stages.join(',')}` : ''}: ${Object.keys(acc).length} registros (${startDate}→${endDate})`);
     return acc;
   })();
