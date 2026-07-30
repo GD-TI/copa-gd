@@ -386,7 +386,7 @@ async function getProposalsV3(startDate, endDate, sellerIds = [], dateType = 'pa
         date_type: dateType,
         start_date: startDate,
         end_date:   endDate,
-        per_page:   '500',
+        per_page:   '100',
         page:       String(page),
       });
       sellerIds.forEach(id => qs.append('seller[]', String(id)));
