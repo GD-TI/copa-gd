@@ -91,20 +91,23 @@ async function calculateScores(triggeredBy = null) {
   const todayStr = toDateStr(new Date());
   const isForce  = triggeredBy !== null; // admin = recalculate all; cron = skip processed past days
 
-  console.log(`[Scoring] Calculando até ${todayStr} (force=${isForce})...`);
-
   // Campanha (precisa antes do wipe em modo force)
   const { rows: campRows } = await db.query(
-    'SELECT start_date FROM campaign_settings ORDER BY id DESC LIMIT 1'
+    'SELECT start_date, end_date FROM campaign_settings ORDER BY id DESC LIMIT 1'
   );
   const campaignStart = campRows[0] ? toDateStr(new Date(campRows[0].start_date)) : todayStr;
+  const rawEndDate    = campRows[0]?.end_date ? toDateStr(new Date(campRows[0].end_date)) : null;
+  // campaignEnd = end_date configurada, se já passou; caso contrário usa today
+  const campaignEnd   = rawEndDate && rawEndDate < todayStr ? rawEndDate : todayStr;
+
+  console.log(`[Scoring] Calculando até ${campaignEnd} (force=${isForce})...`);
 
   // Snapshot antes do cálculo (para log de deltas)
   const { rows: beforeRows } = await db.query(`
     SELECT se.group_id, se.event_date::text, se.rule_name, se.points, g.name AS group_name
     FROM score_events se JOIN groups g ON se.group_id = g.id
-    WHERE se.event_date >= $1
-  `, [campaignStart]);
+    WHERE se.event_date >= $1 AND se.event_date <= $2
+  `, [campaignStart, campaignEnd]);
   const beforeMap = {};
   beforeRows.forEach(r => {
     beforeMap[`${r.group_id}:${String(r.event_date).slice(0,10)}:${r.rule_name}`] = {
@@ -112,6 +115,14 @@ async function calculateScores(triggeredBy = null) {
       group_id: r.group_id, event_date: String(r.event_date).slice(0,10), rule_name: r.rule_name,
     };
   });
+
+  // Limpar eventos após o fim da campanha (podem existir se end_date foi definido retroativamente)
+  if (rawEndDate && rawEndDate < todayStr) {
+    const { rowCount } = await db.query(
+      `DELETE FROM score_events WHERE event_date > $1`, [rawEndDate]
+    );
+    if (rowCount > 0) console.log(`[Scoring] 🧹 ${rowCount} evento(s) removidos após fim da campanha (${rawEndDate})`);
+  }
 
   if (isForce) {
     console.log('[Scoring] Force: recalculando campanha inteira (mudança de equipe/membro)...');
@@ -159,14 +170,14 @@ async function calculateScores(triggeredBy = null) {
   let proposalsOk = false;
   try {
     const [pdPagamento, pdCadastro] = await Promise.all([
-      externalApi.getProposalsV3(campaignStart, todayStr, allCorbanIds, 'payment', ['paid']),
-      externalApi.getProposalsV3(campaignStart, todayStr, allCorbanIds, 'created', []),
+      externalApi.getProposalsV3(campaignStart, campaignEnd, allCorbanIds, 'payment', ['paid']),
+      externalApi.getProposalsV3(campaignStart, campaignEnd, allCorbanIds, 'created', []),
     ]);
     rawProposals             = pdPagamento ? Object.values(pdPagamento) : [];
     cadastroProposals        = pdCadastro  ? Object.values(pdCadastro)  : [];
     campaignWeekdayProposals = filterByWeekdayCadastro(cadastroProposals);
     proposalsOk = true;
-    console.log(`[Scoring] ${rawProposals.length} propostas raw; ${campaignWeekdayProposals.length} em dia útil (${campaignStart}→${todayStr})`);
+    console.log(`[Scoring] ${rawProposals.length} propostas raw; ${campaignWeekdayProposals.length} em dia útil (${campaignStart}→${campaignEnd})`);
   } catch (e) { console.error('[Scoring] Proposals error:', e.message); }
 
   if (!proposalsOk) {
@@ -178,7 +189,7 @@ async function calculateScores(triggeredBy = null) {
   const { rows: matchRows } = await db.query(
     `SELECT match_date FROM brazil_matches
      WHERE match_date BETWEEN $1 AND $2 AND double_points = true`,
-    [campaignStart, todayStr]
+    [campaignStart, campaignEnd]
   );
   const doubleDays = new Set(matchRows.map(m => pgDateStr(m.match_date)));
   if (doubleDays.size > 0) {
@@ -191,17 +202,18 @@ async function calculateScores(triggeredBy = null) {
     const { rows: dc } = await db.query(
       `SELECT calculation_date::text FROM daily_calculations
        WHERE calculation_date BETWEEN $1 AND $2`,
-      [campaignStart, todayStr]
+      [campaignStart, campaignEnd]
     );
     dc.forEach(r => processedDays.add(String(r.calculation_date).slice(0, 10)));
   }
 
-  const campaignDays = getDaysInRange(campaignStart, todayStr);
+  const campaignDays = getDaysInRange(campaignStart, campaignEnd);
   let totalEvents = [];
 
   // ── 7. Regras diárias: para cada dia da campanha ─────────────────────────
   for (const dateStr of campaignDays) {
-    const isToday = dateStr === todayStr;
+    // "hoje" = último dia ativo da campanha (se campanha encerrou, nenhum dia é "hoje")
+    const isToday = dateStr === todayStr && todayStr <= campaignEnd;
 
     // API v3 cobre todo o período da campanha: limpar e recalcular em force ou hoje.
     if (isForce || isToday) {
@@ -471,8 +483,8 @@ async function calculateScores(triggeredBy = null) {
   for (const wsStr of weekStartsSet) {
     const wsDate = new Date(wsStr + 'T12:00:00Z');
     const weDate = new Date(wsDate.getTime() + 6 * 86400000);
-    const weStr  = toDateStr(weDate) > todayStr ? todayStr : toDateStr(weDate);
-    const isCurrentWeek = wsStr <= todayStr && todayStr <= weStr;
+    const weStr  = toDateStr(weDate) > campaignEnd ? campaignEnd : toDateStr(weDate);
+    const isCurrentWeek = wsStr <= campaignEnd && campaignEnd <= weStr;
     const weekBusinessDays = getBusinessDaysInRange(wsStr, weStr);
     const weekHasDouble = weekBusinessDays.some(d => doubleDays.has(d));
 
@@ -551,8 +563,8 @@ async function calculateScores(triggeredBy = null) {
     const { rows: afterRows } = await db.query(`
       SELECT se.group_id, se.event_date::text, se.rule_name, se.points, g.name AS group_name
       FROM score_events se JOIN groups g ON se.group_id = g.id
-      WHERE se.event_date >= $1
-    `, [campaignStart]);
+      WHERE se.event_date >= $1 AND se.event_date <= $2
+    `, [campaignStart, campaignEnd]);
     const afterMap = {};
     afterRows.forEach(r => {
       afterMap[`${r.group_id}:${String(r.event_date).slice(0,10)}:${r.rule_name}`] = {

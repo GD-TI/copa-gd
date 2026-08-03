@@ -25,15 +25,18 @@ router.get('/leaderboard', authMiddleware, responseCache(30_000), async (req, re
       LEFT JOIN LATERAL (
         SELECT
           SUM(points) as event_points,
-          SUM(CASE WHEN event_date = CURRENT_DATE THEN points ELSE 0 END) as today_points,
-          SUM(CASE WHEN event_date >= date_trunc('week', CURRENT_DATE)::date THEN points ELSE 0 END) as week_points
+          SUM(CASE WHEN event_date = LEAST(CURRENT_DATE, COALESCE((SELECT end_date FROM campaign_settings ORDER BY id DESC LIMIT 1), CURRENT_DATE)) THEN points ELSE 0 END) as today_points,
+          SUM(CASE WHEN event_date >= date_trunc('week', LEAST(CURRENT_DATE, COALESCE((SELECT end_date FROM campaign_settings ORDER BY id DESC LIMIT 1), CURRENT_DATE)))::date THEN points ELSE 0 END) as week_points
         FROM score_events se
         WHERE se.group_id = g.id
           AND se.event_date >= COALESCE(
             (SELECT start_date FROM campaign_settings ORDER BY id DESC LIMIT 1),
             CURRENT_DATE
           )
-          AND se.event_date <= CURRENT_DATE
+          AND se.event_date <= LEAST(CURRENT_DATE, COALESCE(
+            (SELECT end_date FROM campaign_settings ORDER BY id DESC LIMIT 1),
+            CURRENT_DATE
+          ))
       ) se_agg ON true
       LEFT JOIN LATERAL (
         SELECT COALESCE(SUM(points), 0) as adj_points
@@ -69,7 +72,9 @@ router.get('/today-events', authMiddleware, async (req, res) => {
       SELECT se.*, g.name as group_name, g.photo_url as group_photo
       FROM score_events se
       JOIN groups g ON se.group_id = g.id
-      WHERE se.event_date = CURRENT_DATE
+      WHERE se.event_date = LEAST(CURRENT_DATE, COALESCE(
+        (SELECT end_date FROM campaign_settings ORDER BY id DESC LIMIT 1), CURRENT_DATE
+      ))
       ORDER BY se.points DESC, se.created_at DESC
     `);
     res.json(rows);
