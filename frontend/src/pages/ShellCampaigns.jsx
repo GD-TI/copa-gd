@@ -37,7 +37,14 @@ function CampaignRow({ c, isAdmin, onChanged, onOpen }) {
   return (
     <div className="card" style={{ padding: 20, marginBottom: 12 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
-        <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+        <button
+          onClick={() => onOpen(c.id, false)}
+          title="Ver o placar desta campanha"
+          style={{
+            flex: '1 1 260px', minWidth: 0, textAlign: 'left', cursor: 'pointer',
+            background: 'none', border: 0, padding: 0, font: 'inherit', color: 'inherit',
+          }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <strong style={{ fontSize: 17 }}>{c.name}</strong>
             <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: st.color }}>
@@ -64,9 +71,12 @@ function CampaignRow({ c, isAdmin, onChanged, onOpen }) {
             {c.require_same_day ? ' · digitado e pago no mesmo dia' : ''}
             {c.franquia_ids?.length ? ` · franquia ${c.franquia_ids.join(', ')}` : ' · todas as franquias'}
           </div>
-        </div>
+          <div style={{ fontSize: 12, color: 'var(--gold)', marginTop: 10, fontWeight: 700 }}>
+            Ver o placar →
+          </div>
+        </button>
 
-        <button className="tv-btn" data-color={c.color || 'azul'} onClick={() => onOpen(c.id)}>
+        <button className="tv-btn" data-color={c.color || 'azul'} onClick={() => onOpen(c.id, true)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <rect x="2" y="4" width="20" height="14" />
             <path d="M8 21h8M12 18v3" />
@@ -112,7 +122,7 @@ export default function ShellCampaigns() {
   const [list, setList] = useState([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
-  const [boardId, setBoardId] = useState(null)
+  const [board, setBoard] = useState(null)   // { id, fs }
 
   const load = useCallback(async () => {
     try {
@@ -147,12 +157,14 @@ export default function ShellCampaigns() {
             c={c}
             isAdmin={isAdmin}
             onChanged={load}
-            onOpen={setBoardId}
+            onOpen={(id, fs) => setBoard({ id, fs })}
           />
         ))
       )}
 
-      {boardId ? <CampaignBoard campaignId={boardId} onClose={() => setBoardId(null)} /> : null}
+      {board ? (
+        <CampaignBoard campaignId={board.id} fullscreen={board.fs} onClose={() => setBoard(null)} />
+      ) : null}
     </div>
   )
 }

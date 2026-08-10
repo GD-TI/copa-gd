@@ -81,7 +81,9 @@ function Linha({ item, tierStart }) {
   )
 }
 
-export default function CampaignBoard({ campaignId, onClose }) {
+// fullscreen: só quando a intenção é a TV. Abrir para conferir não deve
+// sequestrar a tela — a pessoa quer olhar e voltar ao que estava fazendo.
+export default function CampaignBoard({ campaignId, onClose, fullscreen = false }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -133,9 +135,8 @@ export default function CampaignBoard({ campaignId, onClose }) {
     return () => { clearTimeout(t); window.removeEventListener('resize', medir) }
   }, [data])
 
-  // Tela cheia ao abrir — o telão fica ligado sem ninguém mexer
   useEffect(() => {
-    document.documentElement.requestFullscreen?.().catch(() => {})
+    if (fullscreen) document.documentElement.requestFullscreen?.().catch(() => {})
     const onChange = () => setIsFull(Boolean(document.fullscreenElement))
     document.addEventListener('fullscreenchange', onChange)
     onChange()
@@ -143,7 +144,7 @@ export default function CampaignBoard({ campaignId, onClose }) {
       document.removeEventListener('fullscreenchange', onChange)
       if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {})
     }
-  }, [])
+  }, [fullscreen])
 
   const toggleFull = useCallback(() => {
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {})
@@ -248,18 +249,19 @@ export default function CampaignBoard({ campaignId, onClose }) {
               {campaign?.subtitle ? <div className="tv-left-prize">{campaign.subtitle}</div> : null}
             </div>
 
-            <div className="tv-right-lbl">Escada do Resgate</div>
+            <div className="tv-right-lbl">Escada do Resgate · recuperações</div>
             <div className="tv-ladder">
-              {ladder.map(t => {
+              {ladder.map((t, i) => {
                 const quantos = board.filter(v => v.contracts >= t.at).length
                 return (
                   <div className={`tv-step${quantos > 0 ? ' is-done' : ''}`} key={t.at}>
                     <div className="tv-step-at">{t.at}</div>
                     <div>
-                      <div className="tv-step-txt">recuperações</div>
+                      <div className="tv-step-txt">{i + 1}º giro</div>
                       <div className="tv-step-sub">
-                        {quantos > 0 ? `${quantos} já chegou${quantos > 1 ? 'ram' : ''}` : 'ninguém ainda'}
-                        {campaign?.spin_every ? ' · +1 giro' : ''}
+                        {quantos === 0 ? 'ninguém ainda'
+                          : quantos === 1 ? '1 já chegou'
+                          : `${quantos} já chegaram`}
                       </div>
                     </div>
                   </div>
