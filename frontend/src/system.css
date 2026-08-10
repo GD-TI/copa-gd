@@ -80,11 +80,9 @@
   letter-spacing: .2px;
   line-height: 1;
   border-radius: 999px;
-  /* Recheio simétrico e largura mínima: o conteúdo fica centrado na pílula
-     em vez de espremido contra a borda esquerda. */
-  padding: 6px clamp(14px, 1vw, 20px);
-  min-width: clamp(124px, 10.5vw, 176px);
-  justify-content: center;
+  /* Recheio simétrico, largura do conteúdo: era a assimetria que fazia o botão
+     parecer colado na borda — largura mínima só o deixava inchado. */
+  padding: 5px clamp(13px, .9vw, 18px) 5px 5px;
   cursor: pointer;
   flex-shrink: 0;
   transition: background .18s ease, border-color .18s ease, color .18s ease;
@@ -92,8 +90,8 @@
 
 /* A seta mora num disco próprio: dá peso ao alvo de clique sem engordar a pílula */
 .tv-back-ico {
-  width: clamp(26px, 3.2vh, 34px);
-  height: clamp(26px, 3.2vh, 34px);
+  width: clamp(24px, 2.9vh, 30px);
+  height: clamp(24px, 2.9vh, 30px);
   border-radius: 50%;
   background: rgba(255,255,255,.12);
   display: grid;
