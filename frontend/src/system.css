@@ -119,30 +119,38 @@
   font-weight: 900;
   color: #fff;
   letter-spacing: -.4px;
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .tv-tb-period {
-  font-size: clamp(9px, 1.3vh, 13px);
-  color: rgba(255,255,255,.4);
+  font-size: clamp(10px, 1.4vh, 14px);
+  color: rgba(255,255,255,.45);
   font-weight: 500;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.tv-kpis { display: flex; gap: 8px; flex-shrink: 0; }
+.tv-kpis { display: flex; gap: clamp(8px, .8vw, 16px); flex-shrink: 0; align-items: stretch; }
 
+/* Largura igual para os três: alinhados entre si, conteúdo centralizado */
 .tv-kpi {
   background: rgba(255,255,255,.06);
   border: 1px solid rgba(255,255,255,.1);
-  border-radius: 8px;
-  padding: .8vh 1.1vw;
-  text-align: right;
+  border-radius: 10px;
+  padding: clamp(8px, 1vh, 14px) clamp(12px, 1vw, 22px);
+  min-width: clamp(92px, 9vw, 150px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 
-.tv-kv { font-size: clamp(14px, 2.2vh, 24px); font-weight: 800; letter-spacing: -.4px; }
+.tv-kv { font-size: clamp(18px, 2.6vh, 30px); font-weight: 800; letter-spacing: -.4px; line-height: 1; }
 .tv-kv.grn { color: var(--gd2); }
 .tv-kv.prp { color: var(--gp2); }
 .tv-kv.wht { color: rgba(255,255,255,.75); }
@@ -153,7 +161,8 @@
   font-weight: 700;
   letter-spacing: .8px;
   text-transform: uppercase;
-  margin-top: 2px;
+  margin-top: 4px;
+  white-space: nowrap;
 }
 
 /* ── Progresso coletivo ──────────────────────────────────────────────────── */
