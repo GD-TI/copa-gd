@@ -18,7 +18,7 @@ import { API_BASE } from '../api/config'
 import '../system.css'
 
 const POLL_MS = 60000
-const SEG_POR_LINHA = 2.6   // ritmo do ticker
+const SEG_POR_LINHA = 3.2   // segundos por linha na rolagem contínua
 
 /**
  * Os nomes no NewCorban vêm com prefixo de equipe ("MOTIVACAO - JULIA KEI").
@@ -117,20 +117,29 @@ export default function CampaignBoard({ campaignId, onClose, fullscreen = false 
     return () => { clearInterval(timer); es?.close() }
   }, [load])
 
-  // Ticker só quando a lista não cabe — senão a tela ficaria se mexendo à toa
+  // Ticker só quando a lista não cabe — senão a tela ficaria se mexendo à toa.
+  // Mede a altura de UMA volta pelos n primeiros filhos, e não por scrollHeight/2:
+  // a cópia usada para emendar o loop só existe depois que o ticker liga, então
+  // dividir por 2 antes disso dava metade do valor e o ticker nunca começava.
   useEffect(() => {
     const medir = () => {
       const wrap = wrapRef.current, rows = rowsRef.current
-      if (!wrap || !rows) return
-      const metade = rows.scrollHeight / 2
-      if (metade - wrap.clientHeight > 12) {
-        const n = (data?.board || []).length || 1
-        setTick({ dist: -metade, dur: Math.round(n * SEG_POR_LINHA) })
+      const n = (data?.board || []).length
+      if (!wrap || !rows || !n) return setTick({ dist: 0, dur: 0 })
+
+      const filhos = [...rows.children]
+      if (!filhos.length) return
+      const ultimo = filhos[Math.min(n, filhos.length) - 1]
+      const gap = parseFloat(getComputedStyle(rows).rowGap) || 0
+      const umaVolta = ultimo.offsetTop + ultimo.offsetHeight - filhos[0].offsetTop + gap
+
+      if (umaVolta - wrap.clientHeight > 12) {
+        setTick({ dist: -umaVolta, dur: Math.max(15, Math.round(n * SEG_POR_LINHA)) })
       } else {
         setTick({ dist: 0, dur: 0 })
       }
     }
-    const t = setTimeout(medir, 80)
+    const t = setTimeout(medir, 120)
     window.addEventListener('resize', medir)
     return () => { clearTimeout(t); window.removeEventListener('resize', medir) }
   }, [data])
