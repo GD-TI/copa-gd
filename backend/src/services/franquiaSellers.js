@@ -75,18 +75,24 @@ async function carregar() {
   // Todo consultor entra no mapa: sem franquia vira o token da matriz, e não
   // um buraco que o filtro leria como "não é de lugar nenhum".
   const porVendedor = new Map();
+  // Contas não-humanas pela flag do próprio cadastro. Padrão de nome não basta:
+  // "NOVA IA" é robô e não casa com API%/BOT%/ROBO%, e entraria no placar
+  // disputando com os consultores — exatamente o que a campanha proíbe.
+  const robos = new Set();
   for (const u of usuarios) {
     const valor = achatar(u)[campo];
     porVendedor.set(String(u.id), temValor(valor) ? String(valor).trim() : SEM_FRANQUIA);
+    if (u.robo === 1 || u.robo === true || String(u.robo) === '1') robos.add(String(u.id));
   }
 
   const naMatriz = [...porVendedor.values()].filter(v => v === SEM_FRANQUIA).length;
   console.log(
     `[Franquia] campo "${campo}" — ${preenchidos}/${usuarios.length} com franquia, ` +
-    `${naMatriz} sem (matriz); ${new Set(porVendedor.values()).size} valor(es) distinto(s)`
+    `${naMatriz} sem (matriz); ${new Set(porVendedor.values()).size} valor(es) distinto(s); ` +
+    `${robos.size} conta(s) marcada(s) como robô`
   );
 
-  return { expiresAt: Date.now() + TTL_MS, campo, porVendedor };
+  return { expiresAt: Date.now() + TTL_MS, campo, porVendedor, robos };
 }
 
 /** Map<vendedor_id, franquia_id>. Cacheado 15 min, com dedup de chamadas. */
@@ -127,8 +133,23 @@ async function getSellerIdsPorFranquia(franquiaIds = []) {
   return ids;
 }
 
+/**
+ * Vendedores marcados como robô no cadastro do NewCorban.
+ * Devolve null se o cadastro não puder ser lido — quem chama cai de volta nos
+ * padrões de nome em vez de deixar o placar vazio.
+ */
+async function getRoboSellerIds() {
+  try {
+    const { robos } = await getMapaFranquias();
+    return robos || null;
+  } catch (err) {
+    console.warn('[Franquia] cadastro indisponível para marcar robôs:', err.message);
+    return null;
+  }
+}
+
 function invalidarCacheFranquias() {
   _cache = null;
 }
 
-module.exports = { getSellerIdsPorFranquia, getMapaFranquias, invalidarCacheFranquias };
+module.exports = { getSellerIdsPorFranquia, getMapaFranquias, getRoboSellerIds, invalidarCacheFranquias };

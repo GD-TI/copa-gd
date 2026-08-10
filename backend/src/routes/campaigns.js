@@ -3,7 +3,7 @@ const db = require('../config/db');
 const { authMiddleware, adminOnly } = require('../middleware/auth');
 const { responseCache } = require('../middleware/responseCache');
 const { getProposalsV3 } = require('../services/externalApi');
-const { getSellerIdsPorFranquia } = require('../services/franquiaSellers');
+const { getSellerIdsPorFranquia, getRoboSellerIds } = require('../services/franquiaSellers');
 
 const router = express.Router();
 
@@ -162,6 +162,11 @@ router.get('/:id/board', authMiddleware, responseCache(30_000), async (req, res)
     const franquiaIds = campaign.franquia_ids || [];
     const sellersDaFranquia = await getSellerIdsPorFranquia(franquiaIds);
 
+    // Robôs pela flag do cadastro, não por padrão de nome: "NOVA IA" é conta de
+    // robô e não casa com API%/BOT%/ROBO%. Se o cadastro não puder ser lido,
+    // cai de volta nos padrões em vez de deixar o placar vazio.
+    const robos = await getRoboSellerIds();
+
     const { rows: excRows } = await db.query(
       `SELECT corban_id, name_pattern FROM ranking_exclusions WHERE active = true`
     );
@@ -195,7 +200,7 @@ router.get('/:id/board', authMiddleware, responseCache(30_000), async (req, res)
       if (sellersDaFranquia && !sellersDaFranquia.has(vid)) { otherFranquiaContracts++; continue; }
 
       const vname = p.vendedor_nome || '';
-      if (isExcluded(vid, vname)) { excludedContracts++; continue; }
+      if (robos?.has(vid) || isExcluded(vid, vname)) { excludedContracts++; continue; }
 
       if (!byVendor.has(vid)) {
         byVendor.set(vid, { vendor_id: vid, vendor_name: vname, team: p.equipe_nome || '', contracts: 0, total_value: 0 });
