@@ -59,11 +59,11 @@
 
 .tv-topbar {
   background: linear-gradient(90deg, #071A0F 0%, #0F1228 60%, #1A0720 100%);
-  padding: 0 2.5vw;
-  height: clamp(56px, 8vh, 92px);
+  padding: 0 clamp(18px, 2.5vw, 48px);
+  height: clamp(68px, 8.5vh, 104px);
   display: flex;
   align-items: center;
-  gap: 1.4vw;
+  gap: clamp(14px, 1.6vw, 32px);
   flex-shrink: 0;
 }
 
@@ -140,14 +140,14 @@
 /* ── Progresso coletivo ──────────────────────────────────────────────────── */
 
 .tv-prog-row {
-  padding: 1.2vh 2.5vw 1.4vh;
+  padding: clamp(12px, 1.5vh, 22px) clamp(18px, 2.5vw, 48px);
   background: rgba(255,255,255,.65);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid rgba(0,0,0,.06);
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 1.2vw;
+  gap: clamp(14px, 1.4vw, 30px);
 }
 
 .tv-prog-lbl {
@@ -208,14 +208,14 @@
 .tv-left {
   display: flex;
   flex-direction: column;
-  padding: 2.4vh 1.5vw 1.6vh;
+  padding: clamp(18px, 2.6vh, 36px) clamp(16px, 1.6vw, 32px) clamp(14px, 1.8vh, 26px);
   border-right: 1px solid rgba(0,0,0,.08);
   overflow: hidden;
-  gap: 2.4vh;
+  gap: clamp(20px, 2.8vh, 40px);
 }
 
 .tv-left-header {
-  padding: 2.4vh 1.5vw;
+  padding: clamp(20px, 2.8vh, 36px) clamp(18px, 1.6vw, 32px);
   background: rgba(255,255,255,.7);
   border-radius: var(--r-sm);
   border: 1px solid rgba(0,0,0,.07);
@@ -223,12 +223,12 @@
 }
 
 .tv-left-lbl {
-  font-size: clamp(10px, 1.4vh, 13px);
+  font-size: clamp(10px, 1.3vh, 13px);
   font-weight: 700;
-  letter-spacing: 1.5px;
+  letter-spacing: 1.8px;
   color: var(--muted);
   text-transform: uppercase;
-  margin-bottom: 10px;
+  margin-bottom: clamp(12px, 1.6vh, 20px);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -243,20 +243,21 @@
 }
 
 .tv-left-camp {
-  font-size: clamp(17px, 2.6vh, 28px);
+  font-size: clamp(22px, 3.2vh, 38px);
   font-weight: 800;
-  letter-spacing: -.3px;
-  line-height: 1.25;
-  margin-bottom: 12px;
+  letter-spacing: -.6px;
+  line-height: 1.15;
+  margin-bottom: clamp(16px, 2vh, 26px);
 }
 
 .tv-left-prize {
-  font-size: clamp(11px, 1.55vh, 16px);
+  font-size: clamp(12px, 1.6vh, 17px);
   color: var(--muted);
   font-weight: 500;
-  line-height: 1.55;
-  padding-top: 12px;
-  border-top: 1px solid rgba(0,0,0,.06);
+  font-style: italic;
+  line-height: 1.6;
+  padding-top: clamp(14px, 1.8vh, 22px);
+  border-top: 1px solid rgba(0,0,0,.07);
 }
 
 /* Escada de prêmios */
