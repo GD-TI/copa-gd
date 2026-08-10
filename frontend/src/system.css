@@ -17,6 +17,9 @@
   --accent: #3DB879;
   --accent-l: #F0FDF7;
   --purple-l: #FDF0FF;
+  /* Verde legível como TEXTO: --gd1 sobre --accent-l dá 2,4:1 e reprova.
+     Este chega a 4,9:1 e é o único verde que pode carregar palavra. */
+  --gd-ink: #1C7A4D;
 
   /* Superfícies e texto */
   --bg: #F2F5FB;
@@ -273,27 +276,34 @@
 .tv-left {
   display: flex;
   flex-direction: column;
-  padding: clamp(18px, 2.6vh, 36px) clamp(16px, 1.6vw, 32px) clamp(14px, 1.8vh, 26px);
+  /* mesma métrica vertical da .tv-right: os dois rótulos de seção precisam
+     nascer na mesma linha, senão a coluna inteira parece torta de longe */
+  padding: 2.4vh clamp(16px, 1.6vw, 32px) 1.6vh;
   border-right: 1px solid rgba(0,0,0,.08);
   overflow: hidden;
-  gap: clamp(28px, 3.4vh, 48px);
+  gap: clamp(16px, 2vh, 28px);
 }
 
+/* A identidade não muda o dia inteiro: ela se apresenta e sai da frente.
+   O espaço que este bloco devolveu é o que a escada ganhou. */
 .tv-left-header {
-  padding: clamp(30px, 3.4vh, 46px) clamp(26px, 1.9vw, 40px);
+  padding: clamp(18px, 2.2vh, 28px) clamp(20px, 1.5vw, 30px);
   background: rgba(255,255,255,.7);
   border-radius: var(--r-sm);
   border: 1px solid rgba(0,0,0,.07);
   backdrop-filter: blur(4px);
+  flex-shrink: 0;
 }
 
+/* Rótulo e nome são a MESMA coisa — ficam colados. A régua separa o que é
+   outra coisa: a frase da campanha. */
 .tv-left-lbl {
   font-size: clamp(10px, 1.3vh, 13px);
   font-weight: 700;
   letter-spacing: 1.8px;
   color: var(--muted);
   text-transform: uppercase;
-  margin-bottom: clamp(20px, 2.2vh, 30px);
+  margin-bottom: 9px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -312,7 +322,6 @@
   font-weight: 800;
   letter-spacing: -.6px;
   line-height: 1.15;
-  margin-bottom: clamp(24px, 2.6vh, 36px);
 }
 
 .tv-left-prize {
@@ -320,46 +329,175 @@
   color: var(--muted);
   font-weight: 500;
   font-style: italic;
-  line-height: 1.6;
-  padding-top: clamp(22px, 2.4vh, 32px);
+  line-height: 1.55;
+  margin-top: clamp(14px, 1.6vh, 20px);
+  padding-top: clamp(14px, 1.6vh, 20px);
   border-top: 1px solid rgba(0,0,0,.07);
 }
 
-/* Escada de prêmios */
-.tv-ladder { display: flex; flex-direction: column; gap: clamp(12px, 1.6vh, 20px); overflow: hidden; }
+/* ── Escada do Resgate ───────────────────────────────────────────────────── */
 
-.tv-step {
+.tv-left-lad { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+.tv-left-sec {
   display: flex;
-  align-items: center;
-  gap: clamp(16px, 1.4vw, 24px);
-  padding: clamp(16px, 1.9vh, 26px) clamp(18px, 1.4vw, 28px);
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: clamp(10px, 1.4vh, 13px);
+  font-weight: 700;
+  letter-spacing: 1.6px;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: clamp(10px, 1.2vh, 16px);
+  flex-shrink: 0;
+}
+
+/* A unidade do número do degrau. Sem ela, "5" e "10 chegaram" são dois
+   números sem etiqueta lado a lado — a ambiguidade que mais custa a 4 m. */
+.tv-left-sec-u { letter-spacing: .6px; font-weight: 600; opacity: .75; text-transform: none; }
+
+/* Uma superfície, não cinco. Antes cada degrau era um cartão, e cinco cartões
+   iguais dizem "cinco coisas equivalentes" — que é justamente o que a escada
+   não é. Agora a proximidade agrupa e o trilho conecta. */
+.tv-lad-panel {
+  --mark: clamp(32px, 4.4vh, 48px);
+  --rp: clamp(10px, .8vw, 15px);
+  /* abraça os degraus em vez de esticar: um painel meio vazio no telão lê
+     como "faltou carregar". Encolhe e rola só quando a escada for longa. */
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   background: rgba(255,255,255,.7);
   border: 1px solid rgba(0,0,0,.07);
   border-radius: var(--r-sm);
+  backdrop-filter: blur(4px);
+  padding: clamp(8px, 1vh, 14px) clamp(12px, 1.1vw, 20px);
 }
 
-.tv-step.is-done { border-color: rgba(61,184,121,.45); background: var(--accent-l); }
+.tv-ladder {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  scrollbar-width: thin;
+}
 
-.tv-step-at {
-  width: clamp(34px, 4.8vh, 52px);
-  height: clamp(34px, 4.8vh, 52px);
+/* gap: 0 de propósito — o trilho precisa ser contínuo. A separação vem do
+   respiro interno de cada degrau, não de um vão que cortaria a linha. */
+.tv-rung {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--mark) 1fr auto;
+  align-items: center;
+  gap: clamp(12px, 1.1vw, 20px);
+  padding: clamp(9px, 1.1vh, 15px) var(--rp);
+  border-radius: 10px;
+}
+
+/* O trilho: transforma cinco itens numa rota só. Sólido no que já foi
+   conquistado, pontilhado no que ainda é horizonte. */
+.tv-rung::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--rp) + var(--mark) / 2 - 1px);
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--gd1);
+  opacity: .4;
+}
+
+.tv-rung:first-child::before { top: 50%; }
+.tv-rung:last-child::before { bottom: 50%; }
+
+.tv-rung.is-next::before,
+.tv-rung.is-ahead::before {
+  background: repeating-linear-gradient(180deg, var(--border2) 0 5px, transparent 5px 10px);
+  opacity: .9;
+}
+
+/* Opaco de propósito: é o que esconde o trilho por trás, sem sombra nenhuma */
+.tv-rung-mark {
+  width: var(--mark);
+  height: var(--mark);
   border-radius: 50%;
   display: grid;
   place-items: center;
   font-weight: 800;
-  font-size: clamp(12px, 1.8vh, 17px);
-  background: var(--bg);
+  font-size: clamp(13px, 1.9vh, 19px);
+  background: #fff;
   color: var(--muted);
-  flex-shrink: 0;
+  border: 2px solid var(--border);
+  position: relative;
+  z-index: 1;
 }
 
-.tv-step.is-done .tv-step-at {
+.tv-rung-body { min-width: 0; }
+.tv-rung-ttl { display: block; font-size: clamp(13px, 1.85vh, 19px); font-weight: 700; letter-spacing: -.2px; line-height: 1.2; }
+
+/* Conquistado — vira registro: uma linha só, e o número de gente à direita */
+.tv-rung.is-done .tv-rung-mark {
   background: linear-gradient(135deg, var(--gd1), var(--gd2));
+  border-color: transparent;
   color: #fff;
 }
 
-.tv-step-txt { font-size: clamp(12px, 1.7vh, 18px); font-weight: 700; line-height: 1.25; letter-spacing: -.2px; }
-.tv-step-sub { font-size: clamp(10px, 1.35vh, 14px); color: var(--muted); font-weight: 500; margin-top: 3px; }
+.tv-rung-who {
+  font-size: clamp(10px, 1.35vh, 14px);
+  font-weight: 700;
+  color: var(--gd-ink);
+  background: var(--accent-l);
+  border: 1px solid rgba(61,184,121,.28);
+  border-radius: 999px;
+  padding: 4px 12px;
+  white-space: nowrap;
+}
+
+/* Fronteira — o degrau que a sala está empurrando agora. É a única linha com
+   duas alturas, cor de fundo e um nome próprio: o contraste de ritmo que
+   antes não existia em lugar nenhum da coluna. */
+/* outline, não border: marca a moldura sem empurrar a malha em 1px */
+.tv-rung.is-next { background: var(--accent-l); outline: 1px solid rgba(61,184,121,.32); outline-offset: -1px; }
+
+.tv-rung.is-next .tv-rung-mark {
+  border-color: var(--gd1);
+  border-width: 3px;
+  color: var(--gd-ink);
+}
+
+.tv-rung-sub {
+  display: block;
+  font-size: clamp(11px, 1.5vh, 15px);
+  font-weight: 600;
+  line-height: 1.3;
+  margin-top: 3px;
+  color: var(--gd-ink);
+  overflow-wrap: anywhere;
+  /* nome próprio é longo: sem isto sobra "mais perto" órfão na segunda linha */
+  text-wrap: balance;
+}
+
+.tv-rung-sub b { font-weight: 800; }
+
+/* Horizonte — recua pela marca vazada e pelo peso do título, nunca por
+   texto claro demais para ser lido a quatro metros. */
+.tv-rung.is-ahead .tv-rung-ttl { font-weight: 600; color: var(--muted); }
+
+.tv-lad-step {
+  margin: 0;
+  padding: clamp(9px, 1.1vh, 14px) var(--rp) clamp(3px, .5vh, 6px);
+  border-top: 1px solid rgba(0,0,0,.07);
+  font-size: clamp(10px, 1.35vh, 14px);
+  font-weight: 600;
+  color: var(--muted);
+  flex-shrink: 0;
+}
 
 /* ── Ranking ─────────────────────────────────────────────────────────────── */
 
@@ -594,7 +732,12 @@
 @media (max-width: 1000px) {
   .tv-body { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   .tv-left { border-right: 0; border-bottom: 1px solid rgba(0,0,0,.08); padding-bottom: 1.2vh; }
-  .tv-ladder { flex-direction: row; overflow-x: auto; }
+  /* A escada continua vertical e rolável: virá-la de lado quebraria o trilho,
+     que é o que faz ela ser uma rota e não uma lista. Aqui ela só encolhe —
+     some o que é secundário, fica a marca e o degrau. */
+  .tv-lad-panel { max-height: 32vh; }
+  .tv-rung { padding-block: 7px; }
+  .tv-rung-who, .tv-lad-step { display: none; }
   .tv-rpbar, .tv-rpct { display: none; }
   .tv-kpis { display: none; }
 }

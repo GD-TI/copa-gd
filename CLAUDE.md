@@ -556,6 +556,22 @@ O leaderboard **sempre filtra** `score_events` pelo período da campanha (`event
 
 **Sub-admin (`team_admin`):** seções 2, 6 e 7 apenas (equipes filtradas por `managed_group_ids` / `GET /api/admin/groups`).
 
+### Telão de campanha (`pages/CampaignBoard.jsx`)
+
+Coluna esquerda = **Escada do Resgate**. A escada é cumulativa (quem chegou a 15 passou por 5 e 10), o que dá três estados por degrau — e só um deles é notícia:
+
+| Estado | Quando | Tratamento |
+|--------|--------|------------|
+| `is-done` | `chegaram > 0` | Uma linha; marca preenchida; chip "N chegaram" à direita |
+| `is-next` | degrau mais baixo com `chegaram === 0` | **Fronteira** — única linha com fundo, duas alturas e nome próprio: "faltam N · FULANO está mais perto" |
+| `is-ahead` | acima da fronteira | Recua: marca vazada, título em `--muted`, trilho pontilhado |
+
+- `degraus(ladder, board)` deriva os três estados. `board` chega **ordenado por contratos desc**, então `board.find(v => v.contracts < r.at)` é, por construção, quem está mais perto — não reordenar o board sem revisar isso.
+- **Prêmio em R$ não vai ao telão** — decisão do cliente (ago/2026). `campaigns.ladder[].prize` e `ladder_step.prize` existem no banco e aparecem **só** no painel admin (`ShellCampaigns.jsx`). O telão fala em *giros*, e renderiza `campaign.spin_every` na linha "e segue: +1 giro a cada N recuperações" — sem ela a escada parece terminar no último degrau.
+- Um painel único com trilho vertical (`.tv-rung::before`), não cinco cartões: cinco cartões iguais comunicam "cinco coisas equivalentes", que é o oposto de uma escada.
+- `--gd-ink` (`#1C7A4D`) é o único verde que pode carregar **texto** — `--gd1` sobre `--accent-l` dá 2,4:1 e reprova em contraste.
+- `< 1000px`: a escada continua **vertical e rolável** (`max-height: 32vh`); virá-la de lado quebra o trilho. Chips e a linha de "e segue" somem.
+
 ### Outros
 
 - `main.jsx`: **sem** `React.StrictMode` (causava double-mount e double requests em dev)

@@ -38,6 +38,31 @@ function iniciais(nome = '') {
   return (p.length >= 2 ? p[0][0] + p[p.length - 1][0] : nome.slice(0, 2)).toUpperCase()
 }
 
+/**
+ * A escada é cumulativa: quem chegou a 15 também passou por 5 e 10. Isso dá
+ * três estados, e só um deles é notícia — a FRONTEIRA, o degrau mais baixo que
+ * ninguém alcançou ainda. É onde a sala está empurrando agora, e é a única
+ * linha que ganha altura, cor e um nome próprio. Conquistado vira registro
+ * (uma linha, com quantos passaram); horizonte recua.
+ *
+ * `board` chega ordenado por contratos desc, então o primeiro nome abaixo do
+ * corte é, por construção, quem está mais perto de abrir o degrau.
+ */
+function degraus(ladder, board) {
+  const linhas = ladder.map((t, i) => ({
+    at: t.at,
+    ordinal: i + 1,
+    chegaram: board.filter(v => v.contracts >= t.at).length,
+  }))
+  const fronteira = linhas.findIndex(r => r.chegaram === 0)
+
+  return linhas.map((r, i) => ({
+    ...r,
+    estado: r.chegaram > 0 ? 'done' : i === fronteira ? 'next' : 'ahead',
+    maisPerto: i === fronteira ? board.find(v => v.contracts < r.at) || null : null,
+  }))
+}
+
 function useClock() {
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
@@ -270,24 +295,46 @@ export default function CampaignBoard({ campaignId, onClose, fullscreen = false 
               {campaign?.subtitle ? <div className="tv-left-prize">{campaign.subtitle}</div> : null}
             </div>
 
-            <div className="tv-right-lbl">Escada do Resgate · recuperações</div>
-            <div className="tv-ladder">
-              {ladder.map((t, i) => {
-                const quantos = board.filter(v => v.contracts >= t.at).length
-                return (
-                  <div className={`tv-step${quantos > 0 ? ' is-done' : ''}`} key={t.at}>
-                    <div className="tv-step-at">{t.at}</div>
-                    <div>
-                      <div className="tv-step-txt">{i + 1}º giro</div>
-                      <div className="tv-step-sub">
-                        {quantos === 0 ? 'ninguém ainda'
-                          : quantos === 1 ? '1 já chegou'
-                          : `${quantos} já chegaram`}
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
+            <div className="tv-left-lad">
+              <div className="tv-left-sec">
+                <span>Escada do Resgate</span>
+                <span className="tv-left-sec-u">recuperações</span>
+              </div>
+
+              <div className="tv-lad-panel">
+                <ol className="tv-ladder">
+                  {degraus(ladder, board).map(r => (
+                    <li
+                      key={r.at}
+                      className={`tv-rung is-${r.estado}`}
+                      aria-current={r.estado === 'next' ? 'step' : undefined}
+                    >
+                      <span className="tv-rung-mark">{r.at}</span>
+                      <span className="tv-rung-body">
+                        <span className="tv-rung-ttl">{r.ordinal}º giro</span>
+                        {r.maisPerto ? (
+                          <span className="tv-rung-sub">
+                            falta{r.at - r.maisPerto.contracts === 1 ? '' : 'm'}{' '}
+                            <b>{r.at - r.maisPerto.contracts}</b> · {nomeLimpo(r.maisPerto.vendor_name)} está mais perto
+                          </span>
+                        ) : null}
+                      </span>
+                      {r.chegaram > 0 ? (
+                        <span className="tv-rung-who">
+                          {r.chegaram} {r.chegaram === 1 ? 'chegou' : 'chegaram'}
+                        </span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ol>
+
+                {/* Sem esta linha a escada parece terminar no último degrau */}
+                {campaign?.spin_every > 0 ? (
+                  <p className="tv-lad-step">
+                    e segue: +1 giro a cada {campaign.spin_every} recuperações
+                  </p>
+                ) : null}
+              </div>
             </div>
           </aside>
 
