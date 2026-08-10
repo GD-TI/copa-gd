@@ -1,5 +1,13 @@
 const path = require('path');
 
+// Docker Compose com `VAR: ${VAR:-}` injeta a variável como STRING VAZIA quando
+// ela não está definida. O dotenv não sobrescreve variável já existente no
+// ambiente, então o .env seria silenciosamente ignorado — o app sobe achando
+// que a chave existe, e só falha na hora de usar. Limpar as vazias antes.
+for (const [chave, valor] of Object.entries(process.env)) {
+  if (valor === '') delete process.env[chave];
+}
+
 // .env na raiz do repo (website builder) ou em backend/
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
