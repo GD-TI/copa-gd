@@ -215,6 +215,7 @@ export default function CampaignBoard({ campaignId, onClose }) {
               {[
                 data.diagnostics.paid_but_registered_another_day > 0 && `${data.diagnostics.paid_but_registered_another_day} digitado(s) em outro dia`,
                 data.diagnostics.other_product > 0 && `${data.diagnostics.other_product} de outro produto`,
+                data.diagnostics.other_franquia > 0 && `${data.diagnostics.other_franquia} de fora da matriz`,
                 data.diagnostics.excluded_non_human > 0 && `${data.diagnostics.excluded_non_human} da IA`,
               ].filter(Boolean).join(' · ')}
             </p>

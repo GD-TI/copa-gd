@@ -62,6 +62,7 @@ function CampaignRow({ c, isAdmin, onChanged, onOpen }) {
           <div style={{ fontSize: 12, color: 'var(--txt3)', marginTop: 6 }}>
             Produto {(c.product_ids || []).join(', ') || '—'}
             {c.require_same_day ? ' · digitado e pago no mesmo dia' : ''}
+            {c.franquia_ids?.length ? ` · franquia ${c.franquia_ids.join(', ')}` : ' · todas as franquias'}
           </div>
         </div>
 

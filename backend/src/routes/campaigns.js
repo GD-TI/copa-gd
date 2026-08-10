@@ -3,6 +3,7 @@ const db = require('../config/db');
 const { authMiddleware, adminOnly } = require('../middleware/auth');
 const { responseCache } = require('../middleware/responseCache');
 const { getProposalsV3 } = require('../services/externalApi');
+const { getSellerIdsPorFranquia } = require('../services/franquiaSellers');
 
 const router = express.Router();
 
@@ -89,7 +90,7 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const { rows } = await db.query(`
       SELECT id, name, subtitle, start_date, end_date, color, metric,
-             product_ids, require_same_day, ladder, ladder_step, spin_every,
+             product_ids, require_same_day, franquia_ids, ladder, ladder_step, spin_every,
              status, legacy_kind, created_at
       FROM campaigns
       ORDER BY (status = 'active') DESC, COALESCE(start_date, created_at::date) DESC, id DESC
@@ -155,6 +156,12 @@ router.get('/:id/board', authMiddleware, responseCache(30_000), async (req, res)
     // TTL curto: num placar ao vivo, o vendedor precisa ver a própria venda entrar.
     const proposals = await getProposalsV3(day, day, [], 'payment', ['paid'], 60_000);
 
+    // Franquias participantes (ex: ['1'] = matriz). NULL = empresa inteira.
+    // Propaga o erro de propósito: se o cadastro de consultores não puder ser
+    // lido, o placar mostra "indisponível" em vez de uma lista errada na TV.
+    const franquiaIds = campaign.franquia_ids || [];
+    const sellersDaFranquia = await getSellerIdsPorFranquia(franquiaIds);
+
     const { rows: excRows } = await db.query(
       `SELECT corban_id, name_pattern FROM ranking_exclusions WHERE active = true`
     );
@@ -164,6 +171,7 @@ router.get('/:id/board', authMiddleware, responseCache(30_000), async (req, res)
     let excludedContracts = 0;   // contas não-humanas
     let otherDayContracts = 0;   // pagos hoje, mas digitados em outro dia
     let otherProductContracts = 0;
+    let otherFranquiaContracts = 0;
     let paidTotal = 0;
 
     for (const p of Object.values(proposals)) {
@@ -181,6 +189,10 @@ router.get('/:id/board', authMiddleware, responseCache(30_000), async (req, res)
 
       const vid = String(p.vendedor_id || '');
       if (!vid) continue;
+
+      // Só as franquias da campanha. Lista branca pelo cadastro, não pelo nome:
+      // quem não está no cadastro do NewCorban também não entra.
+      if (sellersDaFranquia && !sellersDaFranquia.has(vid)) { otherFranquiaContracts++; continue; }
 
       const vname = p.vendedor_nome || '';
       if (isExcluded(vid, vname)) { excludedContracts++; continue; }
@@ -233,6 +245,9 @@ router.get('/:id/board', authMiddleware, responseCache(30_000), async (req, res)
         excluded_non_human: excludedContracts,
         other_product: otherProductContracts,
         paid_but_registered_another_day: otherDayContracts,
+        other_franquia: otherFranquiaContracts,
+        franquia_ids: franquiaIds.length ? franquiaIds : null,
+        franquia_sellers: sellersDaFranquia ? sellersDaFranquia.size : null,
       },
     });
   } catch (err) {
@@ -244,7 +259,7 @@ router.get('/:id/board', authMiddleware, responseCache(30_000), async (req, res)
 // ── Administração ───────────────────────────────────────────────────────────
 const EDITABLE = [
   'name', 'subtitle', 'start_date', 'end_date', 'color', 'metric',
-  'product_ids', 'require_same_day', 'ladder', 'ladder_step', 'spin_every', 'status',
+  'product_ids', 'require_same_day', 'franquia_ids', 'ladder', 'ladder_step', 'spin_every', 'status',
 ];
 
 router.post('/', authMiddleware, adminOnly, async (req, res) => {

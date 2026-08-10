@@ -73,6 +73,9 @@ async function migrateCampaigns() {
   `);
   await db.query(`CREATE INDEX IF NOT EXISTS idx_campaigns_status ON campaigns(status)`);
 
+  // Franquias que participam. NULL = empresa inteira (comportamento anterior).
+  await db.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS franquia_ids TEXT[]`);
+
   // Classificação congelada no encerramento — o histórico não pode mudar se a API mudar
   await db.query(`
     CREATE TABLE IF NOT EXISTS campaign_results (
@@ -122,13 +125,13 @@ async function migrateCampaigns() {
     await db.query(`
       INSERT INTO campaigns
         (name, subtitle, start_date, end_date, color, metric, product_ids, require_same_day,
-         ladder, ladder_step, spin_every, status)
+         franquia_ids, ladder, ladder_step, spin_every, status)
       VALUES
         ('Missão Resgate',
          'A IA fez a parte dela. Agora começa a nossa.',
          DATE '2026-08-10', DATE '2026-08-10',
          'laranja', 'contratos', ARRAY['13'], true,
-         $1::jsonb, $2::jsonb, 5, 'active')
+         ARRAY['matriz'], $1::jsonb, $2::jsonb, 5, 'active')
     `, [
       JSON.stringify([
         { at: 5,  prize: 20 },
@@ -152,6 +155,17 @@ async function migrateCampaigns() {
     `);
     if (rowCount) console.log('[Migration] "Missão Resgate": data definida para 10/08/2026');
   }
+
+  // Campanha só da matriz — que no NewCorban é quem NÃO tem franquia_id.
+  // Só preenche se ninguém decidiu ainda: escolha feita no painel não pode ser
+  // desfeita por deploy. Corrige também quem já gravou ARRAY['1'] (Franquia
+  // Mauá, desativada desde 2024) por causa da suposição inicial errada.
+  const { rowCount: fr } = await db.query(`
+    UPDATE campaigns SET franquia_ids = ARRAY['matriz'], updated_at = NOW()
+     WHERE name = 'Missão Resgate'
+       AND (franquia_ids IS NULL OR franquia_ids = ARRAY['1'])
+  `);
+  if (fr) console.log('[Migration] "Missão Resgate": restrita à matriz (consultor sem franquia)');
 }
 
 module.exports = { migrateTeamAdminSupport, migrateCampaigns };

@@ -42,6 +42,22 @@ function hojeBR() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
 }
 
+// Espelha externalApi.toBrazilDateStr — o script tem que enxergar a mesma data
+// que o backend, senão ele deixa de ser um conferidor e vira uma segunda versão
+// da verdade.
+const BR_DATE_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' });
+
+function dataBR(value) {
+  if (!value) return null;
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(s)) {
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) return BR_DATE_FMT.format(d);
+  }
+  return s.slice(0, 10);
+}
+
 function escada(count) {
   let prize = 0;
   for (const t of LADDER) if (count >= t.at) prize += t.prize;
@@ -118,17 +134,37 @@ async function buscar(token, dia) {
       ? '  ← A API NÃO devolve o nome; o telão vai depender da tabela users'
       : itens.length ? '  ← ok, o telão mostra os nomes reais' : ''));
 
+  // A pergunta do fuso: a API manda instante absoluto (UTC) ou horário local?
+  // Se for UTC e ninguém converter, contrato digitado depois das 21h de Brasília
+  // cai no dia seguinte e some do "digitado e pago no mesmo dia".
+  const comFuso = itens.filter(i => /(?:Z|[+-]\d{2}:?\d{2})$/i.test(String(i.dates?.created_at || '').trim()));
+  const viraramDeDia = comFuso.filter(i => {
+    const cru = String(i.dates.created_at).slice(0, 10);
+    return dataBR(i.dates.created_at) !== cru;
+  });
+  console.log(
+    `\ncadastro com fuso explícito em ${comFuso.length}/${itens.length} registros` +
+    (comFuso.length === 0
+      ? '  ← horário local, corte da string já estava certo'
+      : `  ← UTC; ${viraramDeDia.length} mudariam de dia sem a conversão`)
+  );
+  if (itens.length) {
+    console.log(`exemplo de created_at:   ${itens[0].dates?.created_at}`);
+    // Se vier só data, a janela da API não tem ambiguidade de fuso nenhuma
+    console.log(`exemplo de payment_date: ${itens[0].dates?.payment_date}`);
+  }
+
   const porVendedor = new Map();
   let outroProduto = 0, outroDia = 0, naoHumano = 0;
 
   for (const it of itens) {
-    const pago = String(it.dates?.payment_date || '').slice(0, 10);
+    const pago = dataBR(it.dates?.payment_date);
     if (pago !== dia) continue;
 
     if (!PRODUTOS.includes(String(it.proposal?.product?.id))) { outroProduto++; continue; }
 
     if (MESMO_DIA) {
-      const cad = String(it.dates?.created_at || '').slice(0, 10);
+      const cad = dataBR(it.dates?.created_at);
       if (cad !== dia) { outroDia++; continue; }
     }
 

@@ -151,6 +151,59 @@ async function findUserByUsername(username) {
   return null;
 }
 
+/**
+ * Usuários com equipe e franquia, via `equipe.php`.
+ *
+ * A apiv2 `/users` (getAllUsers) NÃO devolve franquia — só id, nome, usuário,
+ * equipe e avatar. Quem carrega `franquia_id` é este endpoint, e é dele que o
+ * ingestor do CRM alimenta a tabela `nc_vendedor`. Formato:
+ *   { equipes: { <id>: { nome, franquia_nome, usuarios: [{ id, nome, franquia_id, … }] } },
+ *     usuarios_sem_equipe: [ … ] }
+ */
+async function listarEquipe(_retry = true) {
+  const token = await getToken();
+
+  try {
+    const { data } = await axios.get(`${SERVER_BASE}/equipe.php`, {
+      params: { action: 'listar' },
+      headers: authHeaders(token),
+      timeout: 30000,
+    });
+
+    if (data && typeof data === 'object' && isTokenError(null, data)) {
+      if (!_retry) throw new Error('Token inválido em equipe.php');
+      clearToken();
+      return listarEquipe(false);
+    }
+
+    const out = [];
+    const equipes = data?.equipes || {};
+    for (const eq of (Array.isArray(equipes) ? equipes : Object.values(equipes))) {
+      for (const u of (eq?.usuarios || [])) {
+        if (!u || typeof u !== 'object') continue;
+        out.push({
+          ...u,
+          equipe_id: eq.id ?? eq.equipe_id ?? null,
+          equipe_nome: eq.nome ?? null,
+          franquia_nome: eq.franquia_nome ?? null,
+        });
+      }
+    }
+    for (const u of (data?.usuarios_sem_equipe || [])) {
+      if (u && typeof u === 'object') out.push({ ...u });
+    }
+
+    console.log(`[NewCorban] equipe.php: ${out.length} usuários`);
+    return out;
+  } catch (err) {
+    if (isTokenError(err) && _retry) {
+      clearToken();
+      return listarEquipe(false);
+    }
+    throw new Error(`Falha ao listar equipe: ${err.response?.data?.message || err.message}`);
+  }
+}
+
 // ---- Ranking (server.newcorban.com.br) ----
 
 function encodeFilter(filterObj) {
@@ -337,9 +390,37 @@ async function getProposals(startDate, endDate, vendedorIds = [], tipo = 'cadast
 
 // ---- API v3 (developers.newcorban.com.br) — sem limite de 30 dias ----
 
+const BR_DATE_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' });
+
+/**
+ * Data YYYY-MM-DD no fuso de São Paulo.
+ *
+ * A v3 devolve `created_at` como timestamp. Cortar a string crua dá o dia em
+ * UTC: um contrato digitado às 22h de Brasília vira o dia seguinte e sai de
+ * qualquer regra que compare por data de cadastro — inclusive o "digitado e
+ * pago no mesmo dia" das campanhas.
+ *
+ * Só converte quando o valor traz fuso explícito, porque aí o instante é
+ * absoluto. Timestamp ingênuo ("2026-08-10 14:32:11") já é horário local da NC
+ * e é lido como está — assim a função é inofensiva se a API nunca mandou UTC.
+ */
+function toBrazilDateStr(value) {
+  if (!value) return null;
+  const s = String(value).trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;            // só data, nada a converter
+
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(s)) {               // Z, +00:00, -03:00
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) return BR_DATE_FMT.format(d);
+  }
+
+  return s.slice(0, 10);
+}
+
 function convertV3Proposal(item) {
-  const payDate = item.dates?.payment_date ? String(item.dates.payment_date).slice(0, 10) : null;
-  const cadDate = item.dates?.created_at   ? String(item.dates.created_at).slice(0, 10)   : null;
+  const payDate = toBrazilDateStr(item.dates?.payment_date);
+  const cadDate = toBrazilDateStr(item.dates?.created_at);
   return {
     vendedor_id:   String(item.assignment?.seller?.id || ''),
     vendedor_nome: item.assignment?.seller?.name || '',
@@ -444,10 +525,12 @@ module.exports = {
   getToken,
   clearToken,
   getAllUsers,
+  listarEquipe,
   getUsersPage,
   findUserByUsername,
   getRanking,
   getRankingByPayment,
   getProposals,
   getProposalsV3,
+  toBrazilDateStr,
 };
