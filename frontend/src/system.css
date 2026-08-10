@@ -4,16 +4,15 @@
 
 /* ═══════════════════════════════════════════════════════════════════════════
    RANKING GD — Placar de operação
-   Sistema visual: linhagem Otl Aicher (Munique 1972), rendido em tela escura
-   porque a cena é uma TV ligada o dia todo, não papel.
+   Estrutura de linha herdada do telão da Copa (coluna única, linha compacta:
+   posição · avatar · nome · valor · progresso · pílula), na paleta escura.
    Regras que não se negociam: raio zero, sem sombra, régua de 1px, tabular.
-   Contrato completo em DESIGN.md.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 :root {
   --bd-ground:   #0B0D10;
   --bd-ground-2: #0F1216;
-  --bd-ground-3: #141920;
+  --bd-surf:     #141920;
   --bd-ink:      #FFFFFF;
   --bd-ink-2:    #99A1AB;
   --bd-ink-3:    #6B7480;
@@ -66,20 +65,20 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--sp-6);
-  padding: 1.9vh 2vw 1.3vh;
+  padding: 1.8vh 2vw 1.2vh;
 }
 
 .board-title {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: clamp(1.125rem, 3.2vh, 2.5rem);
+  font-size: clamp(1.125rem, 3vh, 2.25rem);
   letter-spacing: -0.02em;
   line-height: 1;
   margin: 0;
 }
 
 .board-sub {
-  font-size: clamp(.6875rem, 1.5vh, 1rem);
+  font-size: clamp(.6875rem, 1.4vh, .9375rem);
   color: var(--bd-ink-2);
   margin: .5vh 0 0;
 }
@@ -92,90 +91,139 @@
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  font-size: clamp(.625rem, 1.4vh, .9375rem);
+  font-size: clamp(.625rem, 1.3vh, .875rem);
   color: var(--bd-ink-2);
   white-space: nowrap;
 }
 
 .board-clock {
   color: var(--bd-ink);
-  font-size: clamp(1.125rem, 3vh, 2.25rem);
+  font-size: clamp(1.125rem, 2.8vh, 2rem);
   letter-spacing: -0.01em;
 }
 
-.board-stripe { height: .7vh; min-height: 5px; background: var(--campaign); }
+.board-stripe { height: .6vh; min-height: 4px; background: var(--campaign); }
 
-/* ── Corpo: disputa à esquerda, leitura à direita ────────────────────────── */
+/* ── Lista ───────────────────────────────────────────────────────────────── */
 
-.board-body {
-  display: grid;
-  grid-template-columns: 1fr minmax(20rem, 32vw);
+.board-list {
+  position: relative;
+  overflow: hidden;
+  padding: .8vh 2vw 0;
   min-height: 0;
 }
 
-/* ── Zona 1 — a disputa ──────────────────────────────────────────────────── */
+.board-track { will-change: transform; transition: transform 900ms ease-in-out; }
 
-.lead {
-  display: flex;
-  flex-direction: column;
-  padding: 0 1.4vw 0 2vw;
-  min-height: 0;
-}
-
-.lead-row {
-  flex: 1;
+.board-cols {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 1.4vw;
-  border-bottom: 1px solid var(--bd-rule);
-  min-height: 0;
-}
-
-.lead-row:last-child { border-bottom: 0; }
-
-/* Posição num bloco sólido — como Aicher marcava disciplinas */
-.lead-pos {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: clamp(1rem, 3.4vh, 2.5rem);
-  line-height: 1;
-  letter-spacing: -0.03em;
-  width: clamp(2rem, 6.2vh, 4.5rem);
-  height: clamp(2rem, 6.2vh, 4.5rem);
-  display: grid;
-  place-items: center;
-  color: var(--bd-ink-3);
-}
-
-.lead-row[data-rank="1"] .lead-pos { background: var(--campaign); color: #fff; }
-.lead-row[data-rank="2"] .lead-pos { background: var(--azul);     color: #fff; }
-.lead-row[data-rank="3"] .lead-pos { background: var(--verde);    color: #fff; }
-
-.lead-id { min-width: 0; }
-
-/* Nome nunca trunca com reticências */
-.lead-name {
+  grid-template-columns: var(--cols);
+  gap: 0 1.2vw;
+  padding: 0 .8vw .6vh;
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: clamp(.9375rem, 3.1vh, 2.375rem);
-  line-height: 1.04;
-  letter-spacing: -0.015em;
+  font-size: clamp(.5rem, 1.1vh, .6875rem);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--bd-ink-3);
+  border-bottom: 1px solid var(--bd-rule);
+}
+
+.board-cols span:nth-child(4) { text-align: right; }
+
+/* Linha compacta, no espírito do telão da Copa */
+.row {
+  display: grid;
+  grid-template-columns: var(--cols);
+  align-items: center;
+  gap: 0 1.2vw;
+  padding: 0 .8vw;
+  height: var(--row-h);
+  border-bottom: 1px solid var(--bd-rule);
+  position: relative;
+}
+
+/* Barra de posição à esquerda nos três primeiros — como Aicher marcava disciplinas */
+.row[data-rank="1"]::before,
+.row[data-rank="2"]::before,
+.row[data-rank="3"]::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+}
+.row[data-rank="1"]::before { background: var(--campaign); }
+.row[data-rank="2"]::before { background: var(--azul); }
+.row[data-rank="3"]::before { background: var(--verde); }
+.row[data-rank="1"] { background: var(--bd-surf); }
+
+.row-pos {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(.8125rem, 2.1vh, 1.5rem);
+  line-height: 1;
+  color: var(--bd-ink-3);
+  text-align: center;
+}
+
+.row[data-rank="1"] .row-pos,
+.row[data-rank="2"] .row-pos,
+.row[data-rank="3"] .row-pos { color: var(--bd-ink); }
+
+.row-av {
+  width: clamp(1.5rem, 3.4vh, 2.5rem);
+  height: clamp(1.5rem, 3.4vh, 2.5rem);
+  display: grid;
+  place-items: center;
+  background: var(--bd-surf);
+  border: 1px solid var(--bd-rule);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(.5625rem, 1.3vh, .8125rem);
+  color: var(--bd-ink-2);
+  overflow: hidden;
+}
+
+.row[data-rank="1"] .row-av { border-color: var(--campaign); color: var(--bd-ink); }
+
+/* Nome nunca trunca com reticências */
+.row-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(.75rem, 2vh, 1.375rem);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  min-width: 0;
   overflow-wrap: anywhere;
-  display: block;
 }
 
-/* Trilho de progresso até a próxima faixa — leitura instantânea de "quanto falta" */
-.lead-track {
-  margin-top: .8vh;
-  height: 3px;
-  background: var(--bd-rule);
-  max-width: 26vw;
+.row[data-rank="1"] .row-name { font-weight: 700; }
+
+.row-metric { text-align: right; white-space: nowrap; }
+
+.row-count {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(.9375rem, 2.6vh, 1.875rem);
+  line-height: 1;
+  letter-spacing: -0.02em;
 }
 
-/* scaleX em vez de width: animar largura força recálculo de layout a cada
-   atualização, e esta tela fica ligada o dia inteiro. */
-.lead-track span {
+.row-unit {
+  font-size: clamp(.5rem, 1.05vh, .6875rem);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--bd-ink-3);
+  font-weight: 600;
+  margin-left: .4vw;
+}
+
+/* Progresso até a próxima faixa + quanto falta */
+.row-prog { display: flex; flex-direction: column; gap: .5vh; min-width: 0; }
+
+.row-bar { height: 4px; background: var(--bd-rule); }
+
+.row-bar span {
   display: block;
   height: 100%;
   width: 100%;
@@ -185,160 +233,31 @@
   transition: transform var(--swap);
 }
 
-.lead-metric { text-align: right; }
-
-.lead-count {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: clamp(1.375rem, 5.4vh, 4rem);
-  line-height: 1;
-  letter-spacing: -0.03em;
-  display: block;
-}
-
-.lead-unit,
-.lead-gap-label {
-  font-size: clamp(.5rem, 1.15vh, .75rem);
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  color: var(--bd-ink-2);
-  font-weight: 600;
-  display: block;
-}
-
-.lead-gap {
-  text-align: right;
-  min-width: clamp(5rem, 9vw, 11rem);
-  padding-left: 1.2vw;
-  border-left: 1px solid var(--bd-rule);
-}
-
-.lead-gap-value {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: clamp(1.125rem, 4vh, 3rem);
-  line-height: 1;
-  letter-spacing: -0.02em;
-  color: var(--campaign);
-  display: block;
-}
-
-.lead-prize {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: clamp(.625rem, 1.5vh, 1rem);
-  color: var(--verde);
-  letter-spacing: 0.02em;
-  display: block;
-  margin-top: .4vh;
-}
-
-/* ── Zona 2 — a coluna de leitura ────────────────────────────────────────── */
-
-.rail {
-  display: grid;
-  grid-template-rows: auto 1fr;
-  border-left: 1px solid var(--bd-rule);
-  min-height: 0;
-}
-
-.rail-title {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: clamp(.625rem, 1.5vh, .9375rem);
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--bd-ink-2);
-  padding: 1.2vh 1.6vw .8vh;
-  margin: 0;
-}
-
-.rail-title b { color: var(--campaign); font-weight: 700; }
-
-/* Quem está a um passo — a lista que a gestora usa nos boletins */
-.hot {
-  background: var(--bd-ground-2);
-  border-bottom: 1px solid var(--bd-rule);
-  padding-bottom: .8vh;
-}
-
-.hot-list { display: flex; flex-direction: column; }
-
-.hot-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: 1vw;
-  padding: .55vh 1.6vw;
-}
-
-.hot-name {
+.row-gap {
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: clamp(.75rem, 1.95vh, 1.375rem);
-  line-height: 1.15;
-  overflow-wrap: anywhere;
-}
-
-.hot-gap {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: clamp(.6875rem, 1.8vh, 1.25rem);
-  color: var(--campaign);
+  font-size: clamp(.5625rem, 1.25vh, .8125rem);
+  color: var(--bd-ink-2);
+  letter-spacing: 0.04em;
   white-space: nowrap;
 }
 
-.hot-empty {
-  padding: .8vh 1.6vw 1.4vh;
-  color: var(--bd-ink-3);
-  font-size: clamp(.6875rem, 1.5vh, .9375rem);
-}
+.row-gap b { color: var(--campaign); font-weight: 700; }
 
-/* Todo o time visível — ninguém espera a página virar para se achar */
-.field { min-height: 0; display: grid; grid-template-rows: auto 1fr; }
-
-.field-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  align-content: start;
-  gap: 0 1.2vw;
-  padding: 0 1.6vw 1vh;
-  overflow: hidden;
-  min-height: 0;
-}
-
-.field-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: .6vw;
-  padding: .38vh 0;
-  border-bottom: 1px solid var(--bd-rule);
-}
-
-.field-name {
-  font-size: clamp(.625rem, 1.55vh, 1rem);
-  color: var(--bd-ink-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: clip;
-}
-
-.field-item[data-close="true"] .field-name { color: var(--bd-ink); }
-
-.field-count {
+/* Pílula de prêmio conquistado */
+.row-pill {
+  justify-self: end;
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: clamp(.6875rem, 1.7vh, 1.125rem);
-  color: var(--bd-ink);
+  font-size: clamp(.5625rem, 1.25vh, .8125rem);
+  letter-spacing: 0.05em;
+  padding: .5vh .7vw;
+  border: 1px solid var(--bd-rule);
+  color: var(--bd-ink-3);
+  white-space: nowrap;
 }
 
-.field-more {
-  grid-column: 1 / -1;
-  padding: .6vh 0;
-  color: var(--bd-ink-3);
-  font-size: clamp(.625rem, 1.4vh, .875rem);
-}
+.row-pill.is-won { border-color: var(--verde); color: var(--verde); }
 
 /* ── Rodapé ──────────────────────────────────────────────────────────────── */
 
@@ -347,10 +266,10 @@
   align-items: baseline;
   justify-content: space-between;
   gap: var(--sp-6);
-  padding: 1.3vh 2vw;
+  padding: 1.2vh 2vw;
   border-top: 1px solid var(--bd-rule);
   background: var(--bd-ground-2);
-  font-size: clamp(.625rem, 1.4vh, .9375rem);
+  font-size: clamp(.625rem, 1.3vh, .875rem);
   color: var(--bd-ink-2);
 }
 
@@ -375,7 +294,6 @@
 /* ── Estados ─────────────────────────────────────────────────────────────── */
 
 .board-state {
-  grid-column: 1 / -1;
   display: grid;
   align-content: center;
   justify-items: start;
@@ -465,16 +383,14 @@
 
 /* O quadro roda 8h por dia ao lado de gente trabalhando */
 @media (prefers-reduced-motion: reduce) {
-  .board * { transition: none !important; animation: none !important; }
+  .board *, .board-track { transition: none !important; animation: none !important; }
 }
 
 /* Operado de perto */
-@media (max-width: 1100px) {
-  .board-body { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
-  .rail { border-left: 0; border-top: 1px solid var(--bd-rule); max-height: 38vh; }
-  .field-grid { grid-template-columns: 1fr; }
-  .lead { padding: 0 var(--sp-4); }
-  .lead-track { max-width: none; }
+@media (max-width: 900px) {
+  .board-head, .board-list, .board-foot { padding-left: var(--sp-4); padding-right: var(--sp-4); }
+  .board-cols, .row-prog, .row-pill { display: none; }
+  .row, .board-cols { grid-template-columns: 2rem 2rem minmax(0, 1fr) auto; }
   .board-foot { flex-direction: column; align-items: flex-start; gap: var(--sp-1); }
   .board-totals { gap: var(--sp-4); flex-wrap: wrap; }
 }

@@ -1,45 +1,44 @@
 /*
-  THESIS — Um quadro de informação pública, não um dashboard. Recusa o pódio 3D
-  do painel nativo e a estética de gamificação da campanha anterior. Com 37
-  consultores, recusa também a lista paginada: ninguém deve esperar a página
-  virar para se encontrar.
-  OWN-WORLD — Linhagem Otl Aicher rendida em tela: fundo #0B0D10, tinta branca,
-  régua de 1px, posição dentro de um bloco de cor sólida da família de Munique,
-  Archivo em numerais tabulares. Raio zero e nenhuma sombra em nenhum estado.
-  STORY — Em dois segundos: quem lidera, quem está a um passo de girar, e onde
-  eu estou. As três perguntas coexistem na mesma tela.
-  FIRST VIEWPORT — Faixa de identificação; à esquerda a disputa (6 primeiros,
-  grandes, com trilho de progresso até a próxima faixa); à direita "prestes a
-  girar" e o time inteiro; rodapé com totais e premiação acumulada.
-  FORM — Quadro de estação: mudança de posição é deslocamento cronometrado.
+  THESIS — Um quadro de informação pública, não um dashboard. Herda do telão da
+  Copa a estrutura que já funcionava — coluna única de linhas compactas — e
+  recusa o pódio 3D do painel nativo e a estética de gamificação.
+  OWN-WORLD — Fundo #0B0D10, tinta branca, régua de 1px, barra de cor sólida da
+  família de Munique marcando os três primeiros, Archivo em numerais tabulares.
+  Raio zero e nenhuma sombra em nenhum estado.
+  STORY — Em dois segundos: quem lidera, quanto cada um tem, e quanto falta para
+  a próxima faixa de prêmio.
+  FIRST VIEWPORT — Faixa de identificação, cabeçalho de colunas, e a lista
+  inteira em rolagem lenta; rodapé com totais e premiação.
+  FORM — Quadro de estação: a lista corre sozinha, sem virar página.
   Direção sorteada, candidata 5. Seed 41949bb7.
 */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import api from '../api/client'
 import { API_BASE } from '../api/config'
 import '../system.css'
 
-const LEAD = 6          // quantos entram na zona da disputa
-const HOT_MAX = 6       // quantos cabem em "prestes a girar"
 const POLL_MS = 60000
-
-const fmtBRL = n => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
+const SCROLL_STEP_MS = 4200   // pausa em cada trecho antes de correr
+const COLS = 'clamp(1.8rem,3.6vh,3rem) clamp(1.5rem,3.4vh,2.5rem) minmax(0,1fr) auto clamp(7rem,14vw,16rem) auto'
 
 /**
  * Os nomes no NewCorban vêm com prefixo de equipe ("MOTIVACAO - JULIA KEI").
- * A campanha é individual, e num telão o prefixo empurra o nome da pessoa para
- * o meio da linha. Só corta quando o prefixo é curto e sobra nome de verdade —
- * assim um nome que legitimamente contenha " - " não é mutilado.
+ * A campanha é individual e o prefixo empurra o nome da pessoa para o meio da
+ * linha. Só corta quando o prefixo é curto e sobra nome de verdade, para não
+ * mutilar um nome que legitimamente contenha " - ".
  */
 function nomeLimpo(nome = '') {
-  const m = String(nome).split(' - ')
-  if (m.length < 2) return nome
-  const prefixo = m[0].trim()
-  const resto = m.slice(1).join(' - ').trim()
-  const prefixoCurto = prefixo.split(/\s+/).length <= 2
-  const restoTemNome = resto.split(/\s+/).length >= 2
-  return prefixoCurto && restoTemNome ? resto : nome
+  const partes = String(nome).split(' - ')
+  if (partes.length < 2) return nome
+  const prefixo = partes[0].trim()
+  const resto = partes.slice(1).join(' - ').trim()
+  return prefixo.split(/\s+/).length <= 2 && resto.split(/\s+/).length >= 2 ? resto : nome
+}
+
+function iniciais(nome = '') {
+  const p = nomeLimpo(nome).trim().split(/\s+/)
+  return (p.length >= 2 ? p[0][0] + p[p.length - 1][0] : nome.slice(0, 2)).toUpperCase()
 }
 
 function useClock() {
@@ -51,39 +50,33 @@ function useClock() {
   return now
 }
 
-function LeadRow({ item, tierStart }) {
+function Row({ item, tierStart }) {
   const alvo = item.next_at ?? item.contracts
   const base = tierStart ?? 0
   const frac = alvo > base ? Math.min(1, (item.contracts - base) / (alvo - base)) : 1
+  const ganhou = Number(item.spins) > 0
 
   return (
-    <div className="lead-row" data-rank={item.position}>
-      <span className="lead-pos">{item.position}</span>
-      <span className="lead-id">
-        <span className="lead-name">{nomeLimpo(item.vendor_name)}</span>
-        <span className="lead-track"><span style={{ '--p': frac }} /></span>
+    <div className="row" data-rank={item.position}>
+      <span className="row-pos">{item.position}</span>
+      <span className="row-av">{iniciais(item.vendor_name)}</span>
+      <span className="row-name">{nomeLimpo(item.vendor_name)}</span>
+      <span className="row-metric">
+        <span className="row-count">{item.contracts}</span>
+        <span className="row-unit">recup.</span>
       </span>
-      <span className="lead-metric">
-        <span className="lead-count">{item.contracts}</span>
-        <span className="lead-unit">recuperações</span>
+      <span className="row-prog">
+        <span className="row-bar"><span style={{ '--p': frac }} /></span>
+        <span className="row-gap">
+          {item.missing === null
+            ? 'sem próxima faixa'
+            : item.missing === 1
+              ? <><b>falta 1</b> para a próxima</>
+              : <>faltam <b>{item.missing}</b> para a próxima</>}
+        </span>
       </span>
-      <span className="lead-gap">
-        {item.missing === null ? (
-          <>
-            <span className="lead-gap-value">—</span>
-            <span className="lead-gap-label">sem próxima faixa</span>
-          </>
-        ) : (
-          <>
-            <span className="lead-gap-value">{item.missing}</span>
-            <span className="lead-gap-label">
-              {item.missing === 1 ? 'falta p/ ' : 'faltam p/ '}{fmtBRL(item.next_prize)}
-            </span>
-          </>
-        )}
-        {item.prize_value > 0 ? (
-          <span className="lead-prize">{fmtBRL(item.prize_value)} garantidos</span>
-        ) : null}
+      <span className={`row-pill${ganhou ? ' is-won' : ''}`}>
+        {item.spins > 0 ? `${item.spins} giro${item.spins > 1 ? 's' : ''}` : '—'}
       </span>
     </div>
   )
@@ -94,6 +87,9 @@ export default function CampaignBoard({ campaignId, onClose }) {
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
   const [isFull, setIsFull] = useState(false)
+  const [offset, setOffset] = useState(0)
+  const viewRef = useRef(null)
+  const trackRef = useRef(null)
   const now = useClock()
 
   const load = useCallback(async () => {
@@ -119,6 +115,22 @@ export default function CampaignBoard({ campaignId, onClose }) {
     } catch { /* SSE indisponível: o intervalo cobre */ }
     return () => { clearInterval(timer); es?.close() }
   }, [load])
+
+  // Rolagem lenta de ida e volta: todo mundo aparece sem virar página
+  useEffect(() => {
+    const t = setInterval(() => {
+      const view = viewRef.current, track = trackRef.current
+      if (!view || !track) return
+      const excedente = track.scrollHeight - view.clientHeight
+      if (excedente <= 8) { setOffset(0); return }
+      setOffset(prev => {
+        const passo = view.clientHeight * 0.8
+        const proximo = prev + passo
+        return proximo >= excedente + passo * 0.5 ? 0 : Math.min(proximo, excedente)
+      })
+    }, SCROLL_STEP_MS)
+    return () => clearInterval(t)
+  }, [data])
 
   // Tela cheia ao abrir — o telão fica ligado sem ninguém mexer
   useEffect(() => {
@@ -150,30 +162,22 @@ export default function CampaignBoard({ campaignId, onClose }) {
   const board = data?.board || []
   const ladder = Array.isArray(campaign?.ladder) ? [...campaign.ladder].sort((a, b) => a.at - b.at) : []
 
-  // Início da faixa atual, para o trilho medir o trecho certo e não o total
+  // Início da faixa atual, para a barra medir o trecho certo e não o total
   const tierStartOf = item => {
     const anteriores = ladder.filter(t => t.at <= item.contracts).map(t => t.at)
     return anteriores.length ? Math.max(...anteriores) : 0
   }
 
-  const lead = board.slice(0, LEAD)
-  const resto = board.slice(LEAD)
-
-  // Quem está a 1 ou 2 vendas da próxima faixa — a lista dos boletins
-  const quentes = board
-    .filter(v => v.missing !== null && v.missing <= 2)
-    .sort((a, b) => a.missing - b.missing || b.contracts - a.contracts)
-    .slice(0, HOT_MAX)
-
-  const totalPremio = board.reduce((s, v) => s + Number(v.prize_value || 0), 0)
   const totalGiros = board.reduce((s, v) => s + Number(v.spins || 0), 0)
 
   const dateLabel = data?.date
     ? new Date(`${data.date}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()
     : ''
 
+  const estilo = { '--cols': COLS, '--row-h': 'clamp(2.6rem, 6.4vh, 4.75rem)' }
+
   return (
-    <div className="board" data-color={campaign?.color || 'azul'}>
+    <div className="board" data-color={campaign?.color || 'azul'} style={estilo}>
       <div>
         <div className="board-head">
           <div>
@@ -190,94 +194,63 @@ export default function CampaignBoard({ campaignId, onClose }) {
         <div className="board-stripe" />
       </div>
 
-      <div className="board-body">
-        {loading ? (
-          <div className="board-state"><h2>Carregando o placar…</h2></div>
-        ) : error ? (
-          <div className="board-state">
-            <h2>Placar indisponível</h2>
-            <p>{error} — a tela volta sozinha assim que a conexão com o NewCorban se restabelecer.</p>
-          </div>
-        ) : board.length === 0 ? (
-          <div className="board-state">
-            <h2>Ninguém pontuou ainda</h2>
+      {loading ? (
+        <div className="board-state"><h2>Carregando o placar…</h2></div>
+      ) : error ? (
+        <div className="board-state">
+          <h2>Placar indisponível</h2>
+          <p>{error} — a tela volta sozinha assim que a conexão com o NewCorban se restabelecer.</p>
+        </div>
+      ) : board.length === 0 ? (
+        <div className="board-state">
+          <h2>Ninguém pontuou ainda</h2>
+          <p>
+            A primeira venda recuperada do dia abre o placar. Vale contrato de
+            Crédito do Trabalhador digitado e pago hoje.
+          </p>
+          {/* Distingue "ninguém vendeu" de "o filtro está apertado demais" */}
+          {data?.diagnostics?.paid_today > 0 ? (
             <p>
-              A primeira venda recuperada do dia abre o placar. Vale contrato de
-              Crédito do Trabalhador digitado e pago hoje.
+              {data.diagnostics.paid_today} contrato(s) pago(s) hoje não entraram:{' '}
+              {[
+                data.diagnostics.paid_but_registered_another_day > 0 && `${data.diagnostics.paid_but_registered_another_day} digitado(s) em outro dia`,
+                data.diagnostics.other_product > 0 && `${data.diagnostics.other_product} de outro produto`,
+                data.diagnostics.excluded_non_human > 0 && `${data.diagnostics.excluded_non_human} da IA`,
+              ].filter(Boolean).join(' · ')}
             </p>
-            {/* Distingue "ninguém vendeu" de "o filtro está apertado demais" */}
-            {data?.diagnostics?.paid_today > 0 ? (
-              <p>
-                {data.diagnostics.paid_today} contrato(s) pago(s) hoje não entraram:{' '}
-                {[
-                  data.diagnostics.paid_but_registered_another_day > 0 && `${data.diagnostics.paid_but_registered_another_day} digitado(s) em outro dia`,
-                  data.diagnostics.other_product > 0 && `${data.diagnostics.other_product} de outro produto`,
-                  data.diagnostics.excluded_non_human > 0 && `${data.diagnostics.excluded_non_human} da IA`,
-                ].filter(Boolean).join(' · ')}
-              </p>
-            ) : null}
-            {ladder.length ? (
-              <div className="board-ladder">
-                {ladder.map(t => (
-                  <div className="board-ladder-step" key={t.at}>
-                    <span className="board-ladder-at">{t.at}</span>
-                    <span className="board-ladder-prize">
-                      +{fmtBRL(t.prize)}{campaign.spin_every ? ' · giro' : ''}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <>
-            <div className="lead">
-              {lead.map(item => (
-                <LeadRow key={item.vendor_id} item={item} tierStart={tierStartOf(item)} />
+          ) : null}
+          {ladder.length ? (
+            <div className="board-ladder">
+              {ladder.map(t => (
+                <div className="board-ladder-step" key={t.at}>
+                  <span className="board-ladder-at">{t.at}</span>
+                  <span className="board-ladder-prize">
+                    recuperações{campaign.spin_every ? ' · 1 giro' : ''}
+                  </span>
+                </div>
               ))}
             </div>
-
-            <aside className="rail">
-              <div className="hot">
-                <h2 className="rail-title">Prestes a <b>girar</b></h2>
-                {quentes.length ? (
-                  <div className="hot-list">
-                    {quentes.map(v => (
-                      <div className="hot-item" key={v.vendor_id}>
-                        <span className="hot-name">{nomeLimpo(v.vendor_name)}</span>
-                        <span className="hot-gap">
-                          {v.missing === 1 ? 'falta 1' : `faltam ${v.missing}`}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="hot-empty">Ninguém a menos de três vendas da próxima faixa.</p>
-                )}
-              </div>
-
-              <div className="field">
-                <h2 className="rail-title">Time · <b>{board.length}</b> no placar</h2>
-                <div className="field-grid">
-                  {resto.map(v => (
-                    <div className="field-item" key={v.vendor_id} data-close={v.missing !== null && v.missing <= 2}>
-                      <span className="field-name">{v.position}. {nomeLimpo(v.vendor_name)}</span>
-                      <span className="field-count">{v.contracts}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </aside>
-          </>
-        )}
-      </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="board-list" ref={viewRef}>
+          <div className="board-cols">
+            <span>#</span><span /><span>Consultor</span><span>Recuperações</span>
+            <span>Próxima faixa</span><span>Giros</span>
+          </div>
+          <div className="board-track" ref={trackRef} style={{ transform: `translateY(${-offset}px)` }}>
+            {board.map(item => (
+              <Row key={item.vendor_id} item={item} tierStart={tierStartOf(item)} />
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="board-foot">
         <div className="board-totals">
           <span><b>{data?.totals?.contracts ?? 0}</b> recuperações</span>
-          <span><b>{fmtBRL(data?.totals?.value)}</b> recuperados</span>
-          <span className="is-prize"><b>{fmtBRL(totalPremio)}</b> em prêmios</span>
-          <span><b>{totalGiros}</b> giros conquistados</span>
+          <span className="is-prize"><b>{totalGiros}</b> giros conquistados</span>
+          <span><b>{board.length}</b> consultores</span>
         </div>
         <span>atualiza sozinho</span>
       </div>
