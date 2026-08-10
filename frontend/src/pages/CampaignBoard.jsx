@@ -191,6 +191,12 @@ export default function CampaignBoard({ campaignId, onClose, fullscreen = false 
   return (
     <div className="board">
       <div className="tv-topbar">
+        {/* Voltar só fora da tela cheia: no telão a tela precisa ficar limpa */}
+        {!isFull ? (
+          <button className="tv-back" onClick={onClose} title="Voltar para a lista de campanhas">
+            ← Voltar
+          </button>
+        ) : null}
         <span className="tv-live-badge">
           <span className="tv-live-dot" />
           <span className="tv-live-txt">Ao vivo</span>
