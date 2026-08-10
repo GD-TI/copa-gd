@@ -57,10 +57,8 @@ function Row({ item, top, height, metricLabel }) {
       <div className="row-bar" />
       <div className="row-id">
         <span className="row-pos">{item.position}</span>
-        <span className="row-name">
-          {item.vendor_name}
-          {item.team ? <span className="row-team">{item.team}</span> : null}
-        </span>
+        {/* Campanha individual: sem equipe. O nome é o conteúdo, sozinho. */}
+        <span className="row-name">{item.vendor_name}</span>
       </div>
       <div className="row-metric">
         <span className="row-count">{item.contracts}</span>
