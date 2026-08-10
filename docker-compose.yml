@@ -10,7 +10,13 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-copa_pass_2026}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend/src/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      # Monta o DIRETÓRIO, nunca o arquivo. Bind mount de arquivo único é uma
+      # armadilha com GitOps: se o arquivo não existe no momento em que o
+      # container sobe, o Docker cria um DIRETÓRIO com aquele nome, e daí o
+      # git checkout seguinte não consegue mais escrever o arquivo por cima —
+      # deixando backend/src e frontend/src vazios.
+      # O postgres só executa *.sql e *.sh daqui, e só na primeira subida.
+      - ./backend/src/db:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U copa_user -d copa_gd"]
       interval: 10s
