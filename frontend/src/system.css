@@ -70,21 +70,48 @@
 .tv-back {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  background: rgba(255,255,255,.1);
-  border: 1px solid rgba(255,255,255,.18);
-  color: #fff;
+  gap: clamp(8px, .7vw, 12px);
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.14);
+  color: rgba(255,255,255,.82);
   font-family: var(--font);
   font-weight: 600;
   font-size: clamp(12px, 1.5vh, 15px);
-  border-radius: 20px;
-  padding: 9px 18px;
+  letter-spacing: .2px;
+  border-radius: 999px;
+  padding: 6px clamp(16px, 1.1vw, 22px) 6px 6px;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background .15s;
+  transition: background .18s ease, border-color .18s ease, color .18s ease;
 }
 
-.tv-back:hover { background: rgba(255,255,255,.2); }
+/* A seta mora num disco próprio: dá peso ao alvo de clique sem engordar a pílula */
+.tv-back-ico {
+  width: clamp(26px, 3.2vh, 34px);
+  height: clamp(26px, 3.2vh, 34px);
+  border-radius: 50%;
+  background: rgba(255,255,255,.12);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  transition: background .18s ease;
+}
+
+.tv-back-ico svg {
+  width: 52%;
+  height: 52%;
+  transition: transform .18s cubic-bezier(.2, 0, 0, 1);
+}
+
+.tv-back:hover {
+  background: rgba(255,255,255,.14);
+  border-color: rgba(255,255,255,.28);
+  color: #fff;
+}
+
+.tv-back:hover .tv-back-ico { background: rgba(255,255,255,.22); }
+.tv-back:hover .tv-back-ico svg { transform: translateX(-2px); }
+.tv-back:active { background: rgba(255,255,255,.1); }
 
 .tv-live-badge {
   display: inline-flex;
