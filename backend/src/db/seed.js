@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
 const db = require('../config/db');
-const { migrateTeamAdminSupport } = require('./migrations');
+const { migrateTeamAdminSupport, migrateCampaigns } = require('./migrations');
 
 async function seed() {
   try {
@@ -57,6 +57,12 @@ async function seed() {
       await migrateTeamAdminSupport();
     } catch (err) {
       console.error('[Seed] Falha ao migrar team_admin:', err.message);
+    }
+
+    try {
+      await migrateCampaigns();
+    } catch (err) {
+      console.error('[Seed] Falha ao migrar campanhas:', err.message);
     }
 
     // Pontos configuráveis por regra

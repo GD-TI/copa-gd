@@ -30,6 +30,8 @@ services:
       NEWCORBAN_SUBDOMAIN: ${NEWCORBAN_SUBDOMAIN:-grupodigital}
       NEWCORBAN_API_USERNAME: ${NEWCORBAN_API_USERNAME:-}
       NEWCORBAN_API_PASSWORD: ${NEWCORBAN_API_PASSWORD:-}
+      # Bearer da API v3 (nc_live_...) — sem isso o placar de campanha e o scoring ficam zerados
+      NEWCORBAN_PROPOSALS_TOKEN: ${NEWCORBAN_PROPOSALS_TOKEN:-}
       FOOTBALL_API_KEY: ${FOOTBALL_API_KEY:-}
       CORS_ORIGIN: ${CORS_ORIGIN:-}
       PUBLIC_BACKEND_URL: ${PUBLIC_BACKEND_URL:-}

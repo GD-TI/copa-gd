@@ -44,4 +44,114 @@ async function migrateTeamAdminSupport() {
   `);
 }
 
-module.exports = { migrateTeamAdminSupport };
+/**
+ * Campanhas como entidade de verdade (a `campaign_settings` é uma linha única
+ * editada no lugar, sem histórico). Uma campanha é um recorte de período sobre
+ * o ranking — não um motor de pontos paralelo.
+ */
+async function migrateCampaigns() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS campaigns (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(150) NOT NULL,
+      subtitle VARCHAR(200),
+      start_date DATE,
+      end_date DATE,
+      color VARCHAR(20) NOT NULL DEFAULT 'azul',
+      metric VARCHAR(20) NOT NULL DEFAULT 'contratos',
+      product_ids TEXT[] NOT NULL DEFAULT ARRAY['13'],
+      require_same_day BOOLEAN NOT NULL DEFAULT false,
+      ladder JSONB NOT NULL DEFAULT '[]'::jsonb,
+      ladder_step JSONB,
+      spin_every INTEGER,
+      status VARCHAR(20) NOT NULL DEFAULT 'draft',
+      legacy_kind VARCHAR(20),
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_campaigns_status ON campaigns(status)`);
+
+  // Classificação congelada no encerramento — o histórico não pode mudar se a API mudar
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS campaign_results (
+      campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+      position INTEGER NOT NULL,
+      vendor_id VARCHAR(50) NOT NULL,
+      vendor_name VARCHAR(150),
+      contracts INTEGER NOT NULL DEFAULT 0,
+      total_value NUMERIC NOT NULL DEFAULT 0,
+      prize_value NUMERIC NOT NULL DEFAULT 0,
+      spins INTEGER NOT NULL DEFAULT 0,
+      frozen_at TIMESTAMP DEFAULT NOW(),
+      PRIMARY KEY (campaign_id, position)
+    )
+  `);
+
+  // Contas não-humanas fora do placar (a IA é a linha de base, não concorrente)
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS ranking_exclusions (
+      id SERIAL PRIMARY KEY,
+      corban_id VARCHAR(50),
+      name_pattern VARCHAR(150),
+      reason TEXT,
+      active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  const { rows: exc } = await db.query(`SELECT COUNT(*)::int AS n FROM ranking_exclusions`);
+  if (exc[0].n === 0) {
+    await db.query(`
+      INSERT INTO ranking_exclusions (name_pattern, reason) VALUES
+        ('API%',        'Integração / IA — produz vendas sem consultor humano'),
+        ('%(Matriz)%',  'Conta de matriz, não é consultor'),
+        ('BOT %',       'Robô'),
+        ('ROBO%',       'Robô'),
+        ('ROBÔ%',       'Robô')
+    `);
+    console.log('[Migration] ranking_exclusions: padrões padrão inseridos');
+  }
+
+  // Missão Resgate — escada e roleta conforme o documento da campanha.
+  // Campanha de um dia: 10/08/2026. Já entra ativa e com data para não depender
+  // de configuração manual no dia em que ela acontece.
+  const { rows: mr } = await db.query(`SELECT id FROM campaigns WHERE name = 'Missão Resgate'`);
+  if (mr.length === 0) {
+    await db.query(`
+      INSERT INTO campaigns
+        (name, subtitle, start_date, end_date, color, metric, product_ids, require_same_day,
+         ladder, ladder_step, spin_every, status)
+      VALUES
+        ('Missão Resgate',
+         'A IA fez a parte dela. Agora começa a nossa.',
+         DATE '2026-08-10', DATE '2026-08-10',
+         'laranja', 'contratos', ARRAY['13'], true,
+         $1::jsonb, $2::jsonb, 5, 'active')
+    `, [
+      JSON.stringify([
+        { at: 5,  prize: 20 },
+        { at: 10, prize: 20 },
+        { at: 15, prize: 30 },
+        { at: 20, prize: 40 },
+        { at: 25, prize: 50 },
+      ]),
+      JSON.stringify({ every: 5, prize: 20 }),
+    ]);
+    console.log('[Migration] campanha "Missão Resgate" criada e ativa para 10/08/2026');
+  } else {
+    // Cobre o caso de uma versão anterior desta migration ter criado a campanha sem data
+    const { rowCount } = await db.query(`
+      UPDATE campaigns
+         SET start_date = DATE '2026-08-10',
+             end_date   = DATE '2026-08-10',
+             status     = 'active',
+             updated_at = NOW()
+       WHERE name = 'Missão Resgate' AND start_date IS NULL
+    `);
+    if (rowCount) console.log('[Migration] "Missão Resgate": data definida para 10/08/2026');
+  }
+}
+
+module.exports = { migrateTeamAdminSupport, migrateCampaigns };
