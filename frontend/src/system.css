@@ -1,3 +1,7 @@
+/* Fontes vivem em src/ (não em public/) para que o Vite as processe e elas
+   funcionem sem depender de rebuild da imagem no ambiente de dev. */
+@import './fonts/fonts.css';
+
 /* ═══════════════════════════════════════════════════════════════════════════
    RANKING GD — Placar de operação
    Sistema visual: linhagem Otl Aicher (Munique 1972), rendido em tela escura
