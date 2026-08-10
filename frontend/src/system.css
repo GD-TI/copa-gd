@@ -5,20 +5,20 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    RANKING GD — Placar de operação
    Sistema visual: linhagem Otl Aicher (Munique 1972), rendido em tela escura
-   porque a cena real é uma TV ligada o dia todo, não papel.
+   porque a cena é uma TV ligada o dia todo, não papel.
    Regras que não se negociam: raio zero, sem sombra, régua de 1px, tabular.
    Contrato completo em DESIGN.md.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 :root {
-  /* Tela */
-  --bd-ground: #0B0D10;
+  --bd-ground:   #0B0D10;
   --bd-ground-2: #0F1216;
-  --bd-ink: #FFFFFF;
-  --bd-ink-2: #8A9099;
-  --bd-rule: #22262C;
+  --bd-ground-3: #141920;
+  --bd-ink:      #FFFFFF;
+  --bd-ink-2:    #99A1AB;
+  --bd-ink-3:    #6B7480;
+  --bd-rule:     #22262C;
 
-  /* Família fechada de campanha — uma cor por campanha */
   --azul:    #1789D8;
   --verde:   #22A163;
   --laranja: #F26A1B;
@@ -30,10 +30,9 @@
   --font-text:    'Public Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-display: 'Archivo', 'Helvetica Neue', Helvetica, Arial, sans-serif;
 
-  --sp-1: 4px;   --sp-2: 8px;   --sp-3: 12px;  --sp-4: 16px;
-  --sp-6: 24px;  --sp-8: 32px;  --sp-12: 48px; --sp-16: 64px;
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-6: 24px; --sp-8: 32px;
 
-  /* Cadência mecânica: o movimento de um quadro de estação */
   --swap: 340ms cubic-bezier(.2, 0, 0, 1);
 }
 
@@ -43,7 +42,7 @@
 [data-color="violeta"] { --campaign: var(--violeta); }
 [data-color="prata"]   { --campaign: var(--prata); }
 
-/* ── Quadro ──────────────────────────────────────────────────────────────── */
+/* ── Casca ───────────────────────────────────────────────────────────────── */
 
 .board {
   position: fixed;
@@ -62,153 +61,284 @@
 .board *::before,
 .board *::after { border-radius: 0; box-shadow: none; }
 
-/* Faixa de identificação */
 .board-head {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--sp-6);
-  padding: 2.1vh 2.4vw 1.5vh;
+  padding: 1.9vh 2vw 1.3vh;
 }
 
 .board-title {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: clamp(1.25rem, 3.5vh, 2.75rem);
+  font-size: clamp(1.125rem, 3.2vh, 2.5rem);
   letter-spacing: -0.02em;
   line-height: 1;
   margin: 0;
 }
 
 .board-sub {
-  font-size: clamp(.75rem, 1.6vh, 1.125rem);
+  font-size: clamp(.6875rem, 1.5vh, 1rem);
   color: var(--bd-ink-2);
-  margin: .6vh 0 0;
+  margin: .5vh 0 0;
 }
 
 .board-meta {
   display: flex;
   align-items: baseline;
-  gap: 2vw;
+  gap: 1.6vw;
   font-family: var(--font-display);
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  font-size: clamp(.6875rem, 1.5vh, 1rem);
+  font-size: clamp(.625rem, 1.4vh, .9375rem);
   color: var(--bd-ink-2);
   white-space: nowrap;
 }
 
 .board-clock {
   color: var(--bd-ink);
-  font-size: clamp(1.25rem, 3.2vh, 2.5rem);
+  font-size: clamp(1.125rem, 3vh, 2.25rem);
   letter-spacing: -0.01em;
 }
 
-/* A barra de cor da campanha: a marca do sistema, não ornamento */
-.board-stripe { height: .8vh; min-height: 5px; background: var(--campaign); }
+.board-stripe { height: .7vh; min-height: 5px; background: var(--campaign); }
 
-/* ── Lista ───────────────────────────────────────────────────────────────── */
+/* ── Corpo: disputa à esquerda, leitura à direita ────────────────────────── */
 
-.board-list {
-  position: relative;
-  padding: 0 2.4vw;
-  overflow: hidden;
-}
-
-.row {
-  position: absolute;
-  left: 2.4vw;
-  right: 2.4vw;
+.board-body {
   display: grid;
-  grid-template-columns: var(--pos-box) minmax(0, 1fr) auto 15vw;
-  align-items: center;
-  gap: 1.8vw;
-  border-bottom: 1px solid var(--bd-rule);
-  transition: transform var(--swap);
-  will-change: transform;
+  grid-template-columns: 1fr minmax(20rem, 32vw);
+  min-height: 0;
 }
 
-/* Posição num bloco de cor sólida — como Aicher marcava disciplinas */
-.row-pos {
+/* ── Zona 1 — a disputa ──────────────────────────────────────────────────── */
+
+.lead {
+  display: flex;
+  flex-direction: column;
+  padding: 0 1.4vw 0 2vw;
+  min-height: 0;
+}
+
+.lead-row {
+  flex: 1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 1.4vw;
+  border-bottom: 1px solid var(--bd-rule);
+  min-height: 0;
+}
+
+.lead-row:last-child { border-bottom: 0; }
+
+/* Posição num bloco sólido — como Aicher marcava disciplinas */
+.lead-pos {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: var(--pos-size);
+  font-size: clamp(1rem, 3.4vh, 2.5rem);
   line-height: 1;
   letter-spacing: -0.03em;
-  width: var(--pos-box);
-  height: var(--pos-box);
+  width: clamp(2rem, 6.2vh, 4.5rem);
+  height: clamp(2rem, 6.2vh, 4.5rem);
   display: grid;
   place-items: center;
-  background: transparent;
-  color: var(--bd-ink-2);
+  color: var(--bd-ink-3);
 }
 
-/* A cor segue a posição real, não a ordem no DOM — na página 2 o 7º
-   colocado não pode herdar a marcação do líder. */
-.row[data-rank="1"] .row-pos { background: var(--campaign); color: #fff; }
-.row[data-rank="2"] .row-pos { background: var(--azul);     color: #fff; }
-.row[data-rank="3"] .row-pos { background: var(--verde);    color: #fff; }
+.lead-row[data-rank="1"] .lead-pos { background: var(--campaign); color: #fff; }
+.lead-row[data-rank="2"] .lead-pos { background: var(--azul);     color: #fff; }
+.lead-row[data-rank="3"] .lead-pos { background: var(--verde);    color: #fff; }
 
-/* Nome nunca trunca: reduz o corpo, quebra em duas linhas, mas não corta */
-.row-name {
+.lead-id { min-width: 0; }
+
+/* Nome nunca trunca com reticências */
+.lead-name {
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: var(--name-size);
-  line-height: 1.05;
+  font-size: clamp(.9375rem, 3.1vh, 2.375rem);
+  line-height: 1.04;
   letter-spacing: -0.015em;
-  min-width: 0;
   overflow-wrap: anywhere;
-}
-
-.row-team {
   display: block;
-  font-family: var(--font-text);
-  font-weight: 400;
-  font-size: clamp(.625rem, 1.4vh, .9375rem);
-  letter-spacing: 0;
-  color: var(--bd-ink-2);
-  margin-top: .3vh;
 }
 
-.row-metric { text-align: right; }
+/* Trilho de progresso até a próxima faixa — leitura instantânea de "quanto falta" */
+.lead-track {
+  margin-top: .8vh;
+  height: 3px;
+  background: var(--bd-rule);
+  max-width: 26vw;
+}
 
-.row-count {
+/* scaleX em vez de width: animar largura força recálculo de layout a cada
+   atualização, e esta tela fica ligada o dia inteiro. */
+.lead-track span {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: var(--campaign);
+  transform: scaleX(var(--p, 0));
+  transform-origin: left center;
+  transition: transform var(--swap);
+}
+
+.lead-metric { text-align: right; }
+
+.lead-count {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: var(--count-size);
+  font-size: clamp(1.375rem, 5.4vh, 4rem);
   line-height: 1;
   letter-spacing: -0.03em;
   display: block;
 }
 
-.row-unit,
-.row-gap-label {
-  font-size: clamp(.5625rem, 1.2vh, .8125rem);
+.lead-unit,
+.lead-gap-label {
+  font-size: clamp(.5rem, 1.15vh, .75rem);
   letter-spacing: 0.11em;
   text-transform: uppercase;
   color: var(--bd-ink-2);
   font-weight: 600;
+  display: block;
 }
 
-/* "Faltam N" — o motor da campanha, e por isso o segundo maior elemento */
-.row-gap {
+.lead-gap {
   text-align: right;
-  padding-left: 1.6vw;
+  min-width: clamp(5rem, 9vw, 11rem);
+  padding-left: 1.2vw;
   border-left: 1px solid var(--bd-rule);
 }
 
-.row-gap-value {
+.lead-gap-value {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: var(--gap-size);
+  font-size: clamp(1.125rem, 4vh, 3rem);
   line-height: 1;
   letter-spacing: -0.02em;
   color: var(--campaign);
   display: block;
 }
 
-.row-gap.is-reached .row-gap-value { color: var(--verde); }
+.lead-prize {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(.625rem, 1.5vh, 1rem);
+  color: var(--verde);
+  letter-spacing: 0.02em;
+  display: block;
+  margin-top: .4vh;
+}
+
+/* ── Zona 2 — a coluna de leitura ────────────────────────────────────────── */
+
+.rail {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  border-left: 1px solid var(--bd-rule);
+  min-height: 0;
+}
+
+.rail-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(.625rem, 1.5vh, .9375rem);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--bd-ink-2);
+  padding: 1.2vh 1.6vw .8vh;
+  margin: 0;
+}
+
+.rail-title b { color: var(--campaign); font-weight: 700; }
+
+/* Quem está a um passo — a lista que a gestora usa nos boletins */
+.hot {
+  background: var(--bd-ground-2);
+  border-bottom: 1px solid var(--bd-rule);
+  padding-bottom: .8vh;
+}
+
+.hot-list { display: flex; flex-direction: column; }
+
+.hot-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 1vw;
+  padding: .55vh 1.6vw;
+}
+
+.hot-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(.75rem, 1.95vh, 1.375rem);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.hot-gap {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(.6875rem, 1.8vh, 1.25rem);
+  color: var(--campaign);
+  white-space: nowrap;
+}
+
+.hot-empty {
+  padding: .8vh 1.6vw 1.4vh;
+  color: var(--bd-ink-3);
+  font-size: clamp(.6875rem, 1.5vh, .9375rem);
+}
+
+/* Todo o time visível — ninguém espera a página virar para se achar */
+.field { min-height: 0; display: grid; grid-template-rows: auto 1fr; }
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  align-content: start;
+  gap: 0 1.2vw;
+  padding: 0 1.6vw 1vh;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.field-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: .6vw;
+  padding: .38vh 0;
+  border-bottom: 1px solid var(--bd-rule);
+}
+
+.field-name {
+  font-size: clamp(.625rem, 1.55vh, 1rem);
+  color: var(--bd-ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.field-item[data-close="true"] .field-name { color: var(--bd-ink); }
+
+.field-count {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(.6875rem, 1.7vh, 1.125rem);
+  color: var(--bd-ink);
+}
+
+.field-more {
+  grid-column: 1 / -1;
+  padding: .6vh 0;
+  color: var(--bd-ink-3);
+  font-size: clamp(.625rem, 1.4vh, .875rem);
+}
 
 /* ── Rodapé ──────────────────────────────────────────────────────────────── */
 
@@ -217,16 +347,16 @@
   align-items: baseline;
   justify-content: space-between;
   gap: var(--sp-6);
-  padding: 1.6vh 2.4vw;
+  padding: 1.3vh 2vw;
   border-top: 1px solid var(--bd-rule);
   background: var(--bd-ground-2);
-  font-size: clamp(.6875rem, 1.5vh, 1rem);
+  font-size: clamp(.625rem, 1.4vh, .9375rem);
   color: var(--bd-ink-2);
 }
 
 .board-totals {
   display: flex;
-  gap: 2.6vw;
+  gap: 2.2vw;
   font-family: var(--font-display);
   font-weight: 600;
   letter-spacing: 0.07em;
@@ -240,34 +370,30 @@
   letter-spacing: -0.02em;
 }
 
-.board-page {
-  font-family: var(--font-display);
-  font-weight: 600;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
+.board-totals .is-prize b { color: var(--verde); }
 
 /* ── Estados ─────────────────────────────────────────────────────────────── */
 
 .board-state {
+  grid-column: 1 / -1;
   display: grid;
   align-content: center;
   justify-items: start;
-  gap: 1.6vh;
-  padding: 4vh 2.4vw;
+  gap: 1.4vh;
+  padding: 4vh 2vw;
 }
 
 .board-state h2 {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: clamp(1.5rem, 6vh, 4rem);
+  font-size: clamp(1.5rem, 5.5vh, 3.75rem);
   letter-spacing: -0.03em;
   line-height: 1;
   margin: 0;
 }
 
 .board-state p {
-  font-size: clamp(.875rem, 2.1vh, 1.375rem);
+  font-size: clamp(.875rem, 2vh, 1.25rem);
   color: var(--bd-ink-2);
   margin: 0;
   max-width: 62ch;
@@ -276,13 +402,13 @@
 .board-ladder {
   display: flex;
   flex-wrap: wrap;
-  margin-top: 2.4vh;
+  margin-top: 2vh;
   border-top: 1px solid var(--bd-rule);
   border-left: 1px solid var(--bd-rule);
 }
 
 .board-ladder-step {
-  padding: 1.6vh 1.6vw;
+  padding: 1.4vh 1.4vw;
   border-right: 1px solid var(--bd-rule);
   border-bottom: 1px solid var(--bd-rule);
   min-width: 7rem;
@@ -291,14 +417,13 @@
 .board-ladder-at {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: clamp(1.25rem, 3.4vh, 2.25rem);
+  font-size: clamp(1.125rem, 3.2vh, 2rem);
   line-height: 1;
-  letter-spacing: -0.02em;
   display: block;
 }
 
 .board-ladder-prize {
-  font-size: clamp(.625rem, 1.4vh, .875rem);
+  font-size: clamp(.5625rem, 1.3vh, .8125rem);
   color: var(--bd-ink-2);
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -309,8 +434,8 @@
 
 .board-ctl {
   position: absolute;
-  top: 1.4vh;
-  right: 1.4vw;
+  top: 1.2vh;
+  right: 1.2vw;
   z-index: 2;
   display: flex;
   gap: 1px;
@@ -336,37 +461,22 @@
 
 .board-ctl button:hover { color: var(--bd-ink); border-color: var(--bd-ink-2); }
 
-.board :focus-visible {
-  outline: 3px solid var(--campaign);
-  outline-offset: 2px;
-}
+.board :focus-visible { outline: 3px solid var(--campaign); outline-offset: 2px; }
 
 /* O quadro roda 8h por dia ao lado de gente trabalhando */
 @media (prefers-reduced-motion: reduce) {
   .board * { transition: none !important; animation: none !important; }
 }
 
-/* Operado de perto — a densidade muda, o sistema não */
-@media (max-width: 900px) {
-  .board-head,
-  .board-list,
-  .board-foot { padding-left: var(--sp-4); padding-right: var(--sp-4); }
-  .row {
-    left: var(--sp-4); right: var(--sp-4);
-    grid-template-columns: var(--pos-box) minmax(0, 1fr) auto;
-    gap: var(--sp-3);
-  }
-  .row-gap {
-    grid-column: 2 / -1;
-    border-left: 0;
-    padding-left: 0;
-    text-align: left;
-    display: flex;
-    align-items: baseline;
-    gap: var(--sp-2);
-  }
+/* Operado de perto */
+@media (max-width: 1100px) {
+  .board-body { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+  .rail { border-left: 0; border-top: 1px solid var(--bd-rule); max-height: 38vh; }
+  .field-grid { grid-template-columns: 1fr; }
+  .lead { padding: 0 var(--sp-4); }
+  .lead-track { max-width: none; }
   .board-foot { flex-direction: column; align-items: flex-start; gap: var(--sp-1); }
-  .board-totals { gap: var(--sp-4); }
+  .board-totals { gap: var(--sp-4); flex-wrap: wrap; }
 }
 
 /* ── Botão que abre o telão (vive dentro do shell antigo) ────────────────── */

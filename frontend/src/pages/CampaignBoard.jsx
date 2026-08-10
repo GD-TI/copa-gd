@@ -1,85 +1,90 @@
 /*
   THESIS — Um quadro de informação pública, não um dashboard. Recusa o pódio 3D
-  com blocos 1/2/3 que o painel nativo já entrega, e recusa a estética de
-  gamificação (medalha, confete, troféu) da campanha anterior.
+  do painel nativo e a estética de gamificação da campanha anterior. Com 37
+  consultores, recusa também a lista paginada: ninguém deve esperar a página
+  virar para se encontrar.
   OWN-WORLD — Linhagem Otl Aicher rendida em tela: fundo #0B0D10, tinta branca,
   régua de 1px, posição dentro de um bloco de cor sólida da família de Munique,
   Archivo em numerais tabulares. Raio zero e nenhuma sombra em nenhum estado.
-  Escuro porque a cena é uma TV ligada o dia todo numa sala iluminada, não papel.
-  STORY — Quem passa na frente da TV lê, em dois segundos, quem está na frente e
-  quantas vendas faltam para a própria próxima faixa.
-  FIRST VIEWPORT — Faixa de identificação com nome da campanha, data e relógio;
-  barra da cor da campanha; lista de linhas altas com posição, nome íntegro,
-  contagem e "faltam N"; rodapé com totais do time.
-  FORM — Quadro de estação: ultrapassagem é troca de linha cronometrada.
+  STORY — Em dois segundos: quem lidera, quem está a um passo de girar, e onde
+  eu estou. As três perguntas coexistem na mesma tela.
+  FIRST VIEWPORT — Faixa de identificação; à esquerda a disputa (6 primeiros,
+  grandes, com trilho de progresso até a próxima faixa); à direita "prestes a
+  girar" e o time inteiro; rodapé com totais e premiação acumulada.
+  FORM — Quadro de estação: mudança de posição é deslocamento cronometrado.
   Direção sorteada, candidata 5. Seed 41949bb7.
 */
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import api from '../api/client'
 import { API_BASE } from '../api/config'
 import '../system.css'
 
-const TARGET_ROWS = 10     // densidade próxima à do placar da Copa
-const ROW_MIN = 56         // piso de legibilidade a 4 metros
-const ROW_MAX = 120
-const PAGE_MS = 14000      // rotação quando não cabe todo mundo
+const LEAD = 6          // quantos entram na zona da disputa
+const HOT_MAX = 6       // quantos cabem em "prestes a girar"
 const POLL_MS = 60000
 
-/** Toda a escala tipográfica deriva da altura da linha, então a TV maior
- *  ganha letra maior em vez de mais linhas espremidas. */
-function scaleFor(rowH) {
-  return {
-    '--pos-box':    `${Math.round(rowH * 0.60)}px`,
-    '--pos-size':   `${Math.round(rowH * 0.32)}px`,
-    '--name-size':  `${Math.round(rowH * 0.36)}px`,
-    '--count-size': `${Math.round(rowH * 0.52)}px`,
-    '--gap-size':   `${Math.round(rowH * 0.40)}px`,
-  }
-}
-
 const fmtBRL = n => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
+
+/**
+ * Os nomes no NewCorban vêm com prefixo de equipe ("MOTIVACAO - JULIA KEI").
+ * A campanha é individual, e num telão o prefixo empurra o nome da pessoa para
+ * o meio da linha. Só corta quando o prefixo é curto e sobra nome de verdade —
+ * assim um nome que legitimamente contenha " - " não é mutilado.
+ */
+function nomeLimpo(nome = '') {
+  const m = String(nome).split(' - ')
+  if (m.length < 2) return nome
+  const prefixo = m[0].trim()
+  const resto = m.slice(1).join(' - ').trim()
+  const prefixoCurto = prefixo.split(/\s+/).length <= 2
+  const restoTemNome = resto.split(/\s+/).length >= 2
+  return prefixoCurto && restoTemNome ? resto : nome
+}
 
 function useClock() {
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000)
+    const t = setInterval(() => setNow(new Date()), 30000)
     return () => clearInterval(t)
   }, [])
   return now
 }
 
-/** Uma linha do quadro. Posicionada por transform para que a troca seja mecânica. */
-function Row({ item, top, height, metricLabel }) {
-  const reached = item.missing === 0 || item.missing === null
+function LeadRow({ item, tierStart }) {
+  const alvo = item.next_at ?? item.contracts
+  const base = tierStart ?? 0
+  const frac = alvo > base ? Math.min(1, (item.contracts - base) / (alvo - base)) : 1
+
   return (
-    <div className="row" data-rank={item.position} style={{ transform: `translateY(${top}px)`, height }}>
-      <div className="row-bar" />
-      <div className="row-id">
-        <span className="row-pos">{item.position}</span>
-        {/* Campanha individual: sem equipe. O nome é o conteúdo, sozinho. */}
-        <span className="row-name">{item.vendor_name}</span>
-      </div>
-      <div className="row-metric">
-        <span className="row-count">{item.contracts}</span>
-        <span className="row-unit">{metricLabel}</span>
-      </div>
-      <div className={`row-gap${reached ? ' is-reached' : ''}`}>
+    <div className="lead-row" data-rank={item.position}>
+      <span className="lead-pos">{item.position}</span>
+      <span className="lead-id">
+        <span className="lead-name">{nomeLimpo(item.vendor_name)}</span>
+        <span className="lead-track"><span style={{ '--p': frac }} /></span>
+      </span>
+      <span className="lead-metric">
+        <span className="lead-count">{item.contracts}</span>
+        <span className="lead-unit">recuperações</span>
+      </span>
+      <span className="lead-gap">
         {item.missing === null ? (
           <>
-            <span className="row-gap-value">—</span>
-            <span className="row-gap-label">sem próxima faixa</span>
+            <span className="lead-gap-value">—</span>
+            <span className="lead-gap-label">sem próxima faixa</span>
           </>
         ) : (
           <>
-            <span className="row-gap-value">{item.missing}</span>
-            <span className="row-gap-label">
-              {item.missing === 1 ? 'falta p/ ' : 'faltam p/ '}
-              {fmtBRL(item.next_prize)}
+            <span className="lead-gap-value">{item.missing}</span>
+            <span className="lead-gap-label">
+              {item.missing === 1 ? 'falta p/ ' : 'faltam p/ '}{fmtBRL(item.next_prize)}
             </span>
           </>
         )}
-      </div>
+        {item.prize_value > 0 ? (
+          <span className="lead-prize">{fmtBRL(item.prize_value)} garantidos</span>
+        ) : null}
+      </span>
     </div>
   )
 }
@@ -88,10 +93,7 @@ export default function CampaignBoard({ campaignId, onClose }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [page, setPage] = useState(0)
-  const [rowsPerPage, setRowsPerPage] = useState(TARGET_ROWS)
-  const [rowH, setRowH] = useState(ROW_MIN)
-  const listRef = useRef(null)
+  const [isFull, setIsFull] = useState(false)
   const now = useClock()
 
   const load = useCallback(async () => {
@@ -108,7 +110,6 @@ export default function CampaignBoard({ campaignId, onClose }) {
 
   useEffect(() => { load() }, [load])
 
-  // Atualização periódica + SSE quando o backend avisa que houve mudança
   useEffect(() => {
     const timer = setInterval(load, POLL_MS)
     let es
@@ -119,33 +120,7 @@ export default function CampaignBoard({ campaignId, onClose }) {
     return () => { clearInterval(timer); es?.close() }
   }, [load])
 
-  // A linha se dimensiona pela altura real da tela — a TV maior ganha letra maior,
-  // não mais linhas espremidas.
-  useEffect(() => {
-    const measure = () => {
-      const h = listRef.current?.clientHeight || 0
-      if (!h) return
-      const rh = Math.min(ROW_MAX, Math.max(ROW_MIN, Math.floor(h / TARGET_ROWS)))
-      setRowH(rh)
-      setRowsPerPage(Math.max(1, Math.floor(h / rh)))
-    }
-    measure()
-    window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
-  }, [data, loading, error])
-
-  const board = data?.board || []
-  const pages = Math.max(1, Math.ceil(board.length / rowsPerPage))
-
-  useEffect(() => {
-    if (pages <= 1) { setPage(0); return }
-    const t = setInterval(() => setPage(p => (p + 1) % pages), PAGE_MS)
-    return () => clearInterval(t)
-  }, [pages])
-
-  // Tela cheia ao abrir — o telão é feito para ficar ligado sem ninguém mexer.
-  // Alguns navegadores exigem gesto do usuário; o botão cobre esse caso.
-  const [isFull, setIsFull] = useState(false)
+  // Tela cheia ao abrir — o telão fica ligado sem ninguém mexer
   useEffect(() => {
     document.documentElement.requestFullscreen?.().catch(() => {})
     const onChange = () => setIsFull(Boolean(document.fullscreenElement))
@@ -172,16 +147,33 @@ export default function CampaignBoard({ campaignId, onClose }) {
   }, [onClose, toggleFull])
 
   const campaign = data?.campaign
-  const start = page * rowsPerPage
-  const visible = board.slice(start, start + rowsPerPage)
-  const metricLabel = campaign?.metric === 'valor' ? 'em valor' : 'recuperações'
+  const board = data?.board || []
+  const ladder = Array.isArray(campaign?.ladder) ? [...campaign.ladder].sort((a, b) => a.at - b.at) : []
+
+  // Início da faixa atual, para o trilho medir o trecho certo e não o total
+  const tierStartOf = item => {
+    const anteriores = ladder.filter(t => t.at <= item.contracts).map(t => t.at)
+    return anteriores.length ? Math.max(...anteriores) : 0
+  }
+
+  const lead = board.slice(0, LEAD)
+  const resto = board.slice(LEAD)
+
+  // Quem está a 1 ou 2 vendas da próxima faixa — a lista dos boletins
+  const quentes = board
+    .filter(v => v.missing !== null && v.missing <= 2)
+    .sort((a, b) => a.missing - b.missing || b.contracts - a.contracts)
+    .slice(0, HOT_MAX)
+
+  const totalPremio = board.reduce((s, v) => s + Number(v.prize_value || 0), 0)
+  const totalGiros = board.reduce((s, v) => s + Number(v.spins || 0), 0)
 
   const dateLabel = data?.date
     ? new Date(`${data.date}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()
     : ''
 
   return (
-    <div className="board" data-color={campaign?.color || 'azul'} style={scaleFor(rowH)}>
+    <div className="board" data-color={campaign?.color || 'azul'}>
       <div>
         <div className="board-head">
           <div>
@@ -198,75 +190,100 @@ export default function CampaignBoard({ campaignId, onClose }) {
         <div className="board-stripe" />
       </div>
 
-      {loading ? (
-        <div className="board-state"><h2>Carregando o placar…</h2></div>
-      ) : error ? (
-        <div className="board-state">
-          <h2>Placar indisponível</h2>
-          <p>{error} — a tela volta sozinha assim que a conexão com o NewCorban se restabelecer.</p>
-        </div>
-      ) : board.length === 0 ? (
-        <div className="board-state">
-          <h2>Ninguém pontuou ainda</h2>
-          <p>
-            A primeira venda recuperada do dia abre o placar. Vale contrato de
-            Crédito do Trabalhador digitado e pago hoje.
-          </p>
-          {/* Distingue "ninguém vendeu" de "o filtro está apertado demais" —
-              no dia da campanha, essa linha evita horas de dúvida. */}
-          {data?.diagnostics?.paid_today > 0 ? (
-            <p style={{ fontSize: '1.6vh' }}>
-              {data.diagnostics.paid_today} contrato(s) pago(s) hoje não entraram:{' '}
-              {data.diagnostics.paid_but_registered_another_day > 0
-                ? `${data.diagnostics.paid_but_registered_another_day} digitado(s) em outro dia`
-                : null}
-              {data.diagnostics.paid_but_registered_another_day > 0 && data.diagnostics.other_product > 0 ? ' · ' : null}
-              {data.diagnostics.other_product > 0 ? `${data.diagnostics.other_product} de outro produto` : null}
-              {data.diagnostics.excluded_non_human > 0 ? ` · ${data.diagnostics.excluded_non_human} da IA` : null}
+      <div className="board-body">
+        {loading ? (
+          <div className="board-state"><h2>Carregando o placar…</h2></div>
+        ) : error ? (
+          <div className="board-state">
+            <h2>Placar indisponível</h2>
+            <p>{error} — a tela volta sozinha assim que a conexão com o NewCorban se restabelecer.</p>
+          </div>
+        ) : board.length === 0 ? (
+          <div className="board-state">
+            <h2>Ninguém pontuou ainda</h2>
+            <p>
+              A primeira venda recuperada do dia abre o placar. Vale contrato de
+              Crédito do Trabalhador digitado e pago hoje.
             </p>
-          ) : null}
-          {campaign?.ladder?.length ? (
-            <div className="board-ladder">
-              {campaign.ladder.map(t => (
-                <div className="board-ladder-step" key={t.at}>
-                  <span className="board-ladder-at">{t.at}</span>
-                  <span className="board-ladder-prize">
-                    +{fmtBRL(t.prize)}{campaign.spin_every ? ' · giro' : ''}
-                  </span>
-                </div>
+            {/* Distingue "ninguém vendeu" de "o filtro está apertado demais" */}
+            {data?.diagnostics?.paid_today > 0 ? (
+              <p>
+                {data.diagnostics.paid_today} contrato(s) pago(s) hoje não entraram:{' '}
+                {[
+                  data.diagnostics.paid_but_registered_another_day > 0 && `${data.diagnostics.paid_but_registered_another_day} digitado(s) em outro dia`,
+                  data.diagnostics.other_product > 0 && `${data.diagnostics.other_product} de outro produto`,
+                  data.diagnostics.excluded_non_human > 0 && `${data.diagnostics.excluded_non_human} da IA`,
+                ].filter(Boolean).join(' · ')}
+              </p>
+            ) : null}
+            {ladder.length ? (
+              <div className="board-ladder">
+                {ladder.map(t => (
+                  <div className="board-ladder-step" key={t.at}>
+                    <span className="board-ladder-at">{t.at}</span>
+                    <span className="board-ladder-prize">
+                      +{fmtBRL(t.prize)}{campaign.spin_every ? ' · giro' : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <>
+            <div className="lead">
+              {lead.map(item => (
+                <LeadRow key={item.vendor_id} item={item} tierStart={tierStartOf(item)} />
               ))}
             </div>
-          ) : null}
-        </div>
-      ) : (
-        <div className="board-list" ref={listRef}>
-          {visible.map((item, i) => (
-            <Row
-              key={item.vendor_id}
-              item={item}
-              top={i * rowH}
-              height={rowH}
-              metricLabel={metricLabel}
-            />
-          ))}
-        </div>
-      )}
+
+            <aside className="rail">
+              <div className="hot">
+                <h2 className="rail-title">Prestes a <b>girar</b></h2>
+                {quentes.length ? (
+                  <div className="hot-list">
+                    {quentes.map(v => (
+                      <div className="hot-item" key={v.vendor_id}>
+                        <span className="hot-name">{nomeLimpo(v.vendor_name)}</span>
+                        <span className="hot-gap">
+                          {v.missing === 1 ? 'falta 1' : `faltam ${v.missing}`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="hot-empty">Ninguém a menos de três vendas da próxima faixa.</p>
+                )}
+              </div>
+
+              <div className="field">
+                <h2 className="rail-title">Time · <b>{board.length}</b> no placar</h2>
+                <div className="field-grid">
+                  {resto.map(v => (
+                    <div className="field-item" key={v.vendor_id} data-close={v.missing !== null && v.missing <= 2}>
+                      <span className="field-name">{v.position}. {nomeLimpo(v.vendor_name)}</span>
+                      <span className="field-count">{v.contracts}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </aside>
+          </>
+        )}
+      </div>
 
       <div className="board-foot">
         <div className="board-totals">
           <span><b>{data?.totals?.contracts ?? 0}</b> recuperações</span>
           <span><b>{fmtBRL(data?.totals?.value)}</b> recuperados</span>
-          <span><b>{data?.totals?.participants ?? 0}</b> consultores</span>
+          <span className="is-prize"><b>{fmtBRL(totalPremio)}</b> em prêmios</span>
+          <span><b>{totalGiros}</b> giros conquistados</span>
         </div>
-        {pages > 1 ? (
-          <span className="board-page">página {page + 1} de {pages}</span>
-        ) : null}
+        <span>atualiza sozinho</span>
       </div>
 
       <div className="board-ctl">
-        <button onClick={toggleFull}>
-          {isFull ? 'Sair da tela cheia · F' : 'Tela cheia · F'}
-        </button>
+        <button onClick={toggleFull}>{isFull ? 'Sair da tela cheia · F' : 'Tela cheia · F'}</button>
         <button onClick={onClose}>Fechar</button>
       </div>
     </div>
