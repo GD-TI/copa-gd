@@ -80,7 +80,11 @@
   letter-spacing: .2px;
   line-height: 1;
   border-radius: 999px;
-  padding: 6px clamp(16px, 1.1vw, 22px) 6px 6px;
+  /* Recheio simétrico e largura mínima: o conteúdo fica centrado na pílula
+     em vez de espremido contra a borda esquerda. */
+  padding: 6px clamp(14px, 1vw, 20px);
+  min-width: clamp(124px, 10.5vw, 176px);
+  justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
   transition: background .18s ease, border-color .18s ease, color .18s ease;
