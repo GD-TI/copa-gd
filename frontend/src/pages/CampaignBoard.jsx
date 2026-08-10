@@ -1,16 +1,15 @@
 /*
-  THESIS — Um quadro de informação pública, não um dashboard. Herda do telão da
-  Copa a estrutura que já funcionava — coluna única de linhas compactas — e
-  recusa o pódio 3D do painel nativo e a estética de gamificação.
-  OWN-WORLD — Fundo #0B0D10, tinta branca, régua de 1px, barra de cor sólida da
-  família de Munique marcando os três primeiros, Archivo em numerais tabulares.
-  Raio zero e nenhuma sombra em nenhum estado.
-  STORY — Em dois segundos: quem lidera, quanto cada um tem, e quanto falta para
-  a próxima faixa de prêmio.
-  FIRST VIEWPORT — Faixa de identificação, cabeçalho de colunas, e a lista
-  inteira em rolagem lenta; rodapé com totais e premiação.
-  FORM — Quadro de estação: a lista corre sozinha, sem virar página.
-  Direção sorteada, candidata 5. Seed 41949bb7.
+  THESIS — Modo TV no idioma do protótipo "Sales Arena" que o cliente fixou como
+  referência: barra escura no topo com KPIs, progresso coletivo, painel de
+  campanha à esquerda e ranking rolando em ticker contínuo à direita.
+  OWN-WORLD — Fundo claro em gradiente de marca (verde → roxo → azul), cartões
+  brancos com raio 12 e sombra suave, borda esquerda em ouro/prata/bronze nos
+  três primeiros, tipografia Outfit.
+  STORY — Em dois segundos: quem lidera, quanto cada um tem e quanto falta para
+  o próximo giro.
+  FIRST VIEWPORT — Topbar com AO VIVO e KPIs; barra de progresso do time; à
+  esquerda a campanha e a Escada do Resgate; à direita as linhas do ranking.
+  FORM — Ticker vertical contínuo: ninguém espera página virar para se ver.
 */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -19,14 +18,12 @@ import { API_BASE } from '../api/config'
 import '../system.css'
 
 const POLL_MS = 60000
-const SCROLL_STEP_MS = 4200   // pausa em cada trecho antes de correr
-const COLS = 'clamp(1.8rem,3.6vh,3rem) clamp(1.5rem,3.4vh,2.5rem) minmax(0,1fr) auto clamp(7rem,14vw,16rem) auto'
+const SEG_POR_LINHA = 2.6   // ritmo do ticker
 
 /**
  * Os nomes no NewCorban vêm com prefixo de equipe ("MOTIVACAO - JULIA KEI").
- * A campanha é individual e o prefixo empurra o nome da pessoa para o meio da
- * linha. Só corta quando o prefixo é curto e sobra nome de verdade, para não
- * mutilar um nome que legitimamente contenha " - ".
+ * A campanha é individual e o prefixo empurra o nome para o meio da linha.
+ * Só corta quando o prefixo é curto e sobra nome de verdade.
  */
 function nomeLimpo(nome = '') {
   const partes = String(nome).split(' - ')
@@ -50,34 +47,36 @@ function useClock() {
   return now
 }
 
-function Row({ item, tierStart }) {
+function Linha({ item, tierStart }) {
   const alvo = item.next_at ?? item.contracts
   const base = tierStart ?? 0
   const frac = alvo > base ? Math.min(1, (item.contracts - base) / (alvo - base)) : 1
-  const ganhou = Number(item.spins) > 0
+  const cls = item.position <= 3 ? ` r${item.position}` : ''
 
   return (
-    <div className="row" data-rank={item.position}>
-      <span className="row-pos">{item.position}</span>
-      <span className="row-av">{iniciais(item.vendor_name)}</span>
-      <span className="row-name">{nomeLimpo(item.vendor_name)}</span>
-      <span className="row-metric">
-        <span className="row-count">{item.contracts}</span>
-        <span className="row-unit">recup.</span>
-      </span>
-      <span className="row-prog">
-        <span className="row-bar"><span style={{ '--p': frac }} /></span>
-        <span className="row-gap">
+    <div className={`tv-row${cls}`}>
+      <div className="tv-rpos">{item.position}</div>
+      <div className="tv-rav">{iniciais(item.vendor_name)}</div>
+      <div className="tv-rinfo">
+        <div className="tv-rname">{nomeLimpo(item.vendor_name)}</div>
+        <div className="tv-rrole">
           {item.missing === null
-            ? 'sem próxima faixa'
-            : item.missing === 1
-              ? <><b>falta 1</b> para a próxima</>
-              : <>faltam <b>{item.missing}</b> para a próxima</>}
-        </span>
-      </span>
-      <span className={`row-pill${ganhou ? ' is-won' : ''}`}>
+            ? 'no topo da escada'
+            : <>falta{item.missing === 1 ? '' : 'm'} <b>{item.missing}</b> para o próximo giro</>}
+        </div>
+      </div>
+      <div className="tv-rpbar">
+        <div className="tv-rptrack">
+          <div className="tv-rpfill" style={{ transform: `scaleX(${frac})` }} />
+        </div>
+      </div>
+      <div className="tv-rsold">
+        {item.contracts}
+        <small>recup.</small>
+      </div>
+      <div className={`tv-rpct${item.spins > 0 ? ' has-spins' : ''}`}>
         {item.spins > 0 ? `${item.spins} giro${item.spins > 1 ? 's' : ''}` : '—'}
-      </span>
+      </div>
     </div>
   )
 }
@@ -87,9 +86,9 @@ export default function CampaignBoard({ campaignId, onClose }) {
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
   const [isFull, setIsFull] = useState(false)
-  const [offset, setOffset] = useState(0)
-  const viewRef = useRef(null)
-  const trackRef = useRef(null)
+  const [tick, setTick] = useState({ dist: 0, dur: 0 })
+  const wrapRef = useRef(null)
+  const rowsRef = useRef(null)
   const now = useClock()
 
   const load = useCallback(async () => {
@@ -116,20 +115,22 @@ export default function CampaignBoard({ campaignId, onClose }) {
     return () => { clearInterval(timer); es?.close() }
   }, [load])
 
-  // Rolagem lenta de ida e volta: todo mundo aparece sem virar página
+  // Ticker só quando a lista não cabe — senão a tela ficaria se mexendo à toa
   useEffect(() => {
-    const t = setInterval(() => {
-      const view = viewRef.current, track = trackRef.current
-      if (!view || !track) return
-      const excedente = track.scrollHeight - view.clientHeight
-      if (excedente <= 8) { setOffset(0); return }
-      setOffset(prev => {
-        const passo = view.clientHeight * 0.8
-        const proximo = prev + passo
-        return proximo >= excedente + passo * 0.5 ? 0 : Math.min(proximo, excedente)
-      })
-    }, SCROLL_STEP_MS)
-    return () => clearInterval(t)
+    const medir = () => {
+      const wrap = wrapRef.current, rows = rowsRef.current
+      if (!wrap || !rows) return
+      const metade = rows.scrollHeight / 2
+      if (metade - wrap.clientHeight > 12) {
+        const n = (data?.board || []).length || 1
+        setTick({ dist: -metade, dur: Math.round(n * SEG_POR_LINHA) })
+      } else {
+        setTick({ dist: 0, dur: 0 })
+      }
+    }
+    const t = setTimeout(medir, 80)
+    window.addEventListener('resize', medir)
+    return () => { clearTimeout(t); window.removeEventListener('resize', medir) }
   }, [data])
 
   // Tela cheia ao abrir — o telão fica ligado sem ninguém mexer
@@ -162,102 +163,139 @@ export default function CampaignBoard({ campaignId, onClose }) {
   const board = data?.board || []
   const ladder = Array.isArray(campaign?.ladder) ? [...campaign.ladder].sort((a, b) => a.at - b.at) : []
 
-  // Início da faixa atual, para a barra medir o trecho certo e não o total
   const tierStartOf = item => {
     const anteriores = ladder.filter(t => t.at <= item.contracts).map(t => t.at)
     return anteriores.length ? Math.max(...anteriores) : 0
   }
 
   const totalGiros = board.reduce((s, v) => s + Number(v.spins || 0), 0)
+  const comGiro = board.filter(v => Number(v.spins) > 0).length
+  const pctTime = board.length ? (comGiro / board.length) : 0
 
-  const dateLabel = data?.date
-    ? new Date(`${data.date}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()
+  const dataLabel = data?.date
+    ? new Date(`${data.date}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })
     : ''
 
-  const estilo = { '--cols': COLS, '--row-h': 'clamp(2.6rem, 6.4vh, 4.75rem)' }
+  const vazio = !loading && !error && board.length === 0
 
   return (
-    <div className="board" data-color={campaign?.color || 'azul'} style={estilo}>
-      <div>
-        <div className="board-head">
-          <div>
-            <h1 className="board-title">{campaign?.name || 'Ranking GD'}</h1>
-            {campaign?.subtitle ? <p className="board-sub">{campaign.subtitle}</p> : null}
+    <div className="board">
+      <div className="tv-topbar">
+        <span className="tv-live-badge">
+          <span className="tv-live-dot" />
+          <span className="tv-live-txt">Ao vivo</span>
+        </span>
+        <span className="tv-tb-name">{campaign?.name || 'Ranking GD'}</span>
+        <span className="tv-tb-period">
+          {dataLabel} · {now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+        </span>
+        <div className="tv-kpis">
+          <div className="tv-kpi">
+            <div className="tv-kv grn">{data?.totals?.contracts ?? 0}</div>
+            <div className="tv-kl">Recuperações</div>
           </div>
-          <div className="board-meta">
-            <span>{dateLabel}</span>
-            <span className="board-clock">
-              {now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-            </span>
+          <div className="tv-kpi">
+            <div className="tv-kv prp">{totalGiros}</div>
+            <div className="tv-kl">Giros</div>
+          </div>
+          <div className="tv-kpi">
+            <div className="tv-kv wht">{board.length}</div>
+            <div className="tv-kl">Consultores</div>
           </div>
         </div>
-        <div className="board-stripe" />
+      </div>
+
+      <div className="tv-prog-row">
+        <span className="tv-prog-lbl">Time na roleta</span>
+        <div className="tv-prog-track">
+          <div className="tv-prog-fill" style={{ transform: `scaleX(${pctTime})` }} />
+        </div>
+        <span className="tv-prog-pct">{comGiro}/{board.length || 0}</span>
       </div>
 
       {loading ? (
-        <div className="board-state"><h2>Carregando o placar…</h2></div>
+        <div className="tv-state"><h2>Carregando o placar…</h2></div>
       ) : error ? (
-        <div className="board-state">
+        <div className="tv-state">
           <h2>Placar indisponível</h2>
           <p>{error} — a tela volta sozinha assim que a conexão com o NewCorban se restabelecer.</p>
         </div>
-      ) : board.length === 0 ? (
-        <div className="board-state">
+      ) : vazio ? (
+        <div className="tv-state">
           <h2>Ninguém pontuou ainda</h2>
           <p>
             A primeira venda recuperada do dia abre o placar. Vale contrato de
-            Crédito do Trabalhador digitado e pago hoje.
+            Crédito do Trabalhador digitado e pago hoje, na matriz.
           </p>
-          {/* Distingue "ninguém vendeu" de "o filtro está apertado demais" */}
           {data?.diagnostics?.paid_today > 0 ? (
             <p>
               {data.diagnostics.paid_today} contrato(s) pago(s) hoje não entraram:{' '}
               {[
                 data.diagnostics.paid_but_registered_another_day > 0 && `${data.diagnostics.paid_but_registered_another_day} digitado(s) em outro dia`,
                 data.diagnostics.other_product > 0 && `${data.diagnostics.other_product} de outro produto`,
-                data.diagnostics.other_franquia > 0 && `${data.diagnostics.other_franquia} de fora da matriz`,
+                data.diagnostics.other_franquia > 0 && `${data.diagnostics.other_franquia} de franquia`,
                 data.diagnostics.excluded_non_human > 0 && `${data.diagnostics.excluded_non_human} da IA`,
               ].filter(Boolean).join(' · ')}
             </p>
           ) : null}
-          {ladder.length ? (
-            <div className="board-ladder">
-              {ladder.map(t => (
-                <div className="board-ladder-step" key={t.at}>
-                  <span className="board-ladder-at">{t.at}</span>
-                  <span className="board-ladder-prize">
-                    recuperações{campaign.spin_every ? ' · 1 giro' : ''}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : null}
         </div>
       ) : (
-        <div className="board-list" ref={viewRef}>
-          <div className="board-cols">
-            <span>#</span><span /><span>Consultor</span><span>Recuperações</span>
-            <span>Próxima faixa</span><span>Giros</span>
-          </div>
-          <div className="board-track" ref={trackRef} style={{ transform: `translateY(${-offset}px)` }}>
-            {board.map(item => (
-              <Row key={item.vendor_id} item={item} tierStart={tierStartOf(item)} />
-            ))}
-          </div>
+        <div className="tv-body">
+          <aside className="tv-left">
+            <div className="tv-left-header">
+              <div className="tv-left-lbl"><span className="tv-left-lbl-dot" />Campanha do dia</div>
+              <div className="tv-left-camp">{campaign?.name}</div>
+              {campaign?.subtitle ? <div className="tv-left-prize">{campaign.subtitle}</div> : null}
+            </div>
+
+            <div className="tv-right-lbl">Escada do Resgate</div>
+            <div className="tv-ladder">
+              {ladder.map(t => {
+                const quantos = board.filter(v => v.contracts >= t.at).length
+                return (
+                  <div className={`tv-step${quantos > 0 ? ' is-done' : ''}`} key={t.at}>
+                    <div className="tv-step-at">{t.at}</div>
+                    <div>
+                      <div className="tv-step-txt">recuperações</div>
+                      <div className="tv-step-sub">
+                        {quantos > 0 ? `${quantos} já chegou${quantos > 1 ? 'ram' : ''}` : 'ninguém ainda'}
+                        {campaign?.spin_every ? ' · +1 giro' : ''}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </aside>
+
+          <section className="tv-right">
+            <div className="tv-right-lbl">Ranking · {board.length} consultores</div>
+            <div className="tv-rows-wrap" ref={wrapRef}>
+              <div
+                className={`tv-rows${tick.dur ? ' ticking' : ''}`}
+                ref={rowsRef}
+                style={{ '--tick-dist': `${tick.dist}px`, '--tick-dur': `${tick.dur}s` }}
+              >
+                {board.map(item => (
+                  <Linha key={item.vendor_id} item={item} tierStart={tierStartOf(item)} />
+                ))}
+                {/* Cópia para o ticker emendar sem salto visível */}
+                {tick.dur ? board.map(item => (
+                  <Linha key={`d-${item.vendor_id}`} item={item} tierStart={tierStartOf(item)} />
+                )) : null}
+              </div>
+            </div>
+          </section>
         </div>
       )}
 
-      <div className="board-foot">
-        <div className="board-totals">
-          <span><b>{data?.totals?.contracts ?? 0}</b> recuperações</span>
-          <span className="is-prize"><b>{totalGiros}</b> giros conquistados</span>
-          <span><b>{board.length}</b> consultores</span>
-        </div>
-        <span>atualiza sozinho</span>
+      <div className="tv-foot">
+        <span>Vale contrato de <b>Crédito do Trabalhador</b> digitado e pago hoje, na matriz</span>
+        <span>Atualiza sozinho</span>
       </div>
 
       <div className="board-ctl">
-        <button onClick={toggleFull}>{isFull ? 'Sair da tela cheia · F' : 'Tela cheia · F'}</button>
+        <button onClick={toggleFull}>{isFull ? 'Sair da tela cheia' : 'Tela cheia · F'}</button>
         <button onClick={onClose}>Fechar</button>
       </div>
     </div>
