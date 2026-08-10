@@ -78,6 +78,7 @@
   font-weight: 600;
   font-size: clamp(12px, 1.5vh, 15px);
   letter-spacing: .2px;
+  line-height: 1;
   border-radius: 999px;
   padding: 6px clamp(16px, 1.1vw, 22px) 6px 6px;
   cursor: pointer;
@@ -101,6 +102,13 @@
   width: 52%;
   height: 52%;
   transition: transform .18s cubic-bezier(.2, 0, 0, 1);
+}
+
+.tv-back-txt {
+  line-height: 1;
+  display: block;
+  /* a maiúscula do Outfit assenta 1px abaixo do centro óptico do disco */
+  transform: translateY(-.5px);
 }
 
 .tv-back:hover {

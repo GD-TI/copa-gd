@@ -200,7 +200,7 @@ export default function CampaignBoard({ campaignId, onClose, fullscreen = false 
                 <path d="M15 18l-6-6 6-6" />
               </svg>
             </span>
-            Voltar
+            <span className="tv-back-txt">Voltar</span>
           </button>
         ) : null}
         <span className="tv-live-badge">
