@@ -341,11 +341,16 @@ function convertV3Proposal(item) {
   const payDate = item.dates?.payment_date ? String(item.dates.payment_date).slice(0, 10) : null;
   const cadDate = item.dates?.created_at   ? String(item.dates.created_at).slice(0, 10)   : null;
   return {
-    vendedor_id:  String(item.assignment?.seller?.id || ''),
-    origem:       item.proposal?.origin?.name || '',
+    vendedor_id:   String(item.assignment?.seller?.id || ''),
+    vendedor_nome: item.assignment?.seller?.name || '',
+    equipe_nome:   item.assignment?.team?.name || '',
+    origem:        item.proposal?.origin?.name || '',
     proposta: {
       valor_referencia: String(item.proposal?.reference_amount || '0'),
+      valor_liberado:   String(item.proposal?.released_amount || '0'),
+      valor_financiado: String(item.proposal?.financed_amount || '0'),
       produto_id:       String(item.proposal?.product?.id || ''),
+      produto_nome:     item.proposal?.product?.name || '',
     },
     datas: {
       pagamento: item.stage === 'paid' ? payDate : null,
@@ -363,7 +368,8 @@ function convertV3Proposal(item) {
 
 // dateType: 'payment' | 'created' | 'updated' | ...  (date_type da API)
 // stages:   [] = todos   ['paid'] = só pagos
-async function getProposalsV3(startDate, endDate, sellerIds = [], dateType = 'payment', stages = []) {
+// ttlMs: o cron usa 8 min (maior que seu intervalo); o placar ao vivo pede menos
+async function getProposalsV3(startDate, endDate, sellerIds = [], dateType = 'payment', stages = [], ttlMs = 8 * 60 * 1000) {
   const token = process.env.NEWCORBAN_PROPOSALS_TOKEN;
   if (!token) throw new Error('NEWCORBAN_PROPOSALS_TOKEN não configurado');
 
@@ -423,14 +429,14 @@ async function getProposalsV3(startDate, endDate, sellerIds = [], dateType = 'pa
       page++;
     } while (page <= lastPage);
 
-    // TTL de 8 min — maior que o intervalo do cron (5 min) para evitar re-fetch a cada rodada
-    cacheSet(cacheKey, acc, 8 * 60 * 1000);
+    cacheSet(cacheKey, acc, ttlMs);
     console.log(`[NC v3] ${dateType}${stages.length ? ` stage=${stages.join(',')}` : ''}: ${Object.keys(acc).length} registros (${startDate}→${endDate})`);
     return acc;
   })();
 
   _inflight.set(cacheKey, promise);
-  promise.finally(() => _inflight.delete(cacheKey));
+  // .finally() deriva uma nova promise: sem o .catch() ela rejeita sozinha e vira unhandledRejection
+  promise.finally(() => _inflight.delete(cacheKey)).catch(() => {});
   return promise;
 }
 

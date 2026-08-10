@@ -6,10 +6,11 @@ import ShellRankingIndividual from '../pages/ShellRankingIndividual'
 import ShellRankingToday from '../pages/ShellRankingToday'
 import ShellConfig from '../pages/ShellConfig'
 import ShellMyGroup from '../pages/ShellMyGroup'
+import ShellCampaigns from '../pages/ShellCampaigns'
 import { applyTheme, writeThemeCookie } from '../utils/theme'
 import '../shell.css'
 
-const PAGE_TITLES = { ranking: 'Ranking Equipe', rankingind: 'Ranking Individual', rankingtoday: 'Pontos do Dia', config: 'Configuração', meugrupo: 'Meu Grupo' }
+const PAGE_TITLES = { campanhas: 'Campanhas', ranking: 'Ranking Equipe', rankingind: 'Ranking Individual', rankingtoday: 'Pontos do Dia', config: 'Configuração', meugrupo: 'Meu Grupo' }
 
 export default function Shell() {
   const { user, logout } = useAuth()
@@ -66,6 +67,10 @@ export default function Shell() {
         </div>
 
         <nav className="sb-nav">
+          <div className={`sb-item ${page === 'campanhas' ? 'active' : ''}`} onClick={() => navTo('campanhas')}>
+            <div className="sb-item-icon">▦</div>
+            <span className="sb-item-lbl">Campanhas</span>
+          </div>
           <div className={`sb-item ${page === 'ranking' ? 'active' : ''}`} onClick={() => navTo('ranking')}>
             <div className="sb-item-icon">🏆</div>
             <span className="sb-item-lbl">Ranking Equipe</span>
@@ -150,6 +155,9 @@ export default function Shell() {
         </div>
 
         <div className="pages">
+          <div className={`page ${page === 'campanhas' ? 'active' : ''}`}>
+            {page === 'campanhas' ? <ShellCampaigns /> : null}
+          </div>
           <div className={`page ${page === 'ranking' ? 'active' : ''}`}>
             <ShellRanking />
           </div>

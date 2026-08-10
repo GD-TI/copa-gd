@@ -26,3 +26,5 @@ backend/uploads/
 .DS_Store
 Thumbs.db
 *.log
+# Estado efêmero do skill de design
+.impeccable/

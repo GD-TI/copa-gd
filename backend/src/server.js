@@ -23,6 +23,7 @@ const adminRoutes = require('./routes/admin');
 const worldcupRoutes = require('./routes/worldcup');
 const { syncMatchesFromApi } = require('./routes/worldcup');
 const settingsRoutes = require('./routes/settings');
+const campaignRoutes = require('./routes/campaigns');
 const { router: eventsRouter } = require('./routes/events');
 const { startScheduler } = require('./services/scheduler');
 const { seed } = require('./db/seed');
@@ -89,6 +90,7 @@ app.use('/api/scores', scoreRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/worldcup', worldcupRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/campaigns', campaignRoutes);
 app.use('/api/events', eventsRouter);
 
 app.get('/api/health', (req, res) => {
