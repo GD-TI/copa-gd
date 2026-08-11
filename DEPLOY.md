@@ -86,7 +86,31 @@ disso, apague as linhas da campanha em `campaign_results` também.
 **O `.env` local não pode apontar para o banco de produção.** Já apontou, e um
 teste local acabou congelando a campanha real. O `docker-compose.yml` cai no
 Postgres do container quando `DATABASE_URL` não está definida — deixe assim em
-dev.
+dev. A linha está comentada no `.env` desde 11/08/2026.
+
+Para trabalhar com dados de verdade sem tocar em produção, copie o banco (leitura
+na origem, escrita só no container):
+
+```bash
+# dump de produção
+docker exec -e PGPASSWORD='SENHA' copa-gd-postgres-1 \
+  pg_dump --no-owner --no-acl -h 191.252.159.244 -p 55432 -U copa_app -d copa_gd > /tmp/prod.sql
+
+# recria o local do zero e restaura
+docker exec copa-gd-postgres-1 psql -U copa_user -d postgres -c \
+  "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='copa_gd' AND pid <> pg_backend_pid()"
+docker exec copa-gd-postgres-1 psql -U copa_user -d postgres -c "DROP DATABASE IF EXISTS copa_gd"
+docker exec copa-gd-postgres-1 psql -U copa_user -d postgres -c "CREATE DATABASE copa_gd OWNER copa_user"
+docker exec -i copa-gd-postgres-1 psql -U copa_user -d copa_gd < /tmp/prod.sql
+```
+
+Recriar o database é necessário: restaurar por cima do `schema.sql` que o
+container aplica na primeira subida deixa `users` e `groups` vazios por conflito
+de definição, e o resto entra pela metade com erro de chave estrangeira.
+
+**Variável de ambiente nova exige `docker compose up -d`, não `restart`.**
+`restart` reaproveita o container existente, que carrega o ambiente de quando foi
+criado. Só código pega com `restart`, porque `./backend/src` é volume.
 
 **O `.env` é gitignored e não tem backup.** Uma reescrita do arquivo derruba um
 segredo em silêncio. Antes de mexer: `cp .env .env.save`. O

@@ -17,6 +17,16 @@
 **Docker local:** `docker compose build backend` → `docker compose up -d backend`  
 **Nunca** usar `docker compose up --build` (causa "file already closed"). Sempre separar build e up.
 
+| Mudou | Comando |
+|-------|---------|
+| Código do backend | `docker compose restart backend` — `./backend/src` é volume, não precisa rebuild |
+| Variável no `.env` | `docker compose up -d backend` — **`restart` não serve**: o container carrega o ambiente de quando foi criado |
+| Dependência (`package.json`) | `docker compose build backend` → `docker compose up -d backend` |
+
+**Frontend em `localhost:3010`** (o compose mapeia `3010 → 3000`). A porta 3000 do host pode estar ocupada por outro projeto.
+
+**`DATABASE_URL` fica comentada no `.env`** — sem ela, o compose usa o Postgres do container. Apontar o dev para o banco de produção já causou congelamento acidental de campanha real. Para ter dados reais localmente, copie o banco: ver [`DEPLOY.md`](DEPLOY.md).
+
 **Website Builder Node.js:** ver seção [Deploy — Hostinger / Website Builder](#deploy--hostinger--website-builder-nodejs) e arquivo `website-builder.json`.
 
 ### Arquivos de infra na raiz
@@ -767,7 +777,7 @@ O arquivo `frontend/dist/` gerado contém a URL do backend embutida.
 
 | Variável | Onde | Valor |
 |----------|------|-------|
-| `CORS_ORIGIN` | Backend `.env` | URL do seu domínio Hostinger (ex: `https://copa.grupodigital.com.br`) |
+| `CORS_ORIGIN` | Backend `.env` | URL do domínio do frontend. O domínio real é **`copa.grupodigitalsf.com.br`** (com `sf`) — não `copa.grupodigital.com.br`, que não existe e já custou tempo de diagnóstico. Hoje é desnecessário: com `SERVE_STATIC=true` a API e o front saem da mesma origem |
 | `PUBLIC_BACKEND_URL` | Backend `.env` | URL pública do backend (ex: `http://191.252.159.244:3001`) |
 | `VITE_API_URL` | **Build time** frontend | Mesma URL do `PUBLIC_BACKEND_URL` |
 
