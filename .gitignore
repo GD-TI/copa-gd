@@ -28,3 +28,5 @@ Thumbs.db
 *.log
 # Estado efêmero do skill de design
 .impeccable/
+.env.save
+.env.bak

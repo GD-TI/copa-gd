@@ -700,6 +700,15 @@ Os testes injetam stubs em `require.cache` para `config/db`, `middleware/auth`, 
 
 ---
 
+## Deploy
+
+> ⚠️ **O que roda hoje em produção é VPS + PM2 + nginx — ver [`DEPLOY.md`](DEPLOY.md).**
+> As duas seções abaixo (Modo Split e Hostinger Website Builder) descrevem
+> alternativas que **não** estão em uso. Verificado por SSH em 11/08/2026:
+> `/opt/copa-gd` na `191.252.159.244`, PM2 app `copa-gd`, Express servindo o
+> `frontend/dist` na 3001, nginx em https://copa.grupodigitalsf.com.br.
+> Não há CI: `git push` não faz deploy.
+
 ## Deploy — Modo Split (Frontend Hostinger Estático + Backend no Servidor)
 
 > **Modo recomendado** — mais estável que Website Builder Node.js.
