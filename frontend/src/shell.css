@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════
-   COPA GD 2026 — Design System (from copa_gd_painel_.html)
+   RANKING GD — Design System (from copa_gd_painel_.html)
 ═══════════════════════════════════════════════════════════ */
 
 :root {
@@ -256,6 +256,55 @@ input[type="text"].field-input {
 [data-theme="dark"] .pill-hit  { background:rgba(5,150,105,.14); }
 [data-theme="dark"] .pill-close{ background:rgba(245,158,11,.12); }
 [data-theme="dark"] .pill-miss { background:rgba(220,38,38,.12); }
+
+/* ── Abas de fase da campanha (Todas / Ativas / Concluídas / Futuras) ────── */
+
+.camp-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 4px;
+  margin-bottom: 14px;
+  background: var(--surf3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  flex-wrap: wrap;
+}
+
+.camp-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--txt2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s ease, color .15s ease;
+}
+
+.camp-tab:hover { color: var(--txt); }
+
+.camp-tab.is-on {
+  background: var(--green);
+  color: #fff;
+  box-shadow: var(--sh-sm);
+}
+
+/* Contagem: diz de cara se a aba tem conteúdo, sem precisar clicar */
+.camp-tab-n {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--border2);
+}
+
+.camp-tab.is-on .camp-tab-n { background: rgba(255,255,255,.25); }
 
 .prog-wrap { display:flex;flex-direction:column;gap:6px; }
 .prog-header { display:flex;justify-content:space-between;align-items:center; }

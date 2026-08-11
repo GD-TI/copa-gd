@@ -1,4 +1,4 @@
-# Copa GD 2 — Guia para o Claude
+# Ranking GD — Guia para o Claude
 
 > **REGRA OBRIGATÓRIA**: Sempre que uma regra de negócio, bug fix, endpoint, ou comportamento do sistema for alterado, documentar aqui na seção correspondente antes de encerrar a tarefa.
 
@@ -222,6 +222,15 @@ base_points NUMERIC NOT NULL
 - Fallback: `setInterval` de 5 minutos caso SSE não funcione
 - Vite proxy: `timeout: 0` no `/api` para suportar conexões longas
 
+### Cache de resposta e invalidação
+
+- `middleware/responseCache.js` — chave = **`req.originalUrl`** (inclui query string; antes era `req.path`, e `?date=X` colidia com `?date=Y`)
+- TTL padrão vem do argumento (`responseCache(30_000)`); a rota pode sobrescrever gravando `res.locals.cacheTtlMs` antes do `res.json`
+- `invalidateResponseCache(prefixes?)` — sem argumento limpa tudo; com prefixos limpa só as chaves que começam com eles
+- `broadcast('scores_updated')` invalida **apenas `/api/scores`** (`SCORE_CACHE_PREFIXES` em `events.js`). O placar de campanha ficou de fora de propósito: ele lê a NewCorban e a tabela `campaigns`, não `score_events`
+  - Antes o cron (a cada 5 min) zerava o mapa inteiro e derrubava junto o cache do placar — todo telão voltava ao caminho frio no mesmo instante em que o SSE mandava todos recarregarem
+- Não cacheia resultado vazio nem resposta fora da faixa 2xx
+
 ---
 
 ## APIs Externas (NewCorban)
@@ -351,6 +360,8 @@ Upsert idempotente. `event_date` varia por tipo de regra (ver seção Regras).
 **`DATABASE_URL` externa:** pode apontar para PostgreSQL em outro servidor (VPS, Neon, rede da empresa). A Hostinger **não alcança** IPs privados (`192.168.x.x`) — só host público, VPN ou túnel. O Postgres **não sobe** no deploy Node.js da Hostinger (sem container sidecar); use banco gerenciado ou VPS + Docker Compose.
 
 **Validação:** `backend/src/config/validateDb.js` — detecta `DATABASE_URL` com placeholder (`host`, `USUARIO:SENHA@`, etc.) antes do seed; mensagens claras no `seed.js` para `ENOTFOUND`, `ECONNREFUSED`, `42P01`.
+
+**Conferência de variáveis na subida:** `backend/src/config/validateEnv.js`, chamado pelo `server.js` antes do seed. Loga `[Env] ❌` para obrigatórias (`DATABASE_URL`, `JWT_SECRET`, `NEWCORBAN_USERNAME`, `NEWCORBAN_PASSWORD`) e `[Env] ⚠️` para as que degradam sem derrubar, dizendo **o que se perde** em cada caso. Existe porque o `.env` é gitignored e sem backup: uma reescrita do arquivo derruba um segredo em silêncio e o sintoma só aparece na tela horas depois.
 
 **Senha com caracteres especiais na URL:** `#`, `+`, `*`, `@` etc. devem ser [URL-encoded](https://www.urlencoder.org/) na `DATABASE_URL`. Senha crua com `#` causa `TypeError: Invalid URL` no driver `pg`. Exemplo: senha `+abc-#7p*x` → `%2Babc-%237p%2Ax`. Com `psql` na VPS use aspas simples (sem encode).
 
@@ -572,6 +583,93 @@ Coluna esquerda = **Escada do Resgate**. A escada é cumulativa (quem chegou a 1
 - `--gd-ink` (`#1C7A4D`) é o único verde que pode carregar **texto** — `--gd1` sobre `--accent-l` dá 2,4:1 e reprova em contraste.
 - `< 1000px`: a escada continua **vertical e rolável** (`max-height: 32vh`); virá-la de lado quebra o trilho. Chips e a linha de "e segue" somem.
 
+### Arquivo de campanhas legadas (Copa GD 2026 na lista de Campanhas)
+
+A Copa GD 2026 (ranking por equipes) é um sistema **inteiramente separado** de `campaigns`/`CampaignBoard`: vive em `campaign_settings` (linha única, mutável) + `groups`/`score_events`, e é exibida por `ShellRanking.jsx` (telão "Ranking Equipe"/"Ranking Individual"), que **não é presa a nenhuma campanha** — sempre mostra o estado atual dessas tabelas. Como a Copa encerrou (31/07/2026) mas o pedido era ter um card dela na lista de Campanhas, era preciso decidir entre linkar ao vivo (simples, mas quebra silenciosamente se o sistema de equipes for reaproveitado numa campanha nova) ou congelar um snapshot. Decisão do cliente: **congelar**.
+
+- **`campaigns.legacy_kind`** (coluna que já existia no schema, nunca usada) marca uma linha como arquivo do sistema antigo. Valor usado: `'team_scoring'`.
+- **`campaigns.legacy_snapshot`** (JSONB, nova) guarda `{ groups, indRankings }` — a mesma forma que `ShellRanking.jsx` já consome ao vivo.
+- **`POST /api/campaigns/archive-legacy`** (admin): tira a foto agora, chamando `fetchGroupsRanking()` (`routes/groups.js`, extraída de `GET /groups/ranking`) e `fetchIndividualRankings()` (`routes/scores.js`, extraída de `GET /scores/individual-rankings`) — as duas rotas viraram wrappers finos dessas funções, pra não duplicar SQL/chamada à NewCorban. Idempotente: se já existe uma linha `legacy_kind='team_scoring'`, faz `UPDATE` do snapshot em vez de duplicar. Botão correspondente em `ShellCampaigns.jsx` (`ArchiveLegacyButton`) — **precisa ser clicado manualmente uma vez em produção**, não roda sozinho no boot/seed (evita side-effect numa GET, e mantém controle explícito de quando o histórico é selado).
+- **`GET /api/campaigns/:id/board`**: se `campaign.legacy_kind`, retorna `{ campaign, legacy: true, snapshot }` direto do banco — pula toda a lógica de NewCorban/escada/giro.
+- **Frontend**: `Telao` (dentro de `ShellRanking.jsx`, já 100% presentacional — recebia os dados só via props) virou `export function Telao(...)`, com uma prop nova `modes` (default `['teams','individual','today']`) pra restringir o auto-ciclo. `CampaignBoard.jsx` importa `Telao` e, se `data.legacy`, retorna só `<Telao ... modes={['teams','individual']} />` — sem "Pontos do Dia" (não existe "hoje" num histórico de meses) — pulando toda a UI de escada/giro do resto do componente.
+- **`ShellCampaigns.jsx`**: linhas com `legacy_kind` escondem a linha "Produto X · franquia" e os controles de admin (datas/Ativar/Encerrar) do `CampaignRow` — não fazem sentido pra uma linha congelada.
+
+### Endpoint `GET /api/campaigns/:id/board` — latência
+
+O caminho frio custa **duas idas à NewCorban**: `getProposalsV3` (pagas no dia, empresa inteira, paginado 100/página em série) e `listarEquipe` via `getSellerIdsPorFranquia` (`equipe.php`, cadastro completo). Elas são independentes e vão em `Promise.allSettled` — a rejeição é relançada na ordem original (propostas → cadastro → robôs → `ranking_exclusions`) para o `detail` do 502 continuar sendo o mesmo.
+
+> `allSettled` e não `all`: com `all`, a promise perdedora rejeitaria sem dono e cairia no `unhandledRejection` do `server.js`.
+
+Frescor por idade do dia (constantes no topo de `campaigns.js`):
+
+| | propostas (v3) | resposta HTTP |
+|---|---|---|
+| Dia corrente (`day === hoje`) | `TTL_DIA_VIVO` 60s | `CACHE_DIA_VIVO` 30s |
+| Dia encerrado (`day < hoje`) | `TTL_DIA_ENCERRADO` 10 min | `CACHE_DIA_ENCERRADO` 10 min |
+
+O dia corrente ficou **igual ao que era** — quem está vendendo continua vendo a própria venda entrar. Só o dia encerrado, que não recebe venda nova, troca frescor por latência.
+
+**`day` sai de `campaign.start_date`**, não de hoje (`req.query.date` sobrescreve). Campanha de vários dias mostra sempre o primeiro dia no telão.
+
+O cálculo em si mora em **`services/campaignBoard.js`** (`montarPlacar`), e não na rota, porque tem dois consumidores: o endpoint ao vivo e o congelador. Se divergirem, o número congelado deixa de ser o que o telão mostrou.
+
+### Fonte das propostas — v3 com fallback para a API antiga
+
+`buscarPropostasPagas()` escolhe a origem em tempo de execução:
+
+| Condição | Fonte | `diagnostics.source` |
+|---|---|---|
+| `NEWCORBAN_PROPOSALS_TOKEN` definido | v3 (`developers.newcorban.com.br`), `stage=paid` | `v3` |
+| Token ausente | API antiga (`POST api.newcorban.com.br/api/propostas/`), `tipo=pagamento` | `legado` |
+
+Sem o fallback, a falta do token derrubava o placar inteiro (`Placar indisponível`) — e o token é fácil de perder, porque o `.env` é gitignored e não tem backup. As credenciais da antiga (`NEWCORBAN_API_USERNAME`/`PASSWORD`) já são exigidas pelo app para outras coisas.
+
+**As duas devolvem o mesmo formato** — `convertV3Proposal` foi escrita imitando o da antiga. Conferido contra a API real em 11/08/2026: `vendedor_id` vem como número e `datas.pagamento` como `"2026-08-10 08:17:06"`, mas `montarPlacar` já normaliza com `String(...)` e `.slice(0,10)`.
+
+**Diferenças que o fallback cobre:**
+- A v3 filtra `stage=['paid']`; a antiga não tem esse filtro → registros com `api.status_api === 'CANCELADA'` ou `datas.cancelado` são descartados em `buscarPropostasPagas`
+- A antiga só enxerga **~30 dias** para trás e fixa `produto: ['7','13']` → campanha antiga ou de outro produto volta vazia. A guarda `paid_today === 0` do congelador impede que isso vire snapshot
+
+O modo legado loga um aviso na primeira vez e marca `diagnostics.source: 'legado'` na resposta — sem isso, um placar servido pela API antiga seria indistinguível de um servido pela v3. **Continue configurando o token em produção**: a antiga é documentadamente instável (ver Jun/30 e Jul/28 no histórico de bugs).
+
+### Congelamento do placar (`services/campaignFreezer.js`)
+
+Decisão do cliente (ago/2026): o placar congela **uma vez**, na virada do dia, e não muda mais.
+
+| Quando | O quê |
+|---|---|
+| Cron `5 0 * * *` (America/Sao_Paulo) | `congelarPendentes()` — 00:05 e não 00:00 para não disputar a virada com o cron de pontuação |
+| Startup do `server.js` | mesma função — cobre o servidor estar fora do ar na virada |
+| `POST /api/campaigns/:id/freeze` (master) | recongela à força; botão **🧊 Recongelar** em `ShellCampaigns.jsx`, só em campanha `closed` |
+
+**Encerrar e congelar são passos separados.** "A campanha acabou" é fato do calendário; "o resultado foi salvo" depende da NewCorban responder. `congelarPendentes()` faz `marcarConcluida()` primeiro — `status = 'closed'` sai mesmo que o congelamento adie ou falhe — e só então tenta gravar o snapshot. Sem isso, uma API fora do ar deixava a campanha `active` no banco enquanto a tela já a mostrava em "Concluídas" (o `faseDaCampanha` do `ShellCampaigns.jsx` classifica por data), e ela subia ao topo da lista pelo `ORDER BY (status = 'active') DESC`.
+
+Como `pendentes()` filtra por **ausência de resultado**, não por status, a campanha encerrada-mas-não-congelada continua na fila e tenta de novo a cada passada.
+
+- **Pendente** = `end_date < hoje` **e** sem linhas em `campaign_results` **e** `legacy_kind IS NULL`
+- Congelar grava `campaign_results` + `campaigns.frozen_diagnostics` + `status = 'closed'`, tudo em transação
+- Depois invalida `/api/campaigns/:id/board` no `responseCache` — senão o telão serviria a versão pré-congelamento por até 10 min
+- **Guarda contra leitura ruim:** se `diagnostics.paid_today === 0` (nenhum contrato pago na empresa inteira naquele dia), **adia** em vez de gravar zero para sempre. Erro na API idem — nada é gravado e a próxima passada tenta de novo. Falha de uma campanha não impede as outras
+- `force` (o botão) ignora as duas guardas
+- Pagamento confirmado pelo banco **depois** da meia-noite não entra sozinho — é para isso que existe o Recongelar
+
+**Forma da resposta congelada.** `lerCongelado` reaplica `ladderFor(contracts, …)` para devolver `next_at`, `next_prize` e `missing`, e lê `diagnostics` de `campaigns.frozen_diagnostics`.
+
+> **BUG HISTÓRICO (corrigido antes de estrear):** o ramo congelado devolvia só as colunas da tabela — sem `next_at`/`missing`/`diagnostics`. O telão lê `item.missing === null` para decidir o texto, e `undefined === null` é falso: teria renderizado **"faltam undefined para o próximo giro"**. Como nada escrevia em `campaign_results`, esse caminho nunca tinha executado.
+
+`?date=` em campanha encerrada **ignora o snapshot** e reconstrói: o congelado responde pelo dia da campanha, não por uma data arbitrária.
+
+Colunas adicionadas: `campaign_results.team`, `campaigns.frozen_diagnostics JSONB` (migrations).
+
+### Testes
+
+`npm test --prefix backend` (runner nativo do Node, sem dependência nova) — `backend/test/`:
+- `responseCache.test.js` — HIT/MISS, expiração, isolamento por query string, `res.locals.cacheTtlMs`, invalidação por prefixo
+- `board.test.js` — agregação do placar (filtros de produto/franquia/robô/mesmo-dia, escada, diagnóstico), paralelismo, TTL por idade do dia, 502 preservado, caminho congelado e seus campos
+- `freezer.test.js` — fila de pendentes, gravação em transação, idempotência, `force`, guardas contra leitura ruim, isolamento de falha entre campanhas
+
+Os testes injetam stubs em `require.cache` para `config/db`, `middleware/auth`, `services/externalApi` e `services/franquiaSellers` — não precisam de banco nem de credenciais.
+
 ### Outros
 
 - `main.jsx`: **sem** `React.StrictMode` (causava double-mount e double requests em dev)
@@ -697,7 +795,7 @@ App **fullstack em um único processo**: Express serve API + arquivos estáticos
 | **Raiz** | Repositório (`.`) |
 | **Health check** | `GET /api/health` → `{ mode: "fullstack" }` se front servido |
 
-Log esperado em produção: `🏆 Copa GD rodando em http://0.0.0.0:PORT (API + frontend)`.  
+Log esperado em produção: `🏆 Ranking GD rodando em http://0.0.0.0:PORT (API + frontend)`.  
 Se aparecer só `(API)`: falta `SERVE_STATIC=true` ou `frontend/dist` não foi gerado no build.
 
 ### Git → deploy
@@ -957,5 +1055,12 @@ VITE_API_URL=http://localhost:3001
 | Jul/28 | Force recalc removia META_DIA/META_SEMANA de datas históricas dentro da janela 30 dias | A API filtra propostas por data de **cadastro** (earlyStart→hoje). Proposta registrada antes de earlyStart mas **paga** em data histórica (ex: cadastro 20/jun, pago 29/jun, earlyStart 28/jun) some da janela → recalc retorna 0 → evento deletado. Fix: `canDelete = isToday` (não `isToday\|\|isForce`) — eventos históricos só sobem via upsert, nunca são removidos em force. DELETE upfront só roda para hoje. |
 | Jul/30 | API v3 retornava 429 (rate limit) com `per_page=500` causando 422; scoring abortava | `per_page=500` rejeitado pela API (máx=100). Fix: revertido para 100; retry com backoff 10/20/30s em 429; cache TTL v3 aumentado para 8 min (> intervalo do cron de 5 min). |
 | Jul/30 | Scoring continuava calculando pontos após fim da campanha (31/07) | `scoring.js` passou a ler `end_date` de `campaign_settings`; usa `campaignEnd = min(end_date, today)` como teto do período; limpeza automática de eventos pós-`end_date` na primeira rodada. Leaderboard em `groups.js` e `scores.js` usa `LEAST(CURRENT_DATE, end_date)`. |
+| Ago/11 | Placar da campanha demorava a abrir | Três causas somadas: (1) `broadcast('scores_updated')` chamava `invalidateResponseCache()` sem argumento e o cron, a cada 5 min, zerava o cache do placar junto com o dos scores — logo o clique quase nunca pegava cache quente, e a limpeza coincidia com o SSE mandando todos os telões recarregarem; (2) `getProposalsV3` e `getSellerIdsPorFranquia` eram aguardadas em série, somando duas idas à NewCorban; (3) o placar de um dia já encerrado, que não muda mais, era refeito a cada 60s. Fix: invalidação por prefixo (`SCORE_CACHE_PREFIXES = ['/api/scores']`), `Promise.allSettled` para as chamadas independentes, e TTL de 10 min para dia encerrado (dia corrente inalterado). Equivalência verificada em 1500 cenários aleatórios contra a versão anterior — JSON idêntico. |
+| Ago/11 | Placar morria inteiro quando faltava `NEWCORBAN_PROPOSALS_TOKEN` | `getProposalsV3` lança na primeira linha se o token não existe, e o `.env` é gitignored sem backup — perder a linha derrubava placar, scoring e congelamento de uma vez, com a tela mostrando só "Placar indisponível". Fix: `buscarPropostasPagas()` cai na API antiga (`tipo=pagamento`, credenciais que o app já exige) quando não há token, descartando cancelada/estornada para compensar a falta do `stage=paid`. `diagnostics.source` diz qual fonte respondeu. |
+| Ago/11 | Placar de campanha encerrada nunca congelava | `campaign_results` só era lida, nunca escrita — campanha encerrada reconstruía da NewCorban para sempre, e "Encerrar" no painel só trocava o rótulo. Fix: `services/campaignFreezer.js` + cron `5 0 * * *` + congelamento na startup + `POST /api/campaigns/:id/freeze` (botão Recongelar). Cálculo extraído para `services/campaignBoard.js`, compartilhado entre o endpoint ao vivo e o congelador. |
+| Ago/11 | Ramo congelado devolveria `next_at`/`missing`/`diagnostics` ausentes | O telão renderizaria "faltam **undefined** para o próximo giro" e perderia a linha "N contratos não entraram". Nunca apareceu porque o caminho jamais executou. Fix: `lerCongelado` reaplica `ladderFor` e lê `campaigns.frozen_diagnostics`; `campaign_results.team` passou a ser gravada. |
+| Ago/11 | `responseCache` cacheava por `req.path`, ignorando a query string | `?date=2026-08-05` e `?date=2026-08-10` compartilhavam a entrada do placar e um servia o dia do outro. Latente enquanto o `CampaignBoard` não mandava `date`, mas o TTL de 10 min para dia encerrado transformaria isso em dado errado na tela. Chave passou a ser `req.originalUrl`. |
 | Ago/10 | Placar de campanha contava a empresa inteira; faltava restringir à matriz | Nova coluna `campaigns.franquia_ids TEXT[]` (NULL = todas as franquias) + `backend/src/services/franquiaSellers.js`, que monta o mapa vendedor→franquia a partir do cadastro de consultores do NewCorban (`getAllUsers`, cache 15 min). O nome do campo é resolvido por sondagem (`franquia_id`, `franchise_id`, `franquia.id`, `unidade_id`, `filial_id`…) porque não é documentado; se nenhum candidato existir, **lança** em vez de devolver conjunto vazio — filtrar por campo inexistente esvaziaria o telão em silêncio. **A matriz é a AUSÊNCIA de franquia, não um id** — consultor da sede vem com `franquia_id` nulo (equipes PROPÓSITO, GARRA, DETERMINAÇÃO, HOME, ADM, ABUNDANCIA); `franquia_id = 1` é a **Franquia Mauá**, desativada desde 2024. Por isso o token `'matriz'` em `franquia_ids`. Franquias reais: 6 Tatuapé, 7 Guarulhos Centro, 24 Gabriel Machado, 865 Indaiatuba. Missão Resgate fica com `ARRAY['matriz']`. Diagnóstico `other_franquia` na resposta do placar. Script `scripts/descobrir-franquia.js` mostra os campos reais do cadastro e a distribuição de valores. |
 | Ago/10 | Data de cadastro da API v3 cortada da string crua — se `created_at` vier em UTC, contrato digitado após 21h BRT cai no dia seguinte | `convertV3Proposal` fazia `String(item.dates.created_at).slice(0,10)`, sem conversão de fuso. Fix: `toBrazilDateStr()` em `externalApi.js` converte para `America/Sao_Paulo` antes de extrair a data, **só** quando o valor traz fuso explícito (`Z` ou offset); timestamp ingênuo (`2026-08-10 14:32:11`) é horário local e é lido como está, então a função é no-op se a API nunca mandou UTC. Aplicado a `datas.cadastro` e `datas.pagamento` — atinge todo consumidor da v3. Blast radius antes do fix: na Copa a data de cadastro só alimenta CONVERSAO (taxa agregada) e INDICACAO (acumulado da campanha), ambas tolerantes a deslocamento de um dia — por isso nunca apareceu. Em campanha com `require_same_day` a data vira porteira por contrato e o erro fica visível. `scripts/verificar-placar.js` espelha a conversão e reporta quantos registros trazem fuso explícito. |
+| Ago/11 | Nome do produto ainda dizia "Copa GD 2026" em todo canto visível, mesmo com a competição por equipes encerrada em 31/07 | Renomeado para **"Ranking GD"** — decisão já registrada em `PRODUCT.md` numa sessão anterior junto com o fim da identidade "Copa/futebol" (não revertida aqui: cores `copa-*`/emoji continuam, só o texto mudou). Trocado em: `index.html` (title), `Shell.jsx` (nome na sidebar), `Login.jsx` (hero + rodapé), `ShellRanking.jsx` (cabeçalho e ticker do telão de equipes), `ShellConfig.jsx` (nome padrão e hint do período), `server.js` (log de start), `shell.css` (comentário), `.env.example` + `backend/package.json` + `frontend/package.json` (descrições). **`campaign_settings.name`**: default novo em `seed.js` **e** `schema.sql` (bancos novos), mas o default só vale para banco vazio — quem já tinha a linha antiga (produção) ganhou `migrateCampaignSettingsName()` em `migrations.js`: `UPDATE ... WHERE name = 'Copa GD 2026'`, condicional para não sobrescrever se o admin já tiver renomeado pelo painel. Fora do escopo (não tocado): `localStorage` (`copa_token`/`copa_user`), cookie `copa_theme`, `package.json`/`website-builder.json` (`name: "copa-gd"`, identificador interno de build/deploy), e as páginas mortas `ShellDashboard.jsx`/`Ranking.jsx`/`admin/CampaignSettings.jsx` (existem no repo mas não são importadas por `App.jsx`/`Shell.jsx` — nunca renderizam). |
+| Ago/11 | Sem jeito de ver a Copa GD 2026 (encerrada) na lista de Campanhas, junto das campanhas novas | Ver seção "Arquivo de campanhas legadas" acima. Resumo: `campaigns.legacy_kind`/`legacy_snapshot` (colunas novas — a primeira já existia sem uso), `POST /api/campaigns/archive-legacy` tira uma foto do ranking de equipes + individuais e grava pra sempre; `GET /:id/board` serve essa foto direto quando `legacy_kind` está setado; `CampaignBoard.jsx` reaproveita o `Telao` de `ShellRanking.jsx` (que virou export nomeado) em vez de montar uma view nova. Botão precisa ser clicado manualmente em produção — não roda no boot. |

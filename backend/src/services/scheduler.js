@@ -1,5 +1,6 @@
 const cron = require('node-cron');
 const { calculateScores } = require('./scoring');
+const { congelarPendentes } = require('./campaignFreezer');
 const { broadcast } = require('../routes/events');
 
 let isRunning = false;
@@ -25,7 +26,17 @@ function startScheduler() {
     timezone: 'America/Sao_Paulo',
   });
 
+  // Congelamento do placar de campanha na virada do dia. 00:05 e não 00:00 para
+  // não disputar a virada com o cron de pontuação.
+  cron.schedule('5 0 * * *', async () => {
+    console.log('[Scheduler] 🧊 Congelando placares de campanhas encerradas...');
+    await congelarPendentes();
+  }, {
+    timezone: 'America/Sao_Paulo',
+  });
+
   console.log('[Scheduler] ⏰ Agendador de pontuações iniciado (a cada 5 min).');
+  console.log('[Scheduler] 🧊 Congelamento de campanhas agendado (00:05).');
 }
 
 module.exports = { startScheduler };

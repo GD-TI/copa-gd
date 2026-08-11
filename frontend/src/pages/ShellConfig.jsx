@@ -633,7 +633,7 @@ export default function ShellConfig() {
   const isTeamAdmin = user?.role === 'team_admin'
   const [cfgStart, setCfgStart] = useState('')
   const [cfgEnd, setCfgEnd]     = useState('')
-  const [cfgName, setCfgName]   = useState('Copa GD 2026')
+  const [cfgName, setCfgName]   = useState('Ranking GD')
   const [groups, setGroups]     = useState([])
   const [draft, setDraft]       = useState({})
   const [savingPeriod, setSavingPeriod] = useState(false)
@@ -764,7 +764,7 @@ export default function ShellConfig() {
         <div className="field-group">
           <label className="field-label">Data de encerramento</label>
           <input type="date" className="field-input" value={cfgEnd} onChange={e => setCfgEnd(e.target.value)} />
-          <span className="field-hint">Último dia da campanha Copa GD</span>
+          <span className="field-hint">Último dia contabilizado no ranking</span>
         </div>
       </div>
       <div style={{ display: 'flex', gap: 10, marginBottom: 28 }}>

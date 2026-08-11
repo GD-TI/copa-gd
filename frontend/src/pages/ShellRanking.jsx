@@ -324,11 +324,11 @@ function TelaoTodayView({ todayActivity }) {
   )
 }
 
-function Telao({ groups, campaign, indRankings, todayActivity, onClose }) {
+export function Telao({ groups, campaign, indRankings, todayActivity, onClose, modes = ['teams', 'individual', 'today'] }) {
   const [tlLight, setTlLight] = useState(false)
   const [clock, setClock] = useState('')
   const [dateStr, setDateStr] = useState('')
-  const [tlMode, setTlMode]   = useState('teams') // 'teams' | 'individual' | 'today'
+  const [tlMode, setTlMode]   = useState(modes[0]) // um de `modes`
   const [tlFade, setTlFade]   = useState(false)
 
   useEffect(() => {
@@ -353,18 +353,21 @@ function Telao({ groups, campaign, indRankings, todayActivity, onClose }) {
     return () => { document.exitFullscreen?.().catch(() => {}) }
   }, [])
 
-  // Cicla entre equipes → individual → pontos do dia a cada 5 minutos com fade
+  // Cicla entre os modos disponíveis a cada 5 minutos com fade. Um snapshot
+  // congelado passa só ['teams','individual'] — sem intervalo pra ciclar,
+  // fica parado no único modo (não faz sentido "Pontos do Dia" de um
+  // histórico que não tem "hoje").
   useEffect(() => {
-    const MODES = ['teams', 'individual', 'today']
+    if (modes.length < 2) return
     const t = setInterval(() => {
       setTlFade(true)
       setTimeout(() => {
-        setTlMode(m => MODES[(MODES.indexOf(m) + 1) % MODES.length])
+        setTlMode(m => modes[(modes.indexOf(m) + 1) % modes.length])
         setTlFade(false)
       }, 500)
     }, 5 * 60 * 1000)
     return () => clearInterval(t)
-  }, [])
+  }, [modes])
 
   const total = groups.reduce((a, g) => a + (Number(g.total_points) || 0), 0)
   const totalGoal = groups.reduce((a, g) => a + (Number(g.goal_points) || 0), 0)
@@ -408,7 +411,7 @@ function Telao({ groups, campaign, indRankings, todayActivity, onClose }) {
             <div className="tl-hd-tag">Grupo Digital · Campanha Comercial</div>
           </div>
           <div className="tl-hd-c">
-            <div className="tl-hd-title">⚽ COPA GD 2026</div>
+            <div className="tl-hd-title">🏆 RANKING GD</div>
             <div className="tl-hd-sub">
               {tlMode === 'teams' ? 'Ranking por Equipe' : tlMode === 'individual' ? '🏅 Rankings Individuais' : '⚡ Pontos do Dia'}
             </div>
@@ -483,7 +486,7 @@ function Telao({ groups, campaign, indRankings, todayActivity, onClose }) {
 
         {/* Ticker */}
         <div className="tl-ticker">
-          <div className="tl-ticker-lbl">⚽ Copa GD</div>
+          <div className="tl-ticker-lbl">🏆 Ranking GD</div>
           <div className="tl-ticker-track">
             <div className="tl-ticker-inner">
               {[...groups, ...groups].map((g, i) => (

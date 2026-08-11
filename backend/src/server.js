@@ -158,10 +158,11 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, HOST, async () => {
   const mode = serveStatic && distExists ? 'API + frontend' : 'API';
-  console.log(`🏆 Copa GD rodando em http://${HOST}:${PORT} (${mode})`);
+  console.log(`🏆 Ranking GD rodando em http://${HOST}:${PORT} (${mode})`);
   console.log(`[Server] NODE_ENV=${process.env.NODE_ENV || 'unset'} SERVE_STATIC=${process.env.SERVE_STATIC || 'unset'} dist=${distExists ? 'ok' : 'AUSENTE'}`);
   if (!distExists && serveStatic) console.warn(`[Server] dist esperado em: ${frontendDist}`);
   setTimeout(async () => {
+    require('./config/validateEnv').validateEnv();
     const dbCheck = validateDatabaseUrl();
     if (!dbCheck.ok) {
       console.error(`[Server] ⚠️  ${dbCheck.message}`);
@@ -174,6 +175,11 @@ app.listen(PORT, HOST, async () => {
     } catch (e) {
       console.error('[Server] Erro no seed/scheduler:', e.message);
     }
+
+    // Congela placares de campanhas que venceram enquanto o app estava fora do
+    // ar — sem isso, um deploy na virada faria a campanha perder a janela do cron.
+    require('./services/campaignFreezer').congelarPendentes()
+      .catch(e => console.warn('[Server] Congelamento na startup (não crítico):', e.message));
 
     // Sincroniza jogos do Brasil na startup (silencioso — não recalcula pontos)
     const footballKey = process.env.FOOTBALL_API_KEY;

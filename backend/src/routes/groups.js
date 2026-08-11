@@ -59,61 +59,67 @@ router.get('/', authMiddleware, async (req, res) => {
   }
 });
 
+/**
+ * Ranking de equipes por período. Extraída da rota para ser reaproveitada
+ * pelo arquivamento da Copa GD 2026 (POST /api/campaigns/archive-legacy) sem
+ * duplicar a query — ver CLAUDE.md, seção "Arquivo de campanhas legadas".
+ */
+async function fetchGroupsRanking({ start, end } = {}) {
+  if (!start || !end) {
+    const { rows: camp } = await db.query(
+      'SELECT start_date, end_date, name FROM campaign_settings ORDER BY id DESC LIMIT 1'
+    );
+    if (camp.length > 0) {
+      const fmtD = v => (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10);
+      start = fmtD(camp[0].start_date);
+      end   = fmtD(camp[0].end_date);
+    } else {
+      const now = new Date();
+      start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+      end   = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+    }
+  }
+
+  const { rows } = await db.query(`
+    SELECT
+      g.id, g.name, g.photo_url, g.daily_goal_value, g.weekly_goal_value, g.goal_points,
+      COUNT(DISTINCT gm.user_id)::int AS member_count,
+      COALESCE((
+        SELECT SUM(se.points) FROM score_events se
+        WHERE se.group_id = g.id AND se.event_date BETWEEN $1 AND $2
+      ), 0) + COALESCE((
+        SELECT SUM(pa.points) FROM point_adjustments pa
+        WHERE pa.group_id = g.id AND pa.adjustment_date BETWEEN $1 AND $2
+      ), 0) AS total_points
+    FROM groups g
+    LEFT JOIN group_memberships gm ON g.id = gm.group_id
+    WHERE g.active = true
+    GROUP BY g.id, g.name, g.photo_url, g.daily_goal_value, g.weekly_goal_value, g.goal_points
+    ORDER BY total_points DESC
+  `, [start, end]);
+
+  // Buscar campanha para o frontend
+  const { rows: camp } = await db.query(
+    'SELECT id, name, start_date, end_date FROM campaign_settings ORDER BY id DESC LIMIT 1'
+  );
+
+  const fmt = v => (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10);
+
+  const campaign = camp[0]
+    ? { ...camp[0], start_date: fmt(camp[0].start_date), end_date: fmt(camp[0].end_date) }
+    : null;
+
+  return {
+    groups: rows,
+    campaign,
+    period: { start: fmt(start), end: fmt(end) },
+  };
+}
+
 // GET /api/groups/ranking — ranking por período da campanha (público)
 router.get('/ranking', async (req, res) => {
   try {
-    // Período: query params ou busca na campanha configurada
-    let { start, end } = req.query;
-
-    if (!start || !end) {
-      const { rows: camp } = await db.query(
-        'SELECT start_date, end_date, name FROM campaign_settings ORDER BY id DESC LIMIT 1'
-      );
-      if (camp.length > 0) {
-        const fmtD = v => (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10);
-        start = fmtD(camp[0].start_date);
-        end   = fmtD(camp[0].end_date);
-      } else {
-        const now = new Date();
-        start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-        end   = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
-      }
-    }
-
-    const { rows } = await db.query(`
-      SELECT
-        g.id, g.name, g.photo_url, g.daily_goal_value, g.weekly_goal_value, g.goal_points,
-        COUNT(DISTINCT gm.user_id)::int AS member_count,
-        COALESCE((
-          SELECT SUM(se.points) FROM score_events se
-          WHERE se.group_id = g.id AND se.event_date BETWEEN $1 AND $2
-        ), 0) + COALESCE((
-          SELECT SUM(pa.points) FROM point_adjustments pa
-          WHERE pa.group_id = g.id AND pa.adjustment_date BETWEEN $1 AND $2
-        ), 0) AS total_points
-      FROM groups g
-      LEFT JOIN group_memberships gm ON g.id = gm.group_id
-      WHERE g.active = true
-      GROUP BY g.id, g.name, g.photo_url, g.daily_goal_value, g.weekly_goal_value, g.goal_points
-      ORDER BY total_points DESC
-    `, [start, end]);
-
-    // Buscar campanha para o frontend
-    const { rows: camp } = await db.query(
-      'SELECT id, name, start_date, end_date FROM campaign_settings ORDER BY id DESC LIMIT 1'
-    );
-
-    const fmt = v => (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10);
-
-    const campaign = camp[0]
-      ? { ...camp[0], start_date: fmt(camp[0].start_date), end_date: fmt(camp[0].end_date) }
-      : null;
-
-    res.json({
-      groups: rows,
-      campaign,
-      period: { start: fmt(start), end: fmt(end) },
-    });
+    res.json(await fetchGroupsRanking(req.query));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao buscar ranking' });
@@ -498,3 +504,4 @@ router.put('/:id', authMiddleware, uploadPhoto('photo'), async (req, res) => {
 });
 
 module.exports = router;
+module.exports.fetchGroupsRanking = fetchGroupsRanking;

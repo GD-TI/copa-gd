@@ -121,13 +121,17 @@ router.get('/rules', authMiddleware, async (req, res) => {
   }
 });
 
-// GET /api/scores/individual-rankings - top 3 melhor vendedor e rei das assistências
-router.get('/individual-rankings', authMiddleware, responseCache(60_000), async (req, res) => {
-  try {
+/**
+ * Rankings individuais (melhor vendedor + rei das assistências) do período
+ * configurado. Extraída da rota para ser reaproveitada pelo arquivamento da
+ * Copa GD 2026 (POST /api/campaigns/archive-legacy) sem duplicar a lógica —
+ * ver CLAUDE.md, seção "Arquivo de campanhas legadas".
+ */
+async function fetchIndividualRankings() {
     const { rows: cs } = await db.query(
       'SELECT start_date, end_date FROM campaign_settings ORDER BY id DESC LIMIT 1'
     );
-    if (!cs[0]) return res.json({ melhor_vendedor: [], rei_assistencias: [] });
+    if (!cs[0]) return { melhor_vendedor: [], rei_assistencias: [] };
 
     const today          = new Date().toISOString().slice(0, 10);
     const campaignStart  = new Date(cs[0].start_date).toISOString().slice(0, 10);
@@ -146,7 +150,7 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
     const activeCorbans = new Set(activeMembers.map(r => String(r.corban_id)));
 
     if (activeCorbans.size === 0) {
-      return res.json({ melhor_vendedor: [], rei_assistencias: [] });
+      return { melhor_vendedor: [], rei_assistencias: [] };
     }
 
     // ranking.php não tem limite de 30 dias → usa campaignStart diretamente para período completo
@@ -222,10 +226,16 @@ router.get('/individual-rankings', authMiddleware, responseCache(60_000), async 
       indicacao_valor: round2(v.indicacao_valor),
     });
 
-    res.json({
+    return {
       melhor_vendedor:   topVendor.map(enrich),
       rei_assistencias:  topAssistencias.map(enrich),
-    });
+    };
+}
+
+// GET /api/scores/individual-rankings - top 3 melhor vendedor e rei das assistências
+router.get('/individual-rankings', authMiddleware, responseCache(60_000), async (req, res) => {
+  try {
+    res.json(await fetchIndividualRankings());
   } catch (err) {
     console.error('[IndividualRankings]', err.message);
     res.status(500).json({ error: 'Erro ao buscar rankings individuais' });
@@ -352,3 +362,4 @@ router.post('/calculate', authMiddleware, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.fetchIndividualRankings = fetchIndividualRankings;

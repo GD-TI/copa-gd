@@ -133,7 +133,7 @@ CREATE TRIGGER trigger_groups_updated_at
 -- Configurações da campanha (período, nome)
 CREATE TABLE IF NOT EXISTS campaign_settings (
   id SERIAL PRIMARY KEY,
-  name VARCHAR(150) NOT NULL DEFAULT 'Copa GD 2026',
+  name VARCHAR(150) NOT NULL DEFAULT 'Ranking GD',
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
   created_by INTEGER REFERENCES users(id),

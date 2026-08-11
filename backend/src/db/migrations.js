@@ -1,5 +1,25 @@
 const db = require('../config/db');
 
+/**
+ * Virada de nome: "Copa GD 2026" (a competição por equipes, encerrada em
+ * 31/07/2026) deixa de dar nome à plataforma — o produto passa a se chamar
+ * "Ranking GD". O default da coluna já mudou em seed.js, mas isso só vale
+ * para bancos novos; quem já tinha a linha em `campaign_settings` fica com
+ * o nome antigo para sempre sem este UPDATE.
+ *
+ * Só renomeia se o valor ainda for exatamente o antigo — se o admin já
+ * renomeou pelo painel (Configuração → Período da Campanha), essa escolha
+ * não pode ser desfeita por deploy (mesmo cuidado do backfill de franquia_ids
+ * logo abaixo).
+ */
+async function migrateCampaignSettingsName() {
+  const { rowCount } = await db.query(`
+    UPDATE campaign_settings SET name = 'Ranking GD', updated_at = NOW()
+     WHERE name = 'Copa GD 2026'
+  `);
+  if (rowCount) console.log('[Migration] campaign_settings.name: "Copa GD 2026" → "Ranking GD"');
+}
+
 /** Permite role team_admin + tabela admin_team_scopes (idempotente). */
 async function migrateTeamAdminSupport() {
   const { rows: roleChecks } = await db.query(`
@@ -76,6 +96,10 @@ async function migrateCampaigns() {
   // Franquias que participam. NULL = empresa inteira (comportamento anterior).
   await db.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS franquia_ids TEXT[]`);
 
+  // Foto congelada de uma campanha do sistema antigo (equipes/score_events), marcada
+  // por legacy_kind. Ver POST /api/campaigns/archive-legacy em routes/campaigns.js.
+  await db.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS legacy_snapshot JSONB`);
+
   // Classificação congelada no encerramento — o histórico não pode mudar se a API mudar
   await db.query(`
     CREATE TABLE IF NOT EXISTS campaign_results (
@@ -91,6 +115,11 @@ async function migrateCampaigns() {
       PRIMARY KEY (campaign_id, position)
     )
   `);
+
+  // Equipe do vendedor no momento do congelamento, e o diagnóstico do dia — sem
+  // eles o telão de campanha encerrada perde a linha "N contratos não entraram".
+  await db.query(`ALTER TABLE campaign_results ADD COLUMN IF NOT EXISTS team VARCHAR(150)`);
+  await db.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS frozen_diagnostics JSONB`);
 
   // Contas não-humanas fora do placar (a IA é a linha de base, não concorrente)
   await db.query(`
@@ -168,4 +197,4 @@ async function migrateCampaigns() {
   if (fr) console.log('[Migration] "Missão Resgate": restrita à matriz (consultor sem franquia)');
 }
 
-module.exports = { migrateTeamAdminSupport, migrateCampaigns };
+module.exports = { migrateTeamAdminSupport, migrateCampaigns, migrateCampaignSettingsName };

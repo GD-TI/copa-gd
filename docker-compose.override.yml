@@ -1,0 +1,4 @@
+services:
+  frontend:
+    ports: !override
+      - "3010:3000"

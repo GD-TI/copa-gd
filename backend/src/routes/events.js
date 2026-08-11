@@ -41,8 +41,12 @@ router.get('/stream', (req, res) => {
   })
 })
 
+// Endpoints cujo conteúdo deriva de `score_events`. O placar de campanha fica de
+// fora de propósito: ele lê a NewCorban e a tabela `campaigns`, não a pontuação.
+const SCORE_CACHE_PREFIXES = ['/api/scores']
+
 function broadcast(event, data = {}) {
-  if (event === 'scores_updated') invalidateResponseCache()
+  if (event === 'scores_updated') invalidateResponseCache(SCORE_CACHE_PREFIXES)
   if (clients.size === 0) return
   const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
   const dead = []

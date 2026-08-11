@@ -108,10 +108,9 @@ export default function Login() {
         <div className="text-center mb-6">
           <div className="text-6xl mb-3 select-none">🏆</div>
           <h1 className="text-3xl font-black">
-            <span className="text-copa-yellow">COPA</span>
+            <span className="text-copa-yellow">RANKING</span>
             <span className="text-copa-green ml-2">GD</span>
           </h1>
-          <p className="text-copa-yellow font-bold text-lg mt-0.5">2026</p>
           <p className="text-white/40 text-sm mt-1">Sistema de Gamificação de Vendas</p>
         </div>
 
@@ -237,7 +236,7 @@ export default function Login() {
         </div>
 
         <p className="text-center text-white/20 text-xs mt-5">
-          Copa GD 2026 · Grupo Digital SF
+          Ranking GD · Grupo Digital SF
         </p>
       </div>
     </div>

@@ -15,6 +15,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import api from '../api/client'
 import { API_BASE } from '../api/config'
+import { Telao } from './ShellRanking'
 import '../system.css'
 
 const POLL_MS = 60000
@@ -193,6 +194,23 @@ export default function CampaignBoard({ campaignId, onClose, fullscreen = false 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose, toggleFull])
+
+  // Campanha arquivada do sistema antigo (equipes/score_events): forma de
+  // dados totalmente diferente do placar por giro abaixo — pula tudo isso e
+  // reaproveita a mesma view do Ranking Equipe/Individual, só que com os
+  // dados congelados em vez de buscar ao vivo.
+  if (!loading && !error && data?.legacy) {
+    return (
+      <Telao
+        groups={data.snapshot.groups}
+        campaign={data.campaign}
+        indRankings={data.snapshot.indRankings}
+        todayActivity={null}
+        onClose={onClose}
+        modes={['teams', 'individual']}
+      />
+    )
+  }
 
   const campaign = data?.campaign
   const board = data?.board || []

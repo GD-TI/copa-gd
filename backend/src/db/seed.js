@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
 const db = require('../config/db');
-const { migrateTeamAdminSupport, migrateCampaigns } = require('./migrations');
+const { migrateTeamAdminSupport, migrateCampaigns, migrateCampaignSettingsName } = require('./migrations');
 
 async function seed() {
   try {
@@ -112,7 +112,7 @@ async function seed() {
     await db.query(`
       CREATE TABLE IF NOT EXISTS campaign_settings (
         id SERIAL PRIMARY KEY,
-        name VARCHAR(150) NOT NULL DEFAULT 'Copa GD 2026',
+        name VARCHAR(150) NOT NULL DEFAULT 'Ranking GD',
         start_date DATE NOT NULL,
         end_date DATE NOT NULL,
         created_by INTEGER REFERENCES users(id),
@@ -128,9 +128,11 @@ async function seed() {
       const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
       await db.query(
         `INSERT INTO campaign_settings (name, start_date, end_date) VALUES ($1, $2, $3)`,
-        ['Copa GD 2026', firstDay, lastDay]
+        ['Ranking GD', firstDay, lastDay]
       );
       console.log('[Seed] Campanha padrão criada:', firstDay, '→', lastDay);
+    } else {
+      await migrateCampaignSettingsName();
     }
   } catch (err) {
     if (err.code === 'ENOTFOUND') {

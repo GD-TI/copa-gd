@@ -2,83 +2,17 @@ const express = require('express');
 const db = require('../config/db');
 const { authMiddleware, adminOnly } = require('../middleware/auth');
 const { responseCache } = require('../middleware/responseCache');
-const { getProposalsV3 } = require('../services/externalApi');
-const { getSellerIdsPorFranquia, getRoboSellerIds } = require('../services/franquiaSellers');
+const { montarPlacar, todayBR, pgDateStr, diaDoPlacar } = require('../services/campaignBoard');
+const { congelarCampanha, lerCongelado } = require('../services/campaignFreezer');
+const { fetchGroupsRanking } = require('./groups');
+const { fetchIndividualRankings } = require('./scores');
 
 const router = express.Router();
 
-/** Data de hoje no fuso de São Paulo (en-CA formata como YYYY-MM-DD). */
-function todayBR() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
-}
-
-function pgDateStr(value) {
-  if (!value) return null;
-  if (typeof value === 'string') return value.slice(0, 10);
-  return new Date(value).toISOString().slice(0, 10);
-}
-
-/**
- * Escada de prêmios cumulativa.
- *
- * Conferido contra o documento da Missão Resgate:
- *   20 vendas → R$ 110   ·   25 vendas → R$ 160   ·   9 vendas → falta 1 para a próxima faixa
- */
-function ladderFor(count, ladder = [], step = null, spinEvery = null) {
-  const tiers = [...ladder].sort((a, b) => a.at - b.at);
-  let prize = 0;
-
-  for (const t of tiers) {
-    if (count >= t.at) prize += Number(t.prize) || 0;
-  }
-
-  const lastTierAt = tiers.length ? tiers[tiers.length - 1].at : 0;
-
-  // Faixas repetidas depois da última ("a cada +5 vendas, +R$20")
-  if (step?.every > 0 && count > lastTierAt) {
-    const extra = Math.floor((count - lastTierAt) / step.every);
-    prize += extra * (Number(step.prize) || 0);
-  }
-
-  let nextAt = null;
-  let nextPrize = null;
-  const upcoming = tiers.find(t => t.at > count);
-  if (upcoming) {
-    nextAt = upcoming.at;
-    nextPrize = Number(upcoming.prize) || 0;
-  } else if (step?.every > 0) {
-    const stepsDone = Math.floor((count - lastTierAt) / step.every);
-    nextAt = lastTierAt + (stepsDone + 1) * step.every;
-    nextPrize = Number(step.prize) || 0;
-  }
-
-  return {
-    prize_value: prize,
-    spins: spinEvery > 0 ? Math.floor(count / spinEvery) : 0,
-    next_at: nextAt,
-    next_prize: nextPrize,
-    missing: nextAt === null ? null : nextAt - count,
-  };
-}
-
-/** Contas não-humanas: a IA é a linha de base da campanha, não concorrente. */
-function buildExcluder(rows) {
-  const ids = new Set(rows.filter(r => r.corban_id).map(r => String(r.corban_id)));
-  const patterns = rows
-    .filter(r => r.name_pattern)
-    .map(r => {
-      const rx = String(r.name_pattern)
-        .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        .replace(/%/g, '.*');
-      return new RegExp(`^${rx}$`, 'i');
-    });
-
-  return (vendorId, vendorName) => {
-    if (ids.has(String(vendorId))) return true;
-    const name = String(vendorName || '').trim();
-    return name !== '' && patterns.some(rx => rx.test(name));
-  };
-}
+// Frescor da resposta HTTP do placar. O cálculo em si (e o TTL das propostas na
+// NewCorban) mora em services/campaignBoard.js, compartilhado com o congelador.
+const CACHE_DIA_VIVO = 30_000;
+const CACHE_DIA_ENCERRADO = 10 * 60_000;
 
 async function loadCampaign(id) {
   const { rows } = await db.query(`SELECT * FROM campaigns WHERE id = $1`, [id]);
@@ -106,6 +40,60 @@ router.get('/', authMiddleware, async (req, res) => {
   }
 });
 
+/**
+ * Arquiva a Copa GD 2026 (o sistema antigo de equipes/score_events, que não é
+ * preso a nenhuma linha de `campaigns`) como uma campanha congelada, com uma
+ * foto do ranking de equipes e dos rankings individuais de agora. Sem isso,
+ * um card "Copa GD 2026" teria que ficar lendo campaign_settings/score_events
+ * ao vivo — e mostraria dados errados se esse sistema for reaproveitado no
+ * futuro para uma campanha nova (mesmas tabelas, datas diferentes).
+ *
+ * Idempotente: rodar de novo atualiza a foto de uma linha já arquivada em vez
+ * de criar duplicata (útil se algo precisar ser corrigido antes do primeiro
+ * uso real do card).
+ */
+router.post('/archive-legacy', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const [ranking, indRankings] = await Promise.all([
+      fetchGroupsRanking(),
+      fetchIndividualRankings(),
+    ]);
+
+    const snapshot = { groups: ranking.groups, indRankings };
+    const { rows: existing } = await db.query(
+      `SELECT id FROM campaigns WHERE legacy_kind = 'team_scoring'`
+    );
+
+    let row;
+    if (existing.length) {
+      ({ rows: [row] } = await db.query(
+        `UPDATE campaigns SET legacy_snapshot = $1::jsonb, updated_at = NOW()
+         WHERE id = $2 RETURNING *`,
+        [JSON.stringify(snapshot), existing[0].id]
+      ));
+    } else {
+      ({ rows: [row] } = await db.query(
+        `INSERT INTO campaigns (name, subtitle, start_date, end_date, color, status, legacy_kind, legacy_snapshot, created_by)
+         VALUES ($1, $2, $3, $4, 'azul', 'closed', 'team_scoring', $5::jsonb, $6)
+         RETURNING *`,
+        [
+          'Copa GD 2026',
+          'Ranking por equipe e individual · dados congelados',
+          ranking.campaign?.start_date || null,
+          ranking.campaign?.end_date || null,
+          JSON.stringify(snapshot),
+          req.user.id,
+        ]
+      ));
+    }
+
+    res.json({ ...row, start_date: pgDateStr(row.start_date), end_date: pgDateStr(row.end_date) });
+  } catch (err) {
+    console.error('[Campaigns] archive-legacy:', err.message);
+    res.status(500).json({ error: 'Erro ao arquivar a Copa GD 2026' });
+  }
+});
+
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
     const c = await loadCampaign(req.params.id);
@@ -118,146 +106,78 @@ router.get('/:id', authMiddleware, async (req, res) => {
 });
 
 // ── Placar ao vivo ──────────────────────────────────────────────────────────
-router.get('/:id/board', authMiddleware, responseCache(30_000), async (req, res) => {
+router.get('/:id/board', authMiddleware, responseCache(CACHE_DIA_VIVO), async (req, res) => {
   try {
     const campaign = await loadCampaign(req.params.id);
     if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada' });
 
-    // Resultado congelado vence a API — histórico não muda depois do encerramento
-    if (campaign.status === 'closed') {
-      const { rows: frozen } = await db.query(
-        `SELECT position, vendor_id, vendor_name, contracts, total_value, prize_value, spins
-         FROM campaign_results WHERE campaign_id = $1 ORDER BY position`,
-        [campaign.id]
-      );
-      if (frozen.length) {
+    // Campanha do sistema antigo (equipes/score_events), arquivada por
+    // POST /archive-legacy: forma de dados totalmente diferente do placar por
+    // giro/escada abaixo — ranking de equipes + os dois rankings individuais,
+    // já prontos, sem NewCorban nem ladder nenhuma.
+    if (campaign.legacy_kind) {
+      return res.json({
+        campaign: { ...campaign, start_date: pgDateStr(campaign.start_date), end_date: pgDateStr(campaign.end_date) },
+        legacy: true,
+        frozen: true,
+        snapshot: campaign.legacy_snapshot || { groups: [], indRankings: { melhor_vendedor: [], rei_assistencias: [] } },
+      });
+    }
+
+    // Resultado congelado vence a API — histórico não muda depois do encerramento.
+    // Só vale para o dia da própria campanha: ?date= pedindo outro dia continua
+    // reconstruindo, senão o snapshot responderia por uma data que não é a dele.
+    if (campaign.status === 'closed' && !req.query.date) {
+      const congelado = await lerCongelado(campaign);
+      if (congelado) {
+        // Cache longo: por definição isso não muda mais.
+        res.locals.cacheTtlMs = CACHE_DIA_ENCERRADO;
         return res.json({
           campaign: { ...campaign, start_date: pgDateStr(campaign.start_date), end_date: pgDateStr(campaign.end_date) },
-          date: pgDateStr(campaign.end_date) || pgDateStr(campaign.start_date),
           frozen: true,
-          board: frozen.map(r => ({
-            ...r,
-            contracts: Number(r.contracts),
-            total_value: Number(r.total_value),
-            prize_value: Number(r.prize_value),
-          })),
-          totals: {
-            contracts: frozen.reduce((s, r) => s + Number(r.contracts), 0),
-            value: frozen.reduce((s, r) => s + Number(r.total_value), 0),
-          },
+          ...congelado,
         });
       }
     }
 
-    const day = req.query.date || pgDateStr(campaign.start_date) || todayBR();
-    const products = new Set((campaign.product_ids || []).map(String));
+    const day = diaDoPlacar(campaign, req.query.date);
+    const { board, totals, diagnostics } = await montarPlacar(campaign, day);
 
-    // Pagas no dia; o filtro de cadastro no mesmo dia vem logo abaixo.
-    // TTL curto: num placar ao vivo, o vendedor precisa ver a própria venda entrar.
-    const proposals = await getProposalsV3(day, day, [], 'payment', ['paid'], 60_000);
-
-    // Franquias participantes (ex: ['1'] = matriz). NULL = empresa inteira.
-    // Propaga o erro de propósito: se o cadastro de consultores não puder ser
-    // lido, o placar mostra "indisponível" em vez de uma lista errada na TV.
-    const franquiaIds = campaign.franquia_ids || [];
-    const sellersDaFranquia = await getSellerIdsPorFranquia(franquiaIds);
-
-    // Robôs pela flag do cadastro, não por padrão de nome: "NOVA IA" é conta de
-    // robô e não casa com API%/BOT%/ROBO%. Se o cadastro não puder ser lido,
-    // cai de volta nos padrões em vez de deixar o placar vazio.
-    const robos = await getRoboSellerIds();
-
-    const { rows: excRows } = await db.query(
-      `SELECT corban_id, name_pattern FROM ranking_exclusions WHERE active = true`
-    );
-    const isExcluded = buildExcluder(excRows);
-
-    const byVendor = new Map();
-    let excludedContracts = 0;   // contas não-humanas
-    let otherDayContracts = 0;   // pagos hoje, mas digitados em outro dia
-    let otherProductContracts = 0;
-    let otherFranquiaContracts = 0;
-    let paidTotal = 0;
-
-    for (const p of Object.values(proposals)) {
-      const paid = p.datas?.pagamento ? String(p.datas.pagamento).slice(0, 10) : null;
-      if (paid !== day) continue;
-      paidTotal++;
-
-      if (products.size && !products.has(String(p.proposta?.produto_id))) { otherProductContracts++; continue; }
-
-      // "Digitado e pago no mesmo dia" — comparação por contrato, não por agregado
-      if (campaign.require_same_day) {
-        const created = p.datas?.cadastro ? String(p.datas.cadastro).slice(0, 10) : null;
-        if (created !== day) { otherDayContracts++; continue; }
-      }
-
-      const vid = String(p.vendedor_id || '');
-      if (!vid) continue;
-
-      // Só as franquias da campanha. Lista branca pelo cadastro, não pelo nome:
-      // quem não está no cadastro do NewCorban também não entra.
-      if (sellersDaFranquia && !sellersDaFranquia.has(vid)) { otherFranquiaContracts++; continue; }
-
-      const vname = p.vendedor_nome || '';
-      if (robos?.has(vid) || isExcluded(vid, vname)) { excludedContracts++; continue; }
-
-      if (!byVendor.has(vid)) {
-        byVendor.set(vid, { vendor_id: vid, vendor_name: vname, team: p.equipe_nome || '', contracts: 0, total_value: 0 });
-      }
-      const agg = byVendor.get(vid);
-      agg.contracts += 1;
-      agg.total_value += parseFloat(p.proposta?.valor_referencia || 0) || 0;
-      if (!agg.vendor_name && vname) agg.vendor_name = vname;
-    }
-
-    // Nome do vendedor pela base local quando a API não trouxe
-    const missingNames = [...byVendor.values()].filter(v => !v.vendor_name).map(v => v.vendor_id);
-    if (missingNames.length) {
-      const { rows: users } = await db.query(
-        `SELECT corban_id, COALESCE(display_name, corban_name, username) AS nome
-         FROM users WHERE corban_id = ANY($1)`,
-        [missingNames]
-      );
-      const nameById = new Map(users.map(u => [String(u.corban_id), u.nome]));
-      for (const v of byVendor.values()) {
-        if (!v.vendor_name) v.vendor_name = nameById.get(v.vendor_id) || `Consultor ${v.vendor_id}`;
-      }
-    }
-
-    const board = [...byVendor.values()]
-      .sort((a, b) => b.contracts - a.contracts || b.total_value - a.total_value)
-      .map((v, i) => ({
-        position: i + 1,
-        ...v,
-        ...ladderFor(v.contracts, campaign.ladder, campaign.ladder_step, campaign.spin_every),
-      }));
-
+    // Dia já encerrado não recebe venda nova e aguenta ficar quente por mais
+    // tempo. O dia corrente segue com o TTL curto de sempre.
+    res.locals.cacheTtlMs = day < todayBR() ? CACHE_DIA_ENCERRADO : CACHE_DIA_VIVO;
     res.json({
       campaign: { ...campaign, start_date: pgDateStr(campaign.start_date), end_date: pgDateStr(campaign.end_date) },
       date: day,
       frozen: false,
       board,
-      totals: {
-        contracts: board.reduce((s, v) => s + v.contracts, 0),
-        value: board.reduce((s, v) => s + v.total_value, 0),
-        participants: board.length,
-      },
-      // Diagnóstico: distingue "ninguém vendeu" de "o filtro está apertado demais".
-      // No dia da campanha isso é o que evita horas de dúvida sobre o placar.
-      diagnostics: {
-        paid_today: paidTotal,
-        excluded_non_human: excludedContracts,
-        other_product: otherProductContracts,
-        paid_but_registered_another_day: otherDayContracts,
-        other_franquia: otherFranquiaContracts,
-        franquia_ids: franquiaIds.length ? franquiaIds : null,
-        franquia_sellers: sellersDaFranquia ? sellersDaFranquia.size : null,
-      },
+      totals,
+      diagnostics,
     });
   } catch (err) {
     console.error('[Campaigns] placar:', err.message);
     res.status(502).json({ error: 'Não foi possível carregar o placar', detail: err.message });
+  }
+});
+
+/**
+ * Recongela o placar a partir da NewCorban.
+ *
+ * O congelamento normal é automático e único (cron das 00:05). Este endpoint
+ * existe para quando o número gravado precisa ser corrigido — tipicamente
+ * pagamento confirmado pelo banco depois da virada.
+ */
+router.post('/:id/freeze', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const campaign = await loadCampaign(req.params.id);
+    if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada' });
+    if (campaign.legacy_kind) return res.status(400).json({ error: 'Campanha legada não usa placar por escada' });
+
+    const r = await congelarCampanha(campaign, { force: true });
+    res.json(r);
+  } catch (err) {
+    console.error('[Campaigns] congelar:', err.message);
+    res.status(502).json({ error: 'Não foi possível congelar o placar', detail: err.message });
   }
 });
 
