@@ -591,8 +591,30 @@ A Copa GD 2026 (ranking por equipes) é um sistema **inteiramente separado** de 
 - **`campaigns.legacy_snapshot`** (JSONB, nova) guarda `{ groups, indRankings }` — a mesma forma que `ShellRanking.jsx` já consome ao vivo.
 - **`POST /api/campaigns/archive-legacy`** (admin): tira a foto agora, chamando `fetchGroupsRanking()` (`routes/groups.js`, extraída de `GET /groups/ranking`) e `fetchIndividualRankings()` (`routes/scores.js`, extraída de `GET /scores/individual-rankings`) — as duas rotas viraram wrappers finos dessas funções, pra não duplicar SQL/chamada à NewCorban. Idempotente: se já existe uma linha `legacy_kind='team_scoring'`, faz `UPDATE` do snapshot em vez de duplicar. Botão correspondente em `ShellCampaigns.jsx` (`ArchiveLegacyButton`) — **precisa ser clicado manualmente uma vez em produção**, não roda sozinho no boot/seed (evita side-effect numa GET, e mantém controle explícito de quando o histórico é selado).
 - **`GET /api/campaigns/:id/board`**: se `campaign.legacy_kind`, retorna `{ campaign, legacy: true, snapshot }` direto do banco — pula toda a lógica de NewCorban/escada/giro.
-- **Frontend**: `Telao` (dentro de `ShellRanking.jsx`, já 100% presentacional — recebia os dados só via props) virou `export function Telao(...)`, com uma prop nova `modes` (default `['teams','individual','today']`) pra restringir o auto-ciclo. `CampaignBoard.jsx` importa `Telao` e, se `data.legacy`, retorna só `<Telao ... modes={['teams','individual']} />` — sem "Pontos do Dia" (não existe "hoje" num histórico de meses) — pulando toda a UI de escada/giro do resto do componente.
+- **Frontend**: `Telao` (dentro de `ShellRanking.jsx`, já 100% presentacional — recebia os dados só via props) virou `export function Telao(...)`. `CampaignBoard.jsx` importa `Telao` e, se `data.legacy`, retorna só ele, pulando toda a UI de escada/giro do resto do componente.
 - **`ShellCampaigns.jsx`**: linhas com `legacy_kind` escondem a linha "Produto X · franquia" e os controles de admin (datas/Ativar/Encerrar) do `CampaignRow` — não fazem sentido pra uma linha congelada.
+
+#### Props do `Telao` — o mesmo componente serve TV e consulta
+
+O `Telao` nasceu só para a TV. Reaproveitá-lo para um placar aberto no desktop exigiu tornar explícito o que era premissa fixa. Cada default preserva o comportamento do telão ao vivo; o card arquivado é quem sobrescreve.
+
+| Prop | Default (TV) | Card arquivado | Por quê |
+|------|--------------|----------------|---------|
+| `modes` | `['teams','individual','today']` | `['teams','individual']` | Não existe "Pontos do Dia" num histórico de meses. Com 1 modo só, o auto-ciclo nem liga |
+| `fullscreen` | `true` | herda o clique | `requestFullscreen()` era incondicional: **clicar no card sequestrava a tela**. "Ver o placar" agora abre normal; só "Abrir na TV" vai a tela cheia |
+| `limiteIndividual` | `5` | `Infinity` | `TelaoIndView` tinha `.slice(0,5)` fixo. Cinco linhas é o que se lê a 4 m e a TV rotaciona sozinha; no arquivo, aberto de perto, a lista vem inteira |
+
+- **Troca manual de ranking**: botões `.tl-hd-mode` no cabeçalho. Clicar seta `tlManual` e **desliga a rotação automática** — sem isso a tela pularia no meio da leitura, pior do que não ter botão. Na TV, onde ninguém clica, o comportamento é idêntico ao de antes.
+- **Rolagem**: soltar o limite não bastava — `.tl-body` é `overflow:hidden` e dezenas de linhas vazavam. `.tl-ind-list` rola dentro da coluna com o cabeçalho fixo; `.tl-ind-col-n` mostra o total ao lado do título.
+- Título do cabeçalho usa `campaign?.name` (o placar arquivado mostra "Copa GD 2026"), com fallback `'RANKING GD'`.
+
+### Abas de fase em `ShellCampaigns.jsx`
+
+`Todas · Ativas · Concluídas · Futuras`, com contagem por aba (`.camp-tabs`/`.camp-tab` em `shell.css`).
+
+`faseDaCampanha(c, hoje)` classifica por **data, não só por `status`**: uma campanha de um dia fica `status='active'` para sempre se ninguém clicar em "Encerrar" — pela data ela já acabou, e é em Concluídas que a pessoa procura. Ordem: `closed` → concluídas; `end_date < hoje` → concluídas; `start_date > hoje` → futuras; senão ativas.
+
+Datas são comparadas como **string `YYYY-MM-DD`**, nunca via `new Date()`: `new Date('2026-08-10')` é UTC e vira 09/08 21h no BRT, mordendo um dia. `hoje` vem de `toLocaleDateString('en-CA')`, que já emite `YYYY-MM-DD` no fuso local.
 
 ### Endpoint `GET /api/campaigns/:id/board` — latência
 
@@ -917,6 +939,33 @@ Senha com `#`, `+`, `*` → URL encode (`#` → `%23`, `+` → `%2B`, `*` → `%
 - Docker Compose: frontend `:3000` + backend `:3001` (proxy Vite em `/api`)
 - Ou: `npm run dev:backend` + `npm run dev:frontend` em terminais separados
 
+**ARMADILHA — o frontend no Docker não recarrega sozinho no Windows.** O `docker-compose.yml` define `CHOKIDAR_USEPOLLING` **só no serviço `backend`**. Bind mount do Docker Desktop (Windows/macOS) não emite evento de filesystem, então o Vite nunca invalida o módulo: o arquivo novo está dentro do container, mas o dev server continua servindo o transform em cache. **O sintoma engana** — a tela mostra o código antigo e parece que a alteração não foi feita.
+
+Diagnóstico rápido (compara o que o dev server entrega com o arquivo em disco):
+```bash
+curl -s http://localhost:3000/src/pages/ShellCampaigns.jsx | grep -c "algo-que-voce-acabou-de-escrever"   # 0 = cache velho
+docker compose exec frontend grep -c "idem" /app/src/pages/ShellCampaigns.jsx                            # 1 = arquivo OK
+```
+
+Correção sem tocar no `docker-compose.yml` — `docker-compose.override.yml` na raiz, que o compose aplica automaticamente:
+```yaml
+services:
+  frontend:
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "400"
+```
+Depois `docker compose up -d --force-recreate frontend`.
+
+O mesmo arquivo serve para remapear porta quando a 3000 já está ocupada por outro projeto:
+```yaml
+    ports: !override
+      - "3010:3000"
+```
+**`!override` é obrigatório aqui** — sem ele o compose **soma** as listas em vez de substituir, mantém o bind na 3000 e o `up` continua falhando com "port is already allocated". O erro engana, porque o `config` mostra as duas portas e parece que funcionou.
+
+> ⚠️ **`docker-compose.override.yml` hoje está versionado** e não consta no `.gitignore`. Isso é um problema: remapeamento de porta é específico da máquina de quem desenvolve (depende de qual outro projeto está ocupando a 3000), e versionado ele muda a porta de todo mundo. Convenção do Docker é este arquivo ser local — vale mover para o `.gitignore` (`git rm --cached docker-compose.override.yml`) e deixar cada um ter o seu.
+
 ---
 
 ## Variáveis de Ambiente (backend)
@@ -1063,4 +1112,7 @@ VITE_API_URL=http://localhost:3001
 | Ago/10 | Placar de campanha contava a empresa inteira; faltava restringir à matriz | Nova coluna `campaigns.franquia_ids TEXT[]` (NULL = todas as franquias) + `backend/src/services/franquiaSellers.js`, que monta o mapa vendedor→franquia a partir do cadastro de consultores do NewCorban (`getAllUsers`, cache 15 min). O nome do campo é resolvido por sondagem (`franquia_id`, `franchise_id`, `franquia.id`, `unidade_id`, `filial_id`…) porque não é documentado; se nenhum candidato existir, **lança** em vez de devolver conjunto vazio — filtrar por campo inexistente esvaziaria o telão em silêncio. **A matriz é a AUSÊNCIA de franquia, não um id** — consultor da sede vem com `franquia_id` nulo (equipes PROPÓSITO, GARRA, DETERMINAÇÃO, HOME, ADM, ABUNDANCIA); `franquia_id = 1` é a **Franquia Mauá**, desativada desde 2024. Por isso o token `'matriz'` em `franquia_ids`. Franquias reais: 6 Tatuapé, 7 Guarulhos Centro, 24 Gabriel Machado, 865 Indaiatuba. Missão Resgate fica com `ARRAY['matriz']`. Diagnóstico `other_franquia` na resposta do placar. Script `scripts/descobrir-franquia.js` mostra os campos reais do cadastro e a distribuição de valores. |
 | Ago/10 | Data de cadastro da API v3 cortada da string crua — se `created_at` vier em UTC, contrato digitado após 21h BRT cai no dia seguinte | `convertV3Proposal` fazia `String(item.dates.created_at).slice(0,10)`, sem conversão de fuso. Fix: `toBrazilDateStr()` em `externalApi.js` converte para `America/Sao_Paulo` antes de extrair a data, **só** quando o valor traz fuso explícito (`Z` ou offset); timestamp ingênuo (`2026-08-10 14:32:11`) é horário local e é lido como está, então a função é no-op se a API nunca mandou UTC. Aplicado a `datas.cadastro` e `datas.pagamento` — atinge todo consumidor da v3. Blast radius antes do fix: na Copa a data de cadastro só alimenta CONVERSAO (taxa agregada) e INDICACAO (acumulado da campanha), ambas tolerantes a deslocamento de um dia — por isso nunca apareceu. Em campanha com `require_same_day` a data vira porteira por contrato e o erro fica visível. `scripts/verificar-placar.js` espelha a conversão e reporta quantos registros trazem fuso explícito. |
 | Ago/11 | Nome do produto ainda dizia "Copa GD 2026" em todo canto visível, mesmo com a competição por equipes encerrada em 31/07 | Renomeado para **"Ranking GD"** — decisão já registrada em `PRODUCT.md` numa sessão anterior junto com o fim da identidade "Copa/futebol" (não revertida aqui: cores `copa-*`/emoji continuam, só o texto mudou). Trocado em: `index.html` (title), `Shell.jsx` (nome na sidebar), `Login.jsx` (hero + rodapé), `ShellRanking.jsx` (cabeçalho e ticker do telão de equipes), `ShellConfig.jsx` (nome padrão e hint do período), `server.js` (log de start), `shell.css` (comentário), `.env.example` + `backend/package.json` + `frontend/package.json` (descrições). **`campaign_settings.name`**: default novo em `seed.js` **e** `schema.sql` (bancos novos), mas o default só vale para banco vazio — quem já tinha a linha antiga (produção) ganhou `migrateCampaignSettingsName()` em `migrations.js`: `UPDATE ... WHERE name = 'Copa GD 2026'`, condicional para não sobrescrever se o admin já tiver renomeado pelo painel. Fora do escopo (não tocado): `localStorage` (`copa_token`/`copa_user`), cookie `copa_theme`, `package.json`/`website-builder.json` (`name: "copa-gd"`, identificador interno de build/deploy), e as páginas mortas `ShellDashboard.jsx`/`Ranking.jsx`/`admin/CampaignSettings.jsx` (existem no repo mas não são importadas por `App.jsx`/`Shell.jsx` — nunca renderizam). |
-| Ago/11 | Sem jeito de ver a Copa GD 2026 (encerrada) na lista de Campanhas, junto das campanhas novas | Ver seção "Arquivo de campanhas legadas" acima. Resumo: `campaigns.legacy_kind`/`legacy_snapshot` (colunas novas — a primeira já existia sem uso), `POST /api/campaigns/archive-legacy` tira uma foto do ranking de equipes + individuais e grava pra sempre; `GET /:id/board` serve essa foto direto quando `legacy_kind` está setado; `CampaignBoard.jsx` reaproveita o `Telao` de `ShellRanking.jsx` (que virou export nomeado) em vez de montar uma view nova. Botão precisa ser clicado manualmente em produção — não roda no boot. |
+| Ago/11 | Sem jeito de ver a Copa GD 2026 (encerrada) na lista de Campanhas, junto das campanhas novas | Ver seção "Arquivo de campanhas legadas" acima. Resumo: `campaigns.legacy_kind`/`legacy_snapshot` (colunas novas — a primeira já existia sem uso), `POST /api/campaigns/archive-legacy` tira uma foto do ranking de equipes + individuais e grava pra sempre; `GET /:id/board` serve essa foto direto quando `legacy_kind` está setado; `CampaignBoard.jsx` reaproveita o `Telao` de `ShellRanking.jsx` (que virou export nomeado) em vez de montar uma view nova. Botão precisa ser clicado manualmente em produção — não roda no boot. Cobertura: 3 testes em `board.test.js` (snapshot servido sem tocar a NewCorban, legado vence `campaign_results`, snapshot ausente devolve forma vazia em vez de quebrar o telão). |
+| Ago/11 | Reaproveitar o `Telao` no card arquivado expôs 3 premissas fixas de TV | (1) `requestFullscreen()` era incondicional — **clicar no card sequestrava a tela**; virou prop `fullscreen` (default `true`, o card herda o clique). (2) `TelaoIndView` tinha `.slice(0,5)` fixo — o arquivado mostrava só 5 dos 58 colocados; virou prop `limiteIndividual` (default `5` na TV, `Infinity` no arquivo) + `.tl-ind-list` com rolagem, porque `.tl-body` é `overflow:hidden` e a lista longa vazava. (3) Só havia rotação automática de 5 min — inaceitável para quem abre e quer ver o outro ranking; botões `.tl-hd-mode` no cabeçalho, e clicar **desliga** a rotação (`tlManual`) para a tela não pular no meio da leitura. |
+| Ago/11 | Lista de campanhas sem filtro; campanha vencida continuava aparecendo como ativa | Abas `Todas/Ativas/Concluídas/Futuras` com contagem (`faseDaCampanha` em `ShellCampaigns.jsx`). Classifica por **data, não só por `status`**: uma campanha de um dia fica `active` para sempre se ninguém clicar em "Encerrar", mas pela data já acabou. Datas comparadas como string `YYYY-MM-DD` (`toLocaleDateString('en-CA')`) — `new Date('2026-08-10')` é UTC e vira 09/08 no BRT. |
+| Ago/11 | Alteração no frontend não aparecia no Docker local (Windows) — parecia que o código não tinha sido salvo | O `docker-compose.yml` define `CHOKIDAR_USEPOLLING` só no `backend`. Sem evento de filesystem no bind mount, o Vite servia o transform em cache: **o arquivo novo estava no container, mas a tela mostrava o código antigo**. Correção em `docker-compose.override.yml` com polling no `frontend`. Diagnóstico e receita na seção "Desenvolvimento local" — inclui o alerta de que esse override está versionado e provavelmente não deveria. |

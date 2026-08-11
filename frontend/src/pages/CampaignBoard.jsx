@@ -208,6 +208,8 @@ export default function CampaignBoard({ campaignId, onClose, fullscreen = false 
         todayActivity={null}
         onClose={onClose}
         modes={['teams', 'individual']}
+        fullscreen={fullscreen}
+        limiteIndividual={Infinity}
       />
     )
   }

@@ -665,6 +665,28 @@ input[type="text"].field-input {
   -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
 }
 .tl-hd-sub { font-size:8px;font-weight:600;letter-spacing:4px;text-transform:uppercase;color:rgba(0,156,59,.7); }
+
+/* Troca manual de modo. Na TV ninguém clica e ela só rotaciona sozinha; num
+   placar arquivado aberto no desktop, esperar 5 min pelo outro ranking seria
+   inaceitável. Discreto por padrão, evidente no que está ativo. */
+.tl-hd-modes { display:flex;gap:6px;margin-top:6px; }
+.tl-hd-mode {
+  cursor:pointer;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(0,156,59,.35);
+  font-family:inherit;font-size:11px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;
+  color:rgba(255,255,255,.72);
+  padding:6px 14px;border-radius:999px;white-space:nowrap;
+  transition:background .15s ease,color .15s ease,border-color .15s ease;
+}
+.tl-hd-mode:hover { color:#fff;background:rgba(0,156,59,.24);border-color:rgba(0,156,59,.6); }
+.tl-hd-mode.is-on {
+  color:#fff;
+  background:linear-gradient(135deg,#009C3B,#00B845);
+  border-color:transparent;
+}
+.telao.tl-light .tl-hd-mode { color:rgba(0,0,0,.6);background:rgba(0,0,0,.04); }
+.telao.tl-light .tl-hd-mode.is-on { color:#fff; }
 .tl-hd-r { display:flex;align-items:center;gap:10px; }
 .tl-hd-info { display:flex;flex-direction:column;align-items:flex-end;gap:2px; }
 .tl-clock { font:600 20px/1 var(--mono);color:var(--ybr);letter-spacing:.5px;font-variant-numeric:tabular-nums; }
@@ -924,7 +946,25 @@ input[type="text"].field-input {
   display: flex; align-items: stretch; gap: 0;
   flex: 1; min-height: 0; padding: 12px 24px;
 }
-.tl-ind-col { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.tl-ind-col { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+
+/* A lista rola dentro da coluna; o cabeçalho fica parado. Sem isto, o placar
+   arquivado (dezenas de colocados) vazava do container, que é overflow:hidden. */
+.tl-ind-list {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 8px;
+  padding-right: 6px;
+  scrollbar-width: thin;
+}
+.tl-ind-list::-webkit-scrollbar { width: 8px; }
+.tl-ind-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 99px; }
+
+/* Quantos entraram na lista — na TV são 5, no arquivo é o total */
+.tl-ind-col-n {
+  font-size: 11px; font-weight: 700; letter-spacing: 0;
+  padding: 2px 8px; border-radius: 999px;
+  background: rgba(255,255,255,.1); color: rgba(255,255,255,.6);
+}
 .tl-ind-divider {
   width: 1px; background: rgba(255,255,255,.12);
   margin: 0 24px; flex-shrink: 0;

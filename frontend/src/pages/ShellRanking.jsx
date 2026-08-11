@@ -228,13 +228,17 @@ const TL_BALL_LABELS = ['Bola de Ouro', 'Bola de Prata', 'Bola de Bronze']
 const TL_BALL_CLS    = ['tl-ir-gold', 'tl-ir-silver', 'tl-ir-bronze']
 const TL_ASSIST_ICONS = ['🥇', '🥈', '🥉']
 
-function TelaoIndView({ indRankings }) {
-  const mv = (indRankings?.melhor_vendedor || []).slice(0, 5)
-  const ra = (indRankings?.rei_assistencias || []).slice(0, 5)
+// `limite` = 5 na TV: cinco linhas é o que se lê de longe, e a tela rotaciona
+// sozinha. No placar arquivado, aberto de perto para consulta, a lista vem
+// inteira e rola.
+function TelaoIndView({ indRankings, limite = 5 }) {
+  const mv = (indRankings?.melhor_vendedor || []).slice(0, limite)
+  const ra = (indRankings?.rei_assistencias || []).slice(0, limite)
   return (
     <div className="tl-ind-body">
       <div className="tl-ind-col">
-        <div className="tl-ind-col-head">⚽ Melhor Vendedor</div>
+        <div className="tl-ind-col-head">⚽ Melhor Vendedor <span className="tl-ind-col-n">{mv.length}</span></div>
+        <div className="tl-ind-list">
         {mv.length === 0
           ? <div className="tl-ind-empty">Sem dados</div>
           : mv.map((item, i) => (
@@ -254,10 +258,12 @@ function TelaoIndView({ indRankings }) {
             </div>
           ))
         }
+        </div>
       </div>
       <div className="tl-ind-divider" />
       <div className="tl-ind-col">
-        <div className="tl-ind-col-head">🤝 Rei das Assistências</div>
+        <div className="tl-ind-col-head">🤝 Rei das Assistências <span className="tl-ind-col-n">{ra.length}</span></div>
+        <div className="tl-ind-list">
         {ra.length === 0
           ? <div className="tl-ind-empty">Sem dados</div>
           : ra.map((item, i) => (
@@ -277,6 +283,7 @@ function TelaoIndView({ indRankings }) {
             </div>
           ))
         }
+        </div>
       </div>
     </div>
   )
@@ -324,12 +331,21 @@ function TelaoTodayView({ todayActivity }) {
   )
 }
 
-export function Telao({ groups, campaign, indRankings, todayActivity, onClose, modes = ['teams', 'individual', 'today'] }) {
+const MODO_LABEL = {
+  teams:      'Ranking por Equipe',
+  individual: '🏅 Rankings Individuais',
+  today:      '⚡ Pontos do Dia',
+}
+
+export function Telao({ groups, campaign, indRankings, todayActivity, onClose, modes = ['teams', 'individual', 'today'], fullscreen = true, limiteIndividual = 5 }) {
   const [tlLight, setTlLight] = useState(false)
   const [clock, setClock] = useState('')
   const [dateStr, setDateStr] = useState('')
   const [tlMode, setTlMode]   = useState(modes[0]) // um de `modes`
   const [tlFade, setTlFade]   = useState(false)
+  // Quem clicou assumiu o controle: a rotação automática para. Sem isso a tela
+  // pularia sozinha no meio da leitura, que é pior do que não ter botão.
+  const [tlManual, setTlManual] = useState(false)
 
   useEffect(() => {
     const tick = () => {
@@ -348,17 +364,21 @@ export function Telao({ groups, campaign, indRankings, todayActivity, onClose, m
     return () => document.removeEventListener('keydown', h)
   }, [onClose])
 
+  // Tela cheia só quando a intenção é a TV. Abrir um placar arquivado para
+  // conferir não deve sequestrar a tela — a pessoa quer olhar, trocar de
+  // ranking e voltar ao que estava fazendo.
   useEffect(() => {
+    if (!fullscreen) return
     document.documentElement.requestFullscreen?.().catch(() => {})
     return () => { document.exitFullscreen?.().catch(() => {}) }
-  }, [])
+  }, [fullscreen])
 
   // Cicla entre os modos disponíveis a cada 5 minutos com fade. Um snapshot
   // congelado passa só ['teams','individual'] — sem intervalo pra ciclar,
   // fica parado no único modo (não faz sentido "Pontos do Dia" de um
   // histórico que não tem "hoje").
   useEffect(() => {
-    if (modes.length < 2) return
+    if (modes.length < 2 || tlManual) return
     const t = setInterval(() => {
       setTlFade(true)
       setTimeout(() => {
@@ -367,7 +387,14 @@ export function Telao({ groups, campaign, indRankings, todayActivity, onClose, m
       }, 500)
     }, 5 * 60 * 1000)
     return () => clearInterval(t)
-  }, [modes])
+  }, [modes, tlManual])
+
+  const trocarModo = alvo => {
+    if (alvo === tlMode) return
+    setTlManual(true)
+    setTlFade(true)
+    setTimeout(() => { setTlMode(alvo); setTlFade(false) }, 250)
+  }
 
   const total = groups.reduce((a, g) => a + (Number(g.total_points) || 0), 0)
   const totalGoal = groups.reduce((a, g) => a + (Number(g.goal_points) || 0), 0)
@@ -411,10 +438,23 @@ export function Telao({ groups, campaign, indRankings, todayActivity, onClose, m
             <div className="tl-hd-tag">Grupo Digital · Campanha Comercial</div>
           </div>
           <div className="tl-hd-c">
-            <div className="tl-hd-title">🏆 RANKING GD</div>
-            <div className="tl-hd-sub">
-              {tlMode === 'teams' ? 'Ranking por Equipe' : tlMode === 'individual' ? '🏅 Rankings Individuais' : '⚡ Pontos do Dia'}
-            </div>
+            <div className="tl-hd-title">🏆 {campaign?.name || 'RANKING GD'}</div>
+            {modes.length > 1 ? (
+              <div className="tl-hd-modes">
+                {modes.map(m => (
+                  <button
+                    key={m}
+                    className={`tl-hd-mode${tlMode === m ? ' is-on' : ''}`}
+                    onClick={() => trocarModo(m)}
+                    aria-pressed={tlMode === m}
+                  >
+                    {MODO_LABEL[m]}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="tl-hd-sub">{MODO_LABEL[tlMode]}</div>
+            )}
           </div>
           <div className="tl-hd-r">
             <div className="tl-hd-info">
@@ -478,7 +518,7 @@ export function Telao({ groups, campaign, indRankings, todayActivity, onClose, m
               </div>
             </>
           ) : tlMode === 'individual' ? (
-            <TelaoIndView indRankings={indRankings} />
+            <TelaoIndView indRankings={indRankings} limite={limiteIndividual} />
           ) : (
             <TelaoTodayView todayActivity={todayActivity} />
           )}

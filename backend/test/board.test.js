@@ -358,3 +358,65 @@ test('?date= em campanha encerrada não recebe o snapshot de outro dia', async (
   assert.equal(body.date, '2026-08-09');
   assert.ok(st.log.some(l => l.nome === 'propostas'), 'deve ter ido à API');
 });
+
+// ── Campanha legada (Copa GD 2026 arquivada) ────────────────────────────────
+// Forma de dados totalmente diferente: ranking de equipes + individuais já
+// prontos no banco, sem escada, sem giro e sem NewCorban.
+
+function legada({ snapshot } = {}) {
+  reset({ status: 'closed' });
+  st.campaign.legacy_kind = 'team_scoring';
+  st.campaign.name = 'Copa GD 2026';
+  st.campaign.legacy_snapshot = snapshot === undefined ? {
+    groups: [
+      { id: 1, name: 'Holanda', total_points: '875', goal_points: 900, member_count: 5 },
+      { id: 2, name: 'Bélgica', total_points: '835', goal_points: 900, member_count: 5 },
+    ],
+    indRankings: {
+      melhor_vendedor:  [{ vendedor_id: '10', name: 'CAMILLA LIMA', total_valor: 1078860.3 }],
+      rei_assistencias: [{ vendedor_id: '11', name: 'KAUE MILLER',  indicacao_count: 9 }],
+    },
+  } : snapshot;
+  st.log = [];
+}
+
+test('campanha legada serve o snapshot arquivado sem tocar a NewCorban', async () => {
+  legada();
+
+  const { status, body } = await placar();
+  assert.equal(status, 200);
+  assert.equal(body.legacy, true);
+  assert.equal(body.frozen, true);
+  assert.equal(body.campaign.name, 'Copa GD 2026');
+  assert.deepEqual(body.snapshot.groups.map(g => g.name), ['Holanda', 'Bélgica']);
+  assert.equal(body.snapshot.indRankings.melhor_vendedor[0].name, 'CAMILLA LIMA');
+  assert.equal(body.snapshot.indRankings.rei_assistencias[0].indicacao_count, 9);
+  assert.equal(st.log.length, 0, 'arquivo é leitura de banco: não pode tocar a NewCorban');
+});
+
+test('legada vence campaign_results — nunca vira placar por escada', async () => {
+  legada();
+  // Uma linha legada não deveria ter resultado por vendedor, mas se tiver
+  // (lixo, migration antiga), o ramo legado precisa ganhar: interpretar isso
+  // como placar de giro devolveria uma tela sem sentido para a Copa.
+  st.frozen = [
+    { position: 1, vendor_id: '10', vendor_name: 'ANA LIMA', team: 'GARRA', contracts: '7', total_value: '9000', prize_value: '40', spins: 1 },
+  ];
+
+  const { body } = await placar();
+  assert.equal(body.legacy, true);
+  assert.ok(body.snapshot, 'precisa vir o snapshot de equipes/individuais');
+  assert.equal(body.board, undefined, 'não pode montar board por vendedor');
+});
+
+test('legada sem snapshot devolve forma vazia em vez de quebrar o telão', async () => {
+  legada({ snapshot: null });
+
+  const { status, body } = await placar();
+  assert.equal(status, 200);
+  assert.equal(body.legacy, true);
+  // O Telao faz groups.reduce(...) e lê indRankings.melhor_vendedor: sem estes
+  // defaults, um snapshot ausente virava tela branca com TypeError.
+  assert.deepEqual(body.snapshot.groups, []);
+  assert.deepEqual(body.snapshot.indRankings, { melhor_vendedor: [], rei_assistencias: [] });
+});
