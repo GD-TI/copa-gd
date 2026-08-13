@@ -339,9 +339,10 @@ export function Telao({
   const days = campaign ? dleft(campaign.end_date) : null
   const top3 = groups.slice(0, 3)
   const temEquipes = groups.length > 0
+  const ehTelaoCopa = campaign?.legacy_kind === 'team_scoring'
 
   return (
-    <div className={`telao${tlLight ? ' tl-light' : ''}`}>
+    <div className={`telao${tlLight ? ' tl-light' : ''}${ehTelaoCopa ? ' tl-copa-campanha' : ''}`}>
       {/* Background */}
       <div className="tl-bg">
         <div className="tl-bg-mesh" />

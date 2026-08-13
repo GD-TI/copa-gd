@@ -48,10 +48,13 @@ function Linha({ item, variante }) {
     ? `R$ ${brl(item.valor)}`
     : `${item.contratos}`
 
+  // Meta em R$, não o % de atingimento: a meta da NewCorban é derivada do
+  // contrato, então o percentual sai sempre entre 200% e 500% e não informa
+  // nada. O painel da NC mostra "Meta: R$ …" — aqui é o mesmo número.
   const apoio = variante === 'mensal'
     ? [
         `${item.contratos} contrato${item.contratos === 1 ? '' : 's'}`,
-        item.atingimento !== null ? `${Math.round(item.atingimento)}% da meta` : null,
+        item.valor_meta > 0 ? `meta R$ ${brl(item.valor_meta)}` : null,
       ].filter(Boolean).join(' · ')
     : `R$ ${brlCurto(item.valor)}`
 

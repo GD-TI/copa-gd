@@ -631,6 +631,16 @@ input[type="text"].field-input {
 .tl-stripe.t { top:0;background:linear-gradient(90deg,var(--gbr) 0%,var(--ybr) 28%,#fff 50%,var(--ybr) 72%,var(--gbr) 100%); }
 .tl-stripe.b { bottom:0;background:linear-gradient(90deg,var(--gbr) 0%,var(--ybr) 28%,#fff 50%,var(--ybr) 72%,var(--gbr) 100%);opacity:.4; }
 
+/* O futebol é identidade da Copa arquivada, não dos rankings atuais. */
+.telao:not(.tl-copa-campanha) .tl-bg-mesh {
+  background:
+    radial-gradient(ellipse 90% 70% at 50% 0%,rgba(255,255,255,.035),transparent 62%),
+    radial-gradient(ellipse 80% 80% at 50% 100%,rgba(30,41,59,.22),transparent 70%),
+    var(--tl-bg);
+}
+.telao:not(.tl-copa-campanha) .tl-field-svg,
+.telao:not(.tl-copa-campanha) .tl-stripe { display:none; }
+
 /* Content */
 .tl-content { position:relative;z-index:5;flex:1;display:flex;flex-direction:column;overflow:hidden; }
 

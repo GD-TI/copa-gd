@@ -327,6 +327,27 @@ Authorization: Bearer <token v2>
 ```
 Token v2: `POST https://apiv2.newcorban.com.br/api/v2/auth/login`
 
+### Retry de token — nunca recursar por cima do dedup
+
+O `ranking.php` responde **200 com erro de token no corpo** (`Token mismatch`), e
+com frequência: o log de produção de 13/08/2026 tinha **80 re-obtenções de
+token**. Por isso `getRankingPeriodo` e `getRankingByPayment` retentam.
+
+O retry mora em `fetchRankingPeriodo` / `fetchRankingByPayment` — funções
+internas que **nunca consultam o `_inflight`**. Enquanto ele recursava na função
+pública, a recursão caía no próprio dedup e recebia de volta a promise que
+estava esperando por ela: a promise passava a depender de si mesma. Com o
+`.catch` encadeado o ciclo tem **comprimento 2**, e o V8 só detecta ciclo de
+comprimento 1 (`Chaining cycle detected`) — então nada lançava, o `.finally`
+nunca rodava e a chave ficava **presa no `_inflight` para sempre**.
+
+> **Regra:** função que faz dedup por `_inflight` não pode se chamar de novo por
+> dentro do próprio `.then`/`.catch`. Extraia a execução; recursa na interna.
+
+`getRanking` também retenta, mas **não** usa `_inflight` — por isso está a
+salvo. `getProposals` e `getProposalsV3` usam `_inflight` e **não** retentam
+token. Coberto por `externalApiRetry.test.js`.
+
 ### Cache
 - TTL: 3 minutos em memória (`_cache` Map em `externalApi.js`)
 - Inflight dedup: se a mesma key já está em andamento, aguarda a Promise existente
@@ -894,7 +915,8 @@ Campos por vendedor: `filter_value` (=corban_id), `qtd_propostas`, `valor_refere
 | Decisão | O que significa |
 |---|---|
 | **Escopo: empresa inteira** | Matriz **e** franquias. `getSellerIdsPorFranquia` não entra aqui — só o filtro de contas não-humanas. São ~64 no mês e ~45 nos digitados, contra 22 se fosse só matriz |
-| **Mensal ordena por R$ pago** | Contratos desempatam. O `valor_meta` e o atingimento aparecem como **apoio**, nunca como ordem |
+| **Mensal ordena por R$ pago** | Contratos desempatam. O `valor_meta` aparece como **apoio**, nunca como ordem |
+| **A linha de apoio mostra a meta em R$, não o %** | Decisão de 13/08/2026. A meta da NewCorban é derivada do contrato, então o atingimento saía sempre entre 200% e 500% — número que não informa nada. O painel da NC mostra "Meta: R$ …"; a linha agora mostra o mesmo. `atingimento` **continua** no payload (`rankingIndividual.js`, `monthlyFreezer.js`) e no `scripts/verificar-ranking.js` — só saiu da tela |
 | **"Rei das Assistências" saiu** | Era regra da Copa (INDICACAO). O modo virou uma lista só |
 | **Mês fechado congela** | E não se mexe mais — por isso **não há botão de recongelar**, ao contrário do `campaignFreezer` |
 | **Lista rolando na TV** | Todo mundo aparece em algum momento; um top 10 fixo esconderia 80% da lista |
@@ -962,6 +984,7 @@ O botão do telão morava só no "Ranking Equipe". Removida aquela página (13/0
 - O modo da página chega **por prop, vivo**: a página continua montada atrás do telão e segue no polling dela. O outro modo é buscado aqui, no período corrente, e **recarregado a cada 2 min** — sem isso ficaria congelado na hora em que a TV foi ligada
 - Se a página está mostrando um **mês/dia passado**, é ele que vai ao telão — é o que a pessoa está olhando
 - `groups={[]}`: sem equipe, o telão esconde a régua de Meta Coletiva e o ticker (ver "Props do `Telao`")
+- O fundo de campo e as cores de futebol ficam restritos ao telão do snapshot arquivado da **Copa GD** (`campaign.legacy_kind = 'team_scoring'`, classe `.tl-copa-campanha`). O telão de `mensal`/`digitados` usa fundo neutro; páginas normais e campanhas novas não recebem a identidade da Copa.
 
 ### Conferência
 
@@ -982,6 +1005,7 @@ O botão do telão morava só no "Ranking Equipe". Removida aquela página (13/0
 - `rankingRoutes.test.js` — congelado vence a API, mês sem foto cai no ao vivo, 400 vs 502, isolamento de cache por query string
 - `campaignAccess.test.js` — política pura de quem vê/cria/edita campanha: escopo do franqueado imposto sobre o corpo, escopo vazio recusado, rascunho, campanha da matriz é só leitura, `franquia_ids` fora dos campos editáveis
 - `campaignRoutes.test.js` — a política ligada no HTTP, com tokens JWT de verdade: 403 por id alheio, **cache do placar não fura a permissão**, `franquia_ids` do corpo ignorado no POST e barrado no PUT, congelar é da matriz
+- `externalApiRetry.test.js` — o retry de token do `ranking.php` (ver abaixo). Stuba só o `axios`; **falha por estouro de prazo** se a regressão voltar, porque é essa a forma do bug: ele não lança, emudece
 
 Os testes injetam stubs em `require.cache` para `config/db`, `middleware/auth`, `services/externalApi` e `services/franquiaSellers` — não precisam de banco nem de credenciais.
 
@@ -1433,4 +1457,5 @@ VITE_API_URL=http://localhost:3001
 | Ago/12 | `scripts/verificar-ranking.js` terminava com exit 0, sem erro e **sem relatório nenhum** | No Git Bash (mintty) o Node vê o stdout como pipe e o `console.log` é assíncrono: o processo saía antes de esvaziar o buffer. Rodar com `--trace-exit` fazia o relatório aparecer, atrasando a saída o bastante — sintoma que joga o diagnóstico para o lado errado. Fix: `fs.writeSync(1, …)` |
 | Ago/12 | Qualquer usuário logado via **todas** as campanhas, e só a matriz podia criar | Fase 1 de campanhas por franquia: role `franqueado` + `admin_franquia_scopes` + `campaigns.owner_franquia_id`, política em `services/campaignAccess.js`, `GET /api/franquias`, wizard de criação (`components/CampaignForm.jsx`) e cadastro de donos (`components/FranqueadosConfig.jsx`). Ver seção "Donos de franquia". Duas armadilhas fechadas por teste: escopo vazio viraria campanha da empresa inteira (`franquia_ids = []` = sem filtro no placar) e a checagem do `/board` dentro do handler seria pulada pelo `responseCache` |
 | Ago/12 | Páginas de ranking batiam na NewCorban a cada minuto mesmo escondidas | O `Shell.jsx` mantém todas as páginas montadas (é o que dá a troca instantânea). Passou a mandar `ativo`, e o polling só roda na página visível |
+| Ago/13 | **"Digitados do Dia" dava timeout no navegador; "Ranking do Mês" parecia são** | Não era lentidão da NewCorban — a API respondia em 0,8s (digitados) e 1,2s (mensal) medida de dentro da VPS. O processo é que **pendurava para sempre**: o `ranking.php` responde 200 com erro de token no corpo, e o retry de `getRankingPeriodo`/`getRankingByPayment` recursava na **função pública**, caindo no dedup do `_inflight` e recebendo de volta a promise que estava esperando por ele. Promise dependendo de si mesma; ciclo de comprimento 2, que o V8 não detecta — nada lançava, o `.finally` nunca rodava e a **chave ficava presa no `_inflight` para sempre**. Medido em produção: `digitados?date=hoje` **240s sem responder** e **zero conexões abertas para o NewCorban**, contra 1,0s no dia anterior e 7ms num mês congelado. O gatilho era abundante: 80 re-obtenções de token no log. **Por que só o Digitados parecia quebrado:** ele abre sempre em *hoje*, a chave travada; o Ranking do Mês disfarçava porque as abas de meses fechados vêm de `monthly_rankings` (banco) — o mês corrente estava travado igual. Fix: retry movido para `fetchRankingPeriodo`/`fetchRankingByPayment`, que não consultam o `_inflight`. Ver "Retry de token" na seção de APIs Externas. Coberto por `externalApiRetry.test.js`, que **falha por estouro de prazo** contra a versão anterior |
 | Ago/13 | "Ranking Equipe" ainda no menu: era o placar da Copa GD 2026, encerrada em 31/07, e já estava no card arquivado dentro de Campanhas | Página removida do `Shell.jsx` (item do menu, título e mount) e o componente `ShellRanking` apagado — **`ShellRanking.jsx` deixou de ser página** e guarda só o `Telao` e suas views, que o card arquivado importa. Todo mundo passa a entrar por **Campanhas** (antes só o franqueado). Três consequências que não podiam ficar em silêncio: (1) **o botão 📺 Telão vivia só ali** — sem ele, remover a página levaria junto a TV do escritório, então virou `components/TelaoRankings.jsx` e apareceu nas páginas de mês e digitados; (2) o `Telao` era montado com equipes sempre, e a régua de Meta Coletiva mais o ticker mostrariam "0 / —" e uma tira em branco no telão do mês — passaram a depender de `groups.length > 0` (`temEquipes`), o que **não muda o card arquivado**, que tem equipes; (3) a página era montada **sem `ativo`**, então todo usuário logado mantinha um `EventSource` aberto e chamava `/groups/ranking` + os dois rankings a cada 5 min olhando outra tela — isso acabou junto. Ficaram órfãos e **não foram apagados**: `components/MembersModal.jsx` (breakdown de pontos por membro, sem nenhum importador agora) e o modo `today`/`TelaoTodayView` do telão, que já estava morto antes porque ninguém buscava `todayActivity` |
