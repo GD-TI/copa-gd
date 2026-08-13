@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import ShellRanking from '../pages/ShellRanking'
 import ShellRankingIndividual from '../pages/ShellRankingIndividual'
 import ShellRankingToday from '../pages/ShellRankingToday'
 import ShellConfig from '../pages/ShellConfig'
@@ -10,7 +9,7 @@ import ShellCampaigns from '../pages/ShellCampaigns'
 import { applyTheme, writeThemeCookie } from '../utils/theme'
 import '../shell.css'
 
-const PAGE_TITLES = { campanhas: 'Campanhas', ranking: 'Ranking Equipe', rankingind: 'Ranking do Mês', rankingtoday: 'Digitados do Dia', config: 'Configuração', meugrupo: 'Meu Grupo' }
+const PAGE_TITLES = { campanhas: 'Campanhas', rankingind: 'Ranking do Mês', rankingtoday: 'Digitados do Dia', config: 'Configuração', meugrupo: 'Meu Grupo' }
 
 const PAPEIS = {
   admin: 'Admin',
@@ -22,9 +21,9 @@ const PAPEIS = {
 export default function Shell() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
-  // Dono de franquia entra pelas campanhas: "Ranking Equipe" é o telão da Copa,
-  // encerrada, e não tem nada a ver com o dia a dia dele.
-  const [page, setPage] = useState(user?.role === 'franqueado' ? 'campanhas' : 'ranking')
+  // Todo mundo entra pelas campanhas. O ranking por equipe era da Copa (encerrada
+  // em 31/07) e agora vive só como card arquivado dentro da própria lista.
+  const [page, setPage] = useState('campanhas')
   const [collapsed, setSidebarCollapsed] = useState(false)
   const [mobOpen, setMobOpen] = useState(false)
   const [clock, setClock] = useState('')
@@ -79,10 +78,6 @@ export default function Shell() {
           <div className={`sb-item ${page === 'campanhas' ? 'active' : ''}`} onClick={() => navTo('campanhas')}>
             <div className="sb-item-icon">▦</div>
             <span className="sb-item-lbl">Campanhas</span>
-          </div>
-          <div className={`sb-item ${page === 'ranking' ? 'active' : ''}`} onClick={() => navTo('ranking')}>
-            <div className="sb-item-icon">🏆</div>
-            <span className="sb-item-lbl">Ranking Equipe</span>
           </div>
           <div className={`sb-item ${page === 'rankingind' ? 'active' : ''}`} onClick={() => navTo('rankingind')}>
             <div className="sb-item-icon">🏅</div>
@@ -166,9 +161,6 @@ export default function Shell() {
         <div className="pages">
           <div className={`page ${page === 'campanhas' ? 'active' : ''}`}>
             {page === 'campanhas' ? <ShellCampaigns /> : null}
-          </div>
-          <div className={`page ${page === 'ranking' ? 'active' : ''}`}>
-            <ShellRanking />
           </div>
           {/* `ativo`: as páginas ficam montadas mesmo escondidas (é o que dá a
               troca instantânea). Sem esta dica, as duas ficariam batendo na

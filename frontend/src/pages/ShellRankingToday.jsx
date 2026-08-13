@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '../api/client'
 import { RankingLista, RankingResumo } from '../components/RankingIndividual'
+import TelaoRankings from '../components/TelaoRankings'
 
 const hojeBR = () => new Date().toLocaleDateString('en-CA')
 
@@ -29,6 +30,7 @@ export default function ShellRankingToday({ ativo = true }) {
   const [erro, setErro]       = useState(null)
   const [carregando, setCarregando] = useState(true)
   const [atualizado, setAtualizado] = useState(null)
+  const [telaoAberto, setTelaoAberto] = useState(false)
 
   const carregar = useCallback(async (d) => {
     setCarregando(true)
@@ -57,6 +59,10 @@ export default function ShellRankingToday({ ativo = true }) {
 
   return (
     <div className="ri-page">
+      {telaoAberto && (
+        <TelaoRankings inicial="digitados" digitados={dados} onClose={() => setTelaoAberto(false)} />
+      )}
+
       <div className="ri-page-head">
         <div className="ri-page-titulo">
           <h2>⌨️ Digitados do Dia</h2>
@@ -81,6 +87,9 @@ export default function ShellRankingToday({ ativo = true }) {
               {atualizado.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
             </span>
           )}
+          <button className="telao-open-btn" onClick={() => setTelaoAberto(true)}>
+            📺 Telão
+          </button>
         </div>
       </div>
 

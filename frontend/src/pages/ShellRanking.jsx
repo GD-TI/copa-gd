@@ -1,25 +1,19 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import api from '../api/client'
-import MembersModal from '../components/MembersModal'
+/**
+ * O telão. **Não é mais uma página** — a "Ranking Equipe" saiu do menu em
+ * 13/08/2026: ela era o placar da Copa GD 2026, encerrada em 31/07, e o mesmo
+ * placar já está no card arquivado dentro de Campanhas.
+ *
+ * Sobrou o `Telao`, com dois consumidores:
+ *   • `CampaignBoard.jsx` — snapshot congelado da Copa (`['teams','individual']`)
+ *   • `components/TelaoRankings.jsx` — TV do mês / digitados (`['mensal','digitados']`)
+ *
+ * O arquivo mantém o nome porque é assim que o CLAUDE.md e o histórico o
+ * referenciam; renomear só trocaria o custo de lugar.
+ */
+import { useState, useEffect } from 'react'
 import { RankingLista, RankingResumo } from '../components/RankingIndividual'
 
 function d10(s) { return s ? String(s).slice(0, 10) : '' }
-
-function fDate(s) {
-  const v = d10(s)
-  if (!v) return '—'
-  const d = new Date(v + 'T00:00:00')
-  if (isNaN(d)) return '—'
-  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
-}
-
-function ppct(start, end) {
-  const sv = d10(start), ev = d10(end)
-  if (!sv || !ev) return 0
-  const s = new Date(sv + 'T00:00:00'), e = new Date(ev + 'T23:59:59'), n = new Date()
-  if (isNaN(s) || isNaN(e)) return 0
-  return Math.min(100, Math.max(0, ((n - s) / (e - s)) * 100))
-}
 
 function dleft(end) {
   const ev = d10(end)
@@ -35,110 +29,6 @@ function ini(name = '') {
 }
 
 const MEDALS = ['🥇', '🥈', '🥉']
-
-// ── Regular ranking components ──────────────────────────────
-
-function ChampCard({ group, rank, onOpen }) {
-  const cls = ['cc1', 'cc2', 'cc3'][rank]
-  const meta = Number(group.goal_points) || 0
-  const pts = Number(group.total_points) || 0
-  const pct = meta > 0 ? Math.round((pts / meta) * 100) : null
-  const hit = pct !== null && pct >= 100
-  const sparks = rank === 0
-    ? [{ tx: -20, ty: -38, d: 0.1 }, { tx: 18, ty: -44, d: 0.45 }, { tx: 26, ty: -18, d: 0.8 }, { tx: -26, ty: -14, d: 1.2 }]
-    : []
-
-  return (
-    <div className={`cc ${cls}`} onClick={onOpen} style={{ cursor: 'pointer' }} title="Ver contribuição individual">
-      {sparks.map((sp, k) => (
-        <div key={k} className="cc-spark" style={{
-          width: 4, height: 4, background: '#F59E0B',
-          '--tx': sp.tx + 'px', '--ty': sp.ty + 'px',
-          '--del': sp.d + 's', '--dur': (1.8 + k * 0.3) + 's',
-          top: '45%', left: (44 + k * 3) + '%'
-        }} />
-      ))}
-      <div className="cc-wm">{rank + 1}</div>
-      <span className="cc-rank-lbl">{rank + 1}º lugar</span>
-      {rank === 0 && <div className="cc-crown">👑</div>}
-      <div className="cc-av-shell">
-        <div className="cc-av">
-          {group.photo_url ? <img src={group.photo_url} alt="" /> : ini(group.name)}
-        </div>
-        <div className="cc-rb">{MEDALS[rank]}</div>
-      </div>
-      <div className="cc-info">
-        <div className="cc-name">{group.name}</div>
-        {group.member_count > 0 && (
-          <div className="cc-team">{group.member_count} membro{group.member_count !== 1 ? 's' : ''}</div>
-        )}
-        <div className="cc-val-block">
-          <div className="cc-val-lbl">Pontuação</div>
-          <div className="cc-val">{pts.toLocaleString('pt-BR')}</div>
-        </div>
-        {pct !== null && (
-          <div className="cc-prog">
-            <div className="cc-prog-track">
-              <div className="cc-prog-fill" style={{ width: Math.min(100, pct) + '%' }} />
-            </div>
-            <div className="cc-prog-row">
-              <span className="cc-prog-pct">{pct}%{hit ? ' ✓' : ''}</span>
-              {!hit && meta > 0 && (
-                <span className="cc-prog-falta">falta {Math.max(0, meta - pts).toLocaleString('pt-BR')}</span>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function RankRow({ group, rank, onOpen }) {
-  const meta = Number(group.goal_points) || 0
-  const pts = Number(group.total_points) || 0
-  const pct = meta > 0 ? Math.round((pts / meta) * 100) : null
-  const hit = pct !== null && pct >= 100
-  const falta = meta > 0 ? Math.max(0, meta - pts) : null
-  const tCls = rank < 3 ? ` t${rank + 1}` : ''
-  const medal = rank < 3 ? MEDALS[rank] : ''
-
-  return (
-    <div className={`rrow${tCls}`} style={{ animationDelay: rank * 0.04 + 's', cursor: 'pointer' }}
-      onClick={onOpen} title="Ver contribuição individual"
-    >
-      <div className="r-pos">{rank + 1}</div>
-      <div className="r-med">{medal}</div>
-      <div className="r-av">
-        {group.photo_url ? <img src={group.photo_url} alt="" /> : ini(group.name)}
-      </div>
-      <div className="r-name-cell">
-        <div className="r-name">{group.name}</div>
-        {group.member_count > 0 && (
-          <div className="r-team">{group.member_count} membro{group.member_count !== 1 ? 's' : ''}</div>
-        )}
-      </div>
-      <div style={{ width: 20 }} />
-      <div className="r-val">{pts.toLocaleString('pt-BR')} pts</div>
-      {pct !== null && (
-        <div className="r-meta-cell hide-meta">
-          <div className="r-meta-bar">
-            <div className={`r-meta-fill ${hit ? 'rf-hit' : 'rf-miss'}`} style={{ width: Math.min(100, pct) + '%' }} />
-          </div>
-          <div className={`r-meta-pct ${hit ? 'h' : 'm'}`}>{pct}%</div>
-        </div>
-      )}
-      <div className={`r-falta hide-falta ${hit ? 'h' : ''}`}>
-        {hit ? '✓ Meta' : falta !== null ? `−${falta.toLocaleString('pt-BR')}` : '—'}
-      </div>
-      <div>
-        {hit
-          ? <span className="pill pill-hit">✓ Meta</span>
-          : <span className="pill pill-miss">Pendente</span>}
-      </div>
-    </div>
-  )
-}
 
 // ── Telão components ────────────────────────────────────────
 
@@ -375,8 +265,11 @@ const MODO_LABEL = {
   today:      '⚡ Pontos do Dia',
 }
 
+// `groups = []` é o telão sem equipe nenhuma — o do mês/digitados. A régua de
+// meta coletiva e o ticker são da competição por equipes, então somem junto:
+// com a lista vazia mostrariam "0 / —" e uma faixa correndo em branco.
 export function Telao({
-  groups, campaign, indRankings, todayActivity, mensal, digitados, onClose,
+  groups = [], campaign, indRankings, todayActivity, mensal, digitados, onClose,
   modes = ['teams', 'mensal', 'digitados'], fullscreen = true, limiteIndividual = 5,
 }) {
   const [tlLight, setTlLight] = useState(false)
@@ -443,9 +336,9 @@ export function Telao({
   const hit = groups.filter(g => Number(g.goal_points) > 0 && Number(g.total_points) >= Number(g.goal_points)).length
   const pending = groups.filter(g => Number(g.goal_points) > 0 && Number(g.total_points) < Number(g.goal_points)).length
 
-  const pp = campaign ? ppct(campaign.start_date, campaign.end_date) : 0
   const days = campaign ? dleft(campaign.end_date) : null
   const top3 = groups.slice(0, 3)
+  const temEquipes = groups.length > 0
 
   return (
     <div className={`telao${tlLight ? ' tl-light' : ''}`}>
@@ -508,7 +401,8 @@ export function Telao({
           </div>
         </div>
 
-        {/* Meta bar */}
+        {/* Meta bar — só existe competição por equipe */}
+        {temEquipes && (
         <div className="tl-meta-bar">
           <span className="tlm-lbl">🏆 Meta Coletiva</span>
           <div className="tlm-vals">
@@ -541,6 +435,7 @@ export function Telao({
             )}
           </div>
         </div>
+        )}
 
         {/* Body — fade on mode switch */}
         <div className={`tl-body${tlFade ? ' tl-body-fade' : ''}`}>
@@ -569,7 +464,8 @@ export function Telao({
           )}
         </div>
 
-        {/* Ticker */}
+        {/* Ticker — idem: a faixa é o desfile das equipes */}
+        {temEquipes && (
         <div className="tl-ticker">
           <div className="tl-ticker-lbl">🏆 Ranking GD</div>
           <div className="tl-ticker-track">
@@ -584,188 +480,8 @@ export function Telao({
             </div>
           </div>
         </div>
+        )}
       </div>
     </div>
-  )
-}
-
-// ── Main ShellRanking ────────────────────────────────────────
-
-export default function ShellRanking() {
-  const [groups, setGroups]           = useState([])
-  const [campaign, setCampaign]       = useState(null)
-  const [loading, setLoading]         = useState(true)
-  const [modalGroup, setModalGroup]   = useState(null)
-  const [telaoOpen, setTelaoOpen]     = useState(false)
-  const [mensal, setMensal]               = useState(null)
-  const [digitados, setDigitados]         = useState(null)
-  const [sseConnected, setSseConnected] = useState(false)
-  const [lastUpdate, setLastUpdate]     = useState(null)
-  const debounceRef = useRef(null)
-
-  // Carrega ranking primeiro (apenas banco — rápido), depois dados secundários em background
-  const loadAll = useCallback(async () => {
-    // 1. Ranking: sem NewCorban, responde imediatamente
-    try {
-      const r1 = await api.get('/groups/ranking')
-      const d = r1.data
-      setGroups(d.groups || [])
-      if (d.campaign) setCampaign(d.campaign)
-    } catch (e) {}
-    setLoading(false)
-    setLastUpdate(new Date())
-
-    // 2. Dados secundários em paralelo (chamam NewCorban — podem demorar sem travar a UI)
-    const [r2, r3] = await Promise.allSettled([
-      api.get('/rankings/mensal'),
-      api.get('/rankings/digitados'),
-    ])
-    if (r2.status === 'fulfilled') setMensal(r2.value.data)
-    if (r3.status === 'fulfilled') setDigitados(r3.value.data)
-  }, [])
-
-  useEffect(() => {
-    loadAll()
-
-    const es = new EventSource((import.meta.env.VITE_API_URL || '') + '/api/events/stream')
-
-    es.addEventListener('connected', () => setSseConnected(true))
-
-    // Debounce: agrupa múltiplos eventos rápidos (ex: cron + recálculo manual) em um único reload
-    es.addEventListener('scores_updated', () => {
-      clearTimeout(debounceRef.current)
-      debounceRef.current = setTimeout(() => loadAll(), 800)
-    })
-
-    es.onerror = () => setSseConnected(false)
-    es.onopen  = () => setSseConnected(true)
-
-    // Fallback: recarrega a cada 5 min caso SSE caia
-    const t = setInterval(loadAll, 300000)
-
-    return () => { es.close(); clearInterval(t); clearTimeout(debounceRef.current) }
-  }, [loadAll])
-
-  const total = groups.reduce((a, g) => a + (Number(g.total_points) || 0), 0)
-  const totalGoal = groups.reduce((a, g) => a + (Number(g.goal_points) || 0), 0)
-  const pct = totalGoal > 0 ? Math.min(100, (total / totalGoal) * 100) : 0
-  const falta = Math.max(0, totalGoal - total)
-  const pp = campaign ? ppct(campaign.start_date, campaign.end_date) : 0
-  const days = campaign ? dleft(campaign.end_date) : null
-
-  const top3 = groups.slice(0, 3)
-  const rest = groups.slice(3)
-
-  return (
-    <>
-      {modalGroup && (
-        <MembersModal group={modalGroup} onClose={() => setModalGroup(null)} />
-      )}
-
-      {telaoOpen && (
-        <Telao groups={groups} campaign={campaign} mensal={mensal} digitados={digitados} onClose={() => setTelaoOpen(false)} />
-      )}
-
-      {/* Campaign strip */}
-      <div className="camp-strip">
-        <div className="cs-seg">
-          <span className="cs-label">Início</span>
-          <span className="cs-val">{campaign ? fDate(campaign.start_date) : '—'}</span>
-        </div>
-        <div className="cs-div" />
-        <div className="cs-seg">
-          <span className="cs-label">Fim</span>
-          <span className="cs-val">{campaign ? fDate(campaign.end_date) : '—'}</span>
-        </div>
-        <div className="cs-div" />
-        <div className="cs-prog">
-          <div className="cs-prog-bar"><div className="cs-prog-fill" style={{ width: pp + '%' }} /></div>
-          <span className="cs-days">{days !== null ? (days > 0 ? `${days} dias` : 'Encerrada') : '—'}</span>
-        </div>
-      </div>
-
-      {/* Team goal */}
-      <div className="tg-card">
-        <div className="tg-row">
-          <span className="tg-badge">⚽ Meta Coletiva</span>
-          <div className="tg-numbers">
-            <span className="tg-current">{total.toLocaleString('pt-BR')}</span>
-            <span className="tg-slash">/</span>
-            <span className="tg-target">{totalGoal > 0 ? totalGoal.toLocaleString('pt-BR') + ' pts' : '—'}</span>
-          </div>
-          <span className="tg-pct">{totalGoal > 0 ? Math.round(pct) + '%' : '—'}</span>
-          <div className="tg-bar-area">
-            <div className="tg-track"><div className="tg-fill" style={{ width: pct + '%' }} /></div>
-          </div>
-          <span className={`tg-rem${totalGoal > 0 && falta === 0 ? ' done' : ''}`}>
-            {totalGoal > 0 && falta > 0
-              ? <span>falta {falta.toLocaleString('pt-BR')}</span>
-              : totalGoal > 0 ? <span>✓ Meta!</span> : null}
-          </span>
-          <div className="tg-counters">
-            <div className="tg-stat">
-              <span className="tg-stat-n" style={{ color: 'var(--green)' }}>{groups.length}</span>
-              <span className="tg-stat-l">Grupos</span>
-            </div>
-            <div className="tg-stat">
-              <span className="tg-stat-n" style={{ color: 'var(--gold)' }}>{top3.length}</span>
-              <span className="tg-stat-l">Pódio</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Toolbar */}
-      <div className="rank-bar">
-        <span className="rank-count-lbl">
-          {loading ? 'Carregando…' : `${groups.length} grupo${groups.length !== 1 ? 's' : ''}`}
-        </span>
-        <div className="rank-bar-live">
-          <span className={`live-dot${sseConnected ? ' live-on' : ''}`} />
-          <span className="live-lbl">{sseConnected ? 'Ao vivo' : 'Reconectando…'}</span>
-          {lastUpdate && (
-            <span className="live-time">
-              {lastUpdate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-            </span>
-          )}
-        </div>
-        <button className="telao-open-btn" onClick={() => setTelaoOpen(true)}>
-          📺 Telão
-        </button>
-      </div>
-
-      {/* Champion cards */}
-      <div className="champ-section">
-        <div className="sec-label">🥇 Top 3 — Champions</div>
-        <div className="champ-grid">
-          {top3.length === 0
-            ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '44px 0', opacity: .3, gap: 12 }}>
-                <span style={{ fontSize: 24 }}>⚽</span>
-                <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--txt3)' }}>Nenhum grupo encontrado</span>
-              </div>
-            )
-            : top3.map((g, i) => <ChampCard key={g.id} group={g} rank={i} onOpen={() => setModalGroup(g)} />)
-          }
-        </div>
-      </div>
-
-      {/* Full table */}
-      <div className="rank-section">
-        <div className="sec-label">📊 Classificação Completa</div>
-        <div className="rtable-head">
-          <div className="rth">#</div>
-          <div className="rth" />
-          <div className="rth">Grupo</div>
-          <div className="rth" />
-          <div className="rth r">Pontos</div>
-          <div className="rth c hide-falta">Meta</div>
-          <div className="rth r hide-falta">Falta</div>
-          <div className="rth r">Status</div>
-        </div>
-        {groups.map((g, i) => <RankRow key={g.id} group={g} rank={i} onOpen={() => setModalGroup(g)} />)}
-      </div>
-
-    </>
   )
 }

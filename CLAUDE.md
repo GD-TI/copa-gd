@@ -92,7 +92,7 @@
 - `GET /api/auth/me` retorna `managed_franquia_ids: string[]` para `franqueado`
 - Endpoints (master): `GET/POST/PUT /api/admin/franqueados`
 - UI master: `ShellConfig` → **🏬 Donos de Franquia** (`components/FranqueadosConfig.jsx`)
-- UI do dono: entra direto em **Campanhas** (o "Ranking Equipe" é o telão da Copa encerrada); sem item Configuração
+- UI do dono: entra direto em **Campanhas**; sem item Configuração. (Desde 13/08/2026 **todo mundo** entra por Campanhas — o "Ranking Equipe" saiu do menu, então esta já não é uma exceção do franqueado)
 
 #### Política de acesso — `services/campaignAccess.js`
 
@@ -285,7 +285,7 @@ base_points NUMERIC NOT NULL
   - Após cada rodada do cron (`scheduler.js`)
   - Após cálculo manual pelo admin (`scores.js`)
   - Após alteração de jogos do Brasil (`worldcup.js` → recálculo force)
-- Frontend: `EventSource('/api/events/stream')` em `ShellRanking.jsx` — reconecta automaticamente em caso de queda
+- Frontend: `EventSource('/api/events/stream')` em `CampaignBoard.jsx` — reconecta automaticamente em caso de queda. O outro assinante era a página "Ranking Equipe" (`ShellRanking.jsx`), removida em 13/08/2026; **as páginas de ranking do mês/digitados nunca usaram SSE** — elas recarregam por intervalo próprio, porque a fonte é a NewCorban e não `score_events`
 - Fallback: `setInterval` de 5 minutos caso SSE não funcione
 - Vite proxy: `timeout: 0` no `/api` para suportar conexões longas
 
@@ -629,12 +629,18 @@ O leaderboard **sempre filtra** `score_events` pelo período da campanha (`event
 
 | Página | Role | Arquivo | Função |
 |--------|------|---------|--------|
-| Ranking Equipe | todos | `ShellRanking.jsx` | Placar e telão |
-| Ranking do Mês | todos | `ShellRankingIndividual.jsx` | Pagos do mês por R$ + abas de mês |
-| Digitados do Dia | todos | `ShellRankingToday.jsx` | Digitados do dia por quantidade |
+| Campanhas | todos | `ShellCampaigns.jsx` | Lista de campanhas — **página de entrada de todo mundo** |
+| Ranking do Mês | todos | `ShellRankingIndividual.jsx` | Pagos do mês por R$ + abas de mês + telão |
+| Digitados do Dia | todos | `ShellRankingToday.jsx` | Digitados do dia por quantidade + telão |
 | Meu Grupo | `player` | `ShellMyGroup.jsx` | Visualização da equipe (somente leitura) |
 | Configuração | `admin` | `ShellConfig.jsx` | Painel master completo |
 | Minhas Equipes | `team_admin` | `ShellConfig.jsx` | Equipes do escopo apenas |
+
+**"Ranking Equipe" saiu do menu em 13/08/2026.** Era o placar da Copa GD 2026,
+encerrada em 31/07, e o mesmo placar já está no **card arquivado dentro de
+Campanhas** — duas portas para a mesma foto congelada, uma delas parecendo o
+ranking vivo do escritório. Ver o histórico de bugs (Ago/13) para o que foi
+junto e o que precisou ser preservado.
 
 ### Login (`pages/Login.jsx`)
 
@@ -769,13 +775,21 @@ A Copa GD 2026 (ranking por equipes) é um sistema **inteiramente separado** de 
 
 #### Props do `Telao` — o mesmo componente serve TV e consulta
 
-O `Telao` nasceu só para a TV. Reaproveitá-lo para um placar aberto no desktop exigiu tornar explícito o que era premissa fixa. Cada default preserva o comportamento do telão ao vivo; o card arquivado é quem sobrescreve.
+O `Telao` nasceu só para a TV. Reaproveitá-lo para um placar aberto no desktop exigiu tornar explícito o que era premissa fixa. Cada default preserva o comportamento do telão ao vivo; quem chama é que sobrescreve.
 
-| Prop | Default (TV) | Card arquivado | Por quê |
+**Desde 13/08/2026 o `Telao` não tem mais dono** — a página que o abria saiu do menu. Restaram dois chamadores, ambos passando `modes` explícito:
+
+| Chamador | `modes` | Origem dos dados |
+|---|---|---|
+| `CampaignBoard.jsx` (card arquivado) | `['teams','individual']` | `campaigns.legacy_snapshot` |
+| `components/TelaoRankings.jsx` (botão 📺 nas páginas de ranking) | `['mensal','digitados']` ou o inverso | `/api/rankings/*` |
+
+| Prop | Default (TV) | Quem sobrescreve | Por quê |
 |------|--------------|----------------|---------|
-| `modes` | `['teams','mensal','digitados']` | `['teams','individual']` | Os modos `individual`/`today` **continuam existindo** só para o card arquivado — ver "Ranking Individual". Com 1 modo só, o auto-ciclo nem liga |
-| `fullscreen` | `true` | herda o clique | `requestFullscreen()` era incondicional: **clicar no card sequestrava a tela**. "Ver o placar" agora abre normal; só "Abrir na TV" vai a tela cheia |
-| `limiteIndividual` | `5` | `Infinity` | `TelaoIndView` tinha `.slice(0,5)` fixo. Cinco linhas é o que se lê a 4 m e a TV rotaciona sozinha; no arquivo, aberto de perto, a lista vem inteira. **Só afeta o modo legado** — `mensal`/`digitados` mostram a lista inteira rolando |
+| `groups` | `[]` | card arquivado | Com a lista vazia, a **régua de Meta Coletiva e o ticker somem** (`temEquipes`): as duas faixas são da competição por equipes e mostrariam "0 / —" e uma tira correndo em branco no telão do mês |
+| `modes` | `['teams','mensal','digitados']` | os dois | Default hoje **não é usado por ninguém** — ficou como o que a TV era. Os modos `individual`/`today` existem só para o card arquivado; ver "Ranking Individual". Com 1 modo só, o auto-ciclo nem liga |
+| `fullscreen` | `true` | card arquivado | `requestFullscreen()` era incondicional: **clicar no card sequestrava a tela**. "Ver o placar" abre normal; só "Abrir na TV" vai a tela cheia. O botão 📺 usa o default — ali tela cheia é a intenção |
+| `limiteIndividual` | `5` | card arquivado (`Infinity`) | `TelaoIndView` tinha `.slice(0,5)` fixo. Cinco linhas é o que se lê a 4 m e a TV rotaciona sozinha; no arquivo, aberto de perto, a lista vem inteira. **Só afeta o modo legado** — `mensal`/`digitados` mostram a lista inteira rolando |
 
 - **Troca manual de ranking**: botões `.tl-hd-mode` no cabeçalho. Clicar seta `tlManual` e **desliga a rotação automática** — sem isso a tela pularia no meio da leitura, pior do que não ter botão. Na TV, onde ninguém clica, o comportamento é idêntico ao de antes.
 - **Rolagem**: soltar o limite não bastava — `.tl-body` é `overflow:hidden` e dezenas de linhas vazavam. `.tl-ind-list` rola dentro da coluna com o cabeçalho fixo; `.tl-ind-col-n` mostra o total ao lado do título.
@@ -939,6 +953,15 @@ Duas camadas que cobrem coisas diferentes:
 **Páginas:** `ShellRankingIndividual.jsx` (mensal + abas de mês) e `ShellRankingToday.jsx` (digitados + navegação por dia). Menu e títulos viraram **"Ranking do Mês"** e **"Digitados do Dia"**.
 
 > As páginas ficam **montadas mesmo escondidas** (é o que dá a troca instantânea). Por isso recebem `ativo` do `Shell.jsx` — sem essa dica, as duas ficariam batendo na NewCorban a cada minuto com ninguém olhando.
+
+#### Botão 📺 Telão — `components/TelaoRankings.jsx`
+
+O botão do telão morava só no "Ranking Equipe". Removida aquela página (13/08/2026), tirá-lo junto levaria a **TV do escritório**, que é o ponto do produto — e ninguém pediu isso. Cada página de ranking ganhou o seu.
+
+- Abre o `Telao` com os **dois** modos, começando pelo da página: mensal → `['mensal','digitados']`, digitados → o inverso. O auto-ciclo de 5 min alterna como na TV
+- O modo da página chega **por prop, vivo**: a página continua montada atrás do telão e segue no polling dela. O outro modo é buscado aqui, no período corrente, e **recarregado a cada 2 min** — sem isso ficaria congelado na hora em que a TV foi ligada
+- Se a página está mostrando um **mês/dia passado**, é ele que vai ao telão — é o que a pessoa está olhando
+- `groups={[]}`: sem equipe, o telão esconde a régua de Meta Coletiva e o ticker (ver "Props do `Telao`")
 
 ### Conferência
 
@@ -1410,3 +1433,4 @@ VITE_API_URL=http://localhost:3001
 | Ago/12 | `scripts/verificar-ranking.js` terminava com exit 0, sem erro e **sem relatório nenhum** | No Git Bash (mintty) o Node vê o stdout como pipe e o `console.log` é assíncrono: o processo saía antes de esvaziar o buffer. Rodar com `--trace-exit` fazia o relatório aparecer, atrasando a saída o bastante — sintoma que joga o diagnóstico para o lado errado. Fix: `fs.writeSync(1, …)` |
 | Ago/12 | Qualquer usuário logado via **todas** as campanhas, e só a matriz podia criar | Fase 1 de campanhas por franquia: role `franqueado` + `admin_franquia_scopes` + `campaigns.owner_franquia_id`, política em `services/campaignAccess.js`, `GET /api/franquias`, wizard de criação (`components/CampaignForm.jsx`) e cadastro de donos (`components/FranqueadosConfig.jsx`). Ver seção "Donos de franquia". Duas armadilhas fechadas por teste: escopo vazio viraria campanha da empresa inteira (`franquia_ids = []` = sem filtro no placar) e a checagem do `/board` dentro do handler seria pulada pelo `responseCache` |
 | Ago/12 | Páginas de ranking batiam na NewCorban a cada minuto mesmo escondidas | O `Shell.jsx` mantém todas as páginas montadas (é o que dá a troca instantânea). Passou a mandar `ativo`, e o polling só roda na página visível |
+| Ago/13 | "Ranking Equipe" ainda no menu: era o placar da Copa GD 2026, encerrada em 31/07, e já estava no card arquivado dentro de Campanhas | Página removida do `Shell.jsx` (item do menu, título e mount) e o componente `ShellRanking` apagado — **`ShellRanking.jsx` deixou de ser página** e guarda só o `Telao` e suas views, que o card arquivado importa. Todo mundo passa a entrar por **Campanhas** (antes só o franqueado). Três consequências que não podiam ficar em silêncio: (1) **o botão 📺 Telão vivia só ali** — sem ele, remover a página levaria junto a TV do escritório, então virou `components/TelaoRankings.jsx` e apareceu nas páginas de mês e digitados; (2) o `Telao` era montado com equipes sempre, e a régua de Meta Coletiva mais o ticker mostrariam "0 / —" e uma tira em branco no telão do mês — passaram a depender de `groups.length > 0` (`temEquipes`), o que **não muda o card arquivado**, que tem equipes; (3) a página era montada **sem `ativo`**, então todo usuário logado mantinha um `EventSource` aberto e chamava `/groups/ranking` + os dois rankings a cada 5 min olhando outra tela — isso acabou junto. Ficaram órfãos e **não foram apagados**: `components/MembersModal.jsx` (breakdown de pontos por membro, sem nenhum importador agora) e o modo `today`/`TelaoTodayView` do telão, que já estava morto antes porque ninguém buscava `todayActivity` |

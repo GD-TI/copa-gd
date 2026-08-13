@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '../api/client'
 import { RankingLista, RankingResumo, nomeDoMes } from '../components/RankingIndividual'
+import TelaoRankings from '../components/TelaoRankings'
 
 /**
  * Ranking individual do mês, por R$ pago — empresa inteira, sem robôs.
@@ -15,6 +16,7 @@ export default function ShellRankingIndividual({ ativo = true }) {
   const [dados, setDados]       = useState(null)
   const [erro, setErro]         = useState(null)
   const [carregando, setCarregando] = useState(true)
+  const [telaoAberto, setTelaoAberto] = useState(false)
 
   // Lista de meses: o corrente e os já congelados
   useEffect(() => {
@@ -54,6 +56,10 @@ export default function ShellRankingIndividual({ ativo = true }) {
 
   return (
     <div className="ri-page">
+      {telaoAberto && (
+        <TelaoRankings inicial="mensal" mensal={dados} onClose={() => setTelaoAberto(false)} />
+      )}
+
       <div className="ri-page-head">
         <div className="ri-page-titulo">
           <h2>🏅 Ranking do Mês</h2>
@@ -61,21 +67,26 @@ export default function ShellRankingIndividual({ ativo = true }) {
             Contratos pagos em {nomeDoMes(mesAtivo)} · ordenado por valor · empresa inteira
           </span>
         </div>
-        {meses.length > 1 && (
-          <div className="ri-meses">
-            {meses.map(m => (
-              <button
-                key={m.mes}
-                className={`ri-mes${m.mes === mesAtivo ? ' is-on' : ''}`}
-                onClick={() => setMesAtivo(m.mes)}
-                aria-pressed={m.mes === mesAtivo}
-              >
-                {nomeDoMes(m.mes)}
-                {m.ao_vivo && <span className="ri-mes-tag">em curso</span>}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="ri-page-acoes">
+          {meses.length > 1 && (
+            <div className="ri-meses">
+              {meses.map(m => (
+                <button
+                  key={m.mes}
+                  className={`ri-mes${m.mes === mesAtivo ? ' is-on' : ''}`}
+                  onClick={() => setMesAtivo(m.mes)}
+                  aria-pressed={m.mes === mesAtivo}
+                >
+                  {nomeDoMes(m.mes)}
+                  {m.ao_vivo && <span className="ri-mes-tag">em curso</span>}
+                </button>
+              ))}
+            </div>
+          )}
+          <button className="telao-open-btn" onClick={() => setTelaoAberto(true)}>
+            📺 Telão
+          </button>
+        </div>
       </div>
 
       {erro

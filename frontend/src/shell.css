@@ -1261,6 +1261,9 @@ input[type="text"].field-input {
 }
 .ri-page-titulo h2 { font: 700 22px/1.2 var(--font); color: var(--txt); margin: 0; }
 .ri-page-sub { display: block; font: 500 12px/1.4 var(--font); color: var(--txt3); margin-top: 5px; }
+/* Abas de mês + botão do telão. `flex-end` para o botão alinhar pela base das
+   abas quando elas quebram em duas linhas. */
+.ri-page-acoes { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 10px; }
 
 /* Abas de mês. O corrente é o primeiro e ganha etiqueta — sem ela, "Agosto"
    ao lado de "Julho" não diz qual dos dois ainda está mudando. */
