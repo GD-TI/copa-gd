@@ -73,6 +73,62 @@
 
 **SQL manual (se `users_role_check` bloquear `team_admin`):** ver seção [Banco](#inicialização-do-banco--schemasql-vs-seedjs).
 
+### Donos de franquia (`franqueado`)
+
+> Fase 1 de "campanhas por franquia" (12/08/2026). O dono cria e administra as
+> campanhas da própria unidade; campanha para todas continua sendo só da matriz.
+
+| Pode | Não pode |
+|------|----------|
+| Criar campanha da própria franquia | Escolher a abrangência (vem do escopo dele) |
+| Editar/ativar/encerrar as próprias campanhas | Editar campanha criada pela matriz (vê, não mexe) |
+| Ver o placar e o telão das que participa | Ver campanha de outra franquia (403, mesmo sabendo o id) |
+| Ver os rankings do app | Congelar placar · painel de Configuração · equipes da Copa |
+
+- Tabela `admin_franquia_scopes(user_id, franquia_id)` — PK composta. `franquia_id` é **VARCHAR**, não FK: o identificador vem do NewCorban como texto e inclui o token `'matriz'`. Não existe tabela local de franquias
+- Migration: `migrateFranquiaOwners()` em `backend/src/db/migrations.js`
+- `users.role` agora aceita `franqueado`. A CHECK é gerada de `ROLES_PERMITIDOS` por `garantirRolesPermitidos()` — **fonte única**; antes cada migration escrevia a lista à mão e foi isso que exigiu SQL manual em produção quando o `team_admin` entrou
+- Login: username + senha definidos pela matriz (não usa NewCorban). Derivar a franquia do cadastro do NewCorban faria consultor com `franquia_id` nulo virar dono da matriz por acidente
+- `GET /api/auth/me` retorna `managed_franquia_ids: string[]` para `franqueado`
+- Endpoints (master): `GET/POST/PUT /api/admin/franqueados`
+- UI master: `ShellConfig` → **🏬 Donos de Franquia** (`components/FranqueadosConfig.jsx`)
+- UI do dono: entra direto em **Campanhas** (o "Ranking Equipe" é o telão da Copa encerrada); sem item Configuração
+
+#### Política de acesso — `services/campaignAccess.js`
+
+Funções puras, sem Express e sem banco. **Filtro em JS, não em SQL**, de propósito: campanhas são dezenas (a rota sempre leu todas), e uma cláusula SQL paralela seria uma segunda verdade capaz de divergir em silêncio justo na regra que, se errar, mostra campanha de uma franquia para outra.
+
+| Função | Regra |
+|--------|-------|
+| `podeVer` | master: tudo · franqueado: as próprias (por `owner_franquia_id`) + as da matriz que alcançam a franquia dele, inclusive rascunho · demais: só não-rascunho que os alcança |
+| `abrangenciaParaCriacao` | master: o que pediu (vazio = empresa inteira) · franqueado: **o escopo dele, ignorando o corpo** |
+| `donoDaCampanha` | `campaigns.owner_franquia_id` — NULL = matriz. Com escopo múltiplo, a primeira franquia |
+| `podeEditar` | master: tudo · franqueado: só onde `owner_franquia_id` está no escopo dele |
+| `camposEditaveis` | `franquia_ids` sai da lista do franqueado — senão o PUT desfaria o travamento da criação |
+
+**Armadilha travada por teste:** `franquia_ids = []` é lido como *sem filtro* lá no placar (`getSellerIdsPorFranquia` devolve `null`). Um dono sem vínculo criaria campanha da empresa inteira — por isso escopo vazio é **recusado com 400**, não normalizado.
+
+**A checagem do `/board` é middleware (`carregarCampanha`), não código dentro do handler:** o `responseCache` responde antes do handler, então a verificação lá dentro seria pulada toda vez que a resposta viesse do cache. Coberto por teste (`o cache do placar não fura a permissão`).
+
+**Franquia do consultor** vem do cadastro do NewCorban (`getFranquiasDoConsultor`), não do banco local. Cadastro fora do ar → lista vazia → ele enxerga só campanha da empresa inteira. Esconder demais é melhor que vazar campanha alheia.
+
+#### `GET /api/franquias`
+
+Catálogo derivado de `getMapaFranquias()` (cache de 15 min), já recortado pelo escopo de quem pediu: `{ franquias: [{ id, nome, consultores }], todas_as_franquias }`. `consultores` não conta robôs — é o número que avisa que uma franquia sem gente daria placar vazio.
+
+**Sem `responseCache` de propósito:** a chave dele é a URL e esta resposta muda por usuário; dois papéis na mesma URL serviriam a lista um do outro.
+
+Medido em 12/08/2026: **16 franquias** distintas no cadastro — Matriz (644 consultores), Guarulhos Centro (210), Gabriel Machado (108), Boa Vista (15), entre outras. A lista de 4 franquias que aparece mais abaixo neste documento é de agosto/2026 e **já estava desatualizada** — motivo a mais para o catálogo ser derivado e não cadastrado à mão.
+
+#### O que a Fase 1 **não** faz
+
+| Limite | Consequência hoje |
+|--------|-------------------|
+| Placar continua sendo **de um dia** (`diaDoPlacar` = `start_date`) | Campanha de vários dias mostra só o primeiro. O formulário exibe aviso laranja quando `fim ≠ início` |
+| `metric` segue gravado e nunca lido | Por isso **não** aparece no formulário — campo que não muda nada é formulário mentindo |
+| `color` não tem regra de estilo consumindo | Fora do formulário pelo mesmo motivo |
+| Metas (coletiva/franquia/individual) e premiação por colocação | Fases 3 e 4 |
+
 ### Login do consultor (NewCorban)
 
 - O consultor entra com o **mesmo login do NewCorban** (ex: `alessandro.ti`) — não existe mais username separado no app
@@ -208,7 +264,7 @@ base_points NUMERIC NOT NULL
 | GET | `/api/settings/scoring-rules` | JWT | Lista regras com `base_points` |
 | PUT | `/api/settings/scoring-rules` | admin | `{ rules: [{ rule_name, base_points }] }` |
 | GET | `/api/scores/rules` | JWT | Mesma fonte (banco) + regra AJUSTE_ADMIN |
-| GET | `/api/scores/individual-rankings` | JWT | Top 3: `melhor_vendedor` (por `total_valor`) e `rei_assistencias` (por `indicacao_count`); lê propostas pagas da NewCorban no período da campanha |
+| GET | `/api/scores/individual-rankings` | JWT | **Legado** — só serve o arquivamento da Copa (`POST /api/campaigns/archive-legacy`). O ranking individual vivo é `/api/rankings/mensal`. Top 3: `melhor_vendedor` (por `total_valor`) e `rei_assistencias` (por `indicacao_count`) |
 
 ### Migrations (`seed.js` + `migrations.js`)
 
@@ -217,6 +273,7 @@ base_points NUMERIC NOT NULL
 - `ALTER TABLE groups ADD COLUMN IF NOT EXISTS daily_goal_value, weekly_goal_value, goal_points, photo_data, photo_mime`
 - `migrateTeamAdminSupport()` em `backend/src/db/migrations.js` — role `team_admin` + tabela `admin_team_scopes`
 - `CREATE TABLE IF NOT EXISTS campaign_settings` + campanha padrão se vazia
+- `migrateMonthlyRankings()` em `migrations.js` — `monthly_rankings` + `monthly_ranking_meta` (ranking individual mensal congelado)
 
 ---
 
@@ -345,9 +402,19 @@ Upsert idempotente. `event_date` varia por tipo de regra (ver seção Regras).
 - `(user_id, group_id)` — equipes que cada `team_admin` pode gerenciar
 - Criada por `migrateTeamAdminSupport()` ou SQL manual (ver deploy)
 
+### `admin_franquia_scopes`
+- `(user_id, franquia_id)` — franquias que cada `franqueado` administra
+- `franquia_id` é VARCHAR e **não é FK**: o id vem do NewCorban e inclui o token `'matriz'`
+- Criada por `migrateFranquiaOwners()`
+
+### `campaigns.owner_franquia_id`
+- Franquia dona da campanha. **NULL = criada pela matriz** (abrangência livre)
+- É o que separa "minha campanha" de "campanha que a matriz mandou": as duas aparecem para o franqueado, só a primeira ele edita
+
 ### `users.role`
-- Valores: `player`, `admin`, `team_admin`
-- Constraint: `users_role_check CHECK (role IN ('player', 'admin', 'team_admin'))`
+- Valores: `player`, `admin`, `team_admin`, `franqueado`
+- Constraint gerada de `ROLES_PERMITIDOS` (`migrations.js`) por `garantirRolesPermitidos()` — não escrever a lista à mão em migration nova
+- `users_role_check CHECK (role IN ('player', 'admin', 'team_admin', 'franqueado'))`
 
 ### Inicialização do banco — `schema.sql` vs `seed.js`
 
@@ -471,9 +538,18 @@ Senha padrão `admin2026` — hash gerado por `bcrypt` no `seed.js` (10 rounds).
 - Loop diário: **pula sábado/domingo**; remove eventos de fim de semana no force
 - `members/stats`: retorna `is_business_day: false` e zeros em fins de semana
 
+### Campanha encerrada: o cron não recalcula
+
+Se `campaign_settings.end_date` já passou, `calculateScores` **retorna sem fazer nada** no modo cron (a limpeza de eventos pós-fim continua rodando antes disso). O botão "Recalcular toda a campanha" (`isForce`) continua reprocessando normalmente.
+
+Sem essa guarda, o cron baixava a campanha inteira da API v3 a cada 5 minutos — **duas chamadas paginadas de mais de cem páginas cada** — que respondiam `429` e esperavam 10/20/30s por página. O NewCorban é o mesmo para o app todo: enquanto isso rodava, o **Ranking do Mês ficava na fila e estourava o timeout de 30s do navegador**. Medido em 12/08/2026: `GET /api/rankings/mensal?mes=2026-08` levou **304s e falhou**, contra 11–25ms dos meses congelados; depois da guarda, **2s**.
+
+> **O que se perde:** pagamento confirmado pelo banco depois do fim da campanha não entra mais sozinho. É para isso que existe o botão de recálculo manual. A alternativa (reconciliação uma vez por dia em vez de a cada 5 min) não foi implementada — se a Copa voltar a receber lançamento tardio, é o caminho.
+
 ### Cron vs force
 
 - **Cron** (`triggeredBy = null`): dias passados processados em `daily_calculations` são pulados, **exceto** dias em `doubleDays` (jogo do Brasil)
+- **Campanha encerrada** (`end_date < hoje`): o cron nem chega a buscar propostas — ver acima
 - **Force** (`triggeredBy = userId`): apaga `score_events` + `daily_calculations` do período e recalcula tudo
 - Disparado por: botão admin, mudança de equipe (`admin.js`), alteração em `brazil_matches` (`worldcup.js`)
 
@@ -553,7 +629,9 @@ O leaderboard **sempre filtra** `score_events` pelo período da campanha (`event
 
 | Página | Role | Arquivo | Função |
 |--------|------|---------|--------|
-| Ranking | todos | `ShellRanking.jsx` | Placar e telão |
+| Ranking Equipe | todos | `ShellRanking.jsx` | Placar e telão |
+| Ranking do Mês | todos | `ShellRankingIndividual.jsx` | Pagos do mês por R$ + abas de mês |
+| Digitados do Dia | todos | `ShellRankingToday.jsx` | Digitados do dia por quantidade |
 | Meu Grupo | `player` | `ShellMyGroup.jsx` | Visualização da equipe (somente leitura) |
 | Configuração | `admin` | `ShellConfig.jsx` | Painel master completo |
 | Minhas Equipes | `team_admin` | `ShellConfig.jsx` | Equipes do escopo apenas |
@@ -579,19 +657,104 @@ O leaderboard **sempre filtra** `score_events` pelo período da campanha (`event
 
 ### Telão de campanha (`pages/CampaignBoard.jsx`)
 
-Coluna esquerda = **Escada do Resgate**. A escada é cumulativa (quem chegou a 15 passou por 5 e 10), o que dá três estados por degrau — e só um deles é notícia:
+**Duas superfícies** (ago/2026, a pedido do cliente): a coluna esquerda é um **palco escuro** (`.tv-left`, gradiente 168° sobre `#0B0D10`) com a identidade da campanha, o pódio **Destaques** e confete; a direita segue no claro, com a **Escada do Resgate deitada** acima do ranking. Antes a esquerda era só a escada, que abraça o próprio conteúdo (`flex: 0 1 auto`) e deixava metade da coluna vazia.
+
+O cartão de destaque é o `.cc` de **`copa_gd_painel_.html`** (protótipo na raiz do repo, referência fixada pelo cliente): metal em gradiente, faixa no topo, marca d'água da colocação. Cliente escolheu explicitamente a variante **escura** e o **confete** — por isso a coluna inteira virou palco escuro, e não três cartões escuros soltos no verde-lilás, onde leriam como remendo.
+
+> ⚠️ Isto contraria o [`DESIGN.md`](DESIGN.md), que proíbe pódio 1/2/3, gradiente, `box-shadow`, raio de canto e emoji como ícone. O `DESIGN.md` é um **seed nunca implementado** — o `system.css` real já o contrariava inteiro (fundo claro, raio 16, sombras). A autoridade visual aqui é o `system.css` + o protótipo do cliente. **A divergência entre os dois documentos continua aberta.**
+
+### Pódio Destaques — `CardDestaque`
+
+> **A referência é `buildTop3Card()` do arquivo `sales-arena.html`, enviado pelo cliente.** Não é o `.cc` do `copa_gd_painel_.html` (protótipo mais antigo, ainda na raiz do repo) — os dois são parecidos e foi justamente confundir um com o outro que produziu um cartão "estranho". Ao mexer no cartão, **conferir contra o `sales-arena`**.
+
+**Três cartões iguais**, na ordem de leitura da referência:
+
+```
+[medalha] [avatar]  Nº LUGAR / nome / chip verde da equipe   ← .r1-top
+RECUPERAÇÕES / 20                                             ← refBlock
+PRÓXIMO GIRO │ REFERÊNCIA                      [giros]        ← secRow (com divisor)
+▓▓▓▓▓▓▓▓▓▓▓░░░░                                               ← progBlock
+```
+
+Valores copiados do arquivo (os px viram `clamp()` com **teto** no valor dele: a 1080p sai igual, abaixo encolhe em vez de estourar a coluna):
+
+| | 1º (ouro) | 2º (prata) | 3º (bronze) |
+|---|---|---|---|
+| Fundo | `#1C1100 → #2E1D00 → #1C1100` | `#080E1C → #0E1A2E → #080E1C` | `#160900 → #241200 → #160900` |
+| Borda | `rgba(255,184,0,.5)` | `rgba(148,180,220,.4)` | `rgba(196,120,60,.45)` |
+| Sombra | `0 8px 36px rgba(200,140,0,.35)` | `0 4px 22px rgba(100,150,200,.22)` | `0 4px 18px rgba(160,90,30,.25)` |
+| Acento | `#FFB800` | `#94B4DC` (azul frio, de propósito) | `#C8784A` |
+| Raio · flex | 16px · `flex-grow: 1.5` | 12px · 1 | 12px · 1 |
+
+**Erros que eu já cometi neste cartão** (todos por não olhar o arquivo):
+
+| Errado | Certo |
+|---|---|
+| Fundo marrom claro saturado | Quase preto — a cor vem dos **blobs radiais** `.tv-cc-glow`/`.tv-cc-glow2`, não do gradiente |
+| Sombra preta | Brilho **dourado** por fora |
+| Medalha montada sobre o avatar | **Irmãos separados por gap** |
+| Selo de giros grande e chapado | Pílula **discreta**: 12px, `rgba(255,255,255,.07)`, texto no tom do metal |
+| Faixa metálica no topo, marca d'água do número | **Não existem na referência** — eu inventei |
+| Sem divisor entre os dados de apoio | `.tv-cc-sep`, 1px × 28px, `rgba(255,255,255,.1)` |
+| Avatar sem brilho | Anel + `box-shadow` + pulso (`avatarPulse`) no 1º |
+| Valor grande dourado | **Branco**, peso 900 |
+
+Divergências deliberadas da referência: **medalha em SVG** (o arquivo usa 🥇 — emoji é desenhado pelo SO e a TV renderiza o que a fonte dela tiver) e **nome que quebra em vez de truncar** (o arquivo usa `text-overflow: ellipsis`; PRODUCT.md trata truncar nome como falha a corrigir, não a copiar).
+
+> ⚠️ **Já foi tentada — e recusada — uma versão com líder grande e 2º/3º em uma linha.** O argumento era bom (o pódio repetia as 3 primeiras linhas do ranking que está na mesma tela) mas o cliente recusou explicitamente: *"ficou pior do que antes… não quero card grande"*. **Não reintroduzir sem pedido dele.**
+
+| Decisão | Por quê |
+|---|---|
+| O cabeçalho "CAMPANHA DO DIA / \<nome\>" **saiu da coluna** | Repetia o nome que está na barra superior, e a frase da campanha repetia o "+1 giro a cada N" da escada. Eram ~145px de altura duplicada — exatamente o que faltava para os três cartões caberem no arranjo da foto |
+| Número grande = **recuperações**, não R$ | Na foto o grande é R$ referência. Aqui `contracts` é o contador que abre giro e por onde o `board` ordena; o R$ fica no apoio |
+| Valor grande em **branco**, rótulos em dourado | Como na referência: o metal é o fundo, não a tinta do número |
+| Confete **dentro** do cartão (`ConfeteCartao`, 12 peças) | O confete do palco fica atrás e o cartão é opaco: sem esta camada, as peças que na foto aparecem por cima do metal não existiriam |
+| Medalha em **SVG ao lado** do avatar | Emoji 🥇 é desenhado pelo SO (a TV renderiza o que a fonte dela tiver) e não comporta o numeral. Centrada na base — como no protótipo — a fita cobria as iniciais |
+| Iniciais, nunca foto | O placar lê a NewCorban, que não devolve avatar de vendedor |
+| `.tv-cc { flex: 1 0 auto }` + `.tv-podio-cards { overflow-y: auto }` | Com shrink livre, tela baixa comprimia o cartão abaixo do conteúdo e o `overflow:hidden` **cortava o nome pela metade** |
+
+**Altura é o recurso escasso** — barra superior, régua de progresso e rodapé não encolhem, então a conta sobra toda para o pódio. Medido em Chrome headless (`.tv-podio-cards` box vs `scrollHeight`, mais overflow horizontal): cabe exato em **1920×1080, 1920×840, 1600×900, 1440×820 e 1366×768**. A folga é zero por construção — **mexer em padding ou corpo de fonte exige remedir**.
+
+Abaixo de 1080p as `vh` encolhem tudo até o **piso dos `clamp()`**, e é o piso (não a escala) que estoura a coluna. Por isso a degradação é por corte, em duas etapas:
+
+| Altura | Sai | Por quê |
+|---|---|---|
+| ≤ 860px | `.tv-cc-pos` ("Nº LUGAR") | Repete o número que já está dentro da medalha |
+| ≤ 800px | `.tv-cc-team`; o **vão entre as linhas** encolhe | Ver abaixo: o que encolhe é o vão, nunca o recheio da borda |
+
+**O recheio é maior que o do arquivo de propósito** — até 40px/34px contra 24px/18px. O `sales-arena` roda numa coluna mais larga; com a nossa, o mesmo número lê como conteúdo colado na borda (reclamação do cliente, ago/2026, duas vezes). A folga saiu da sobra que os cartões já tinham ao esticar por `flex-grow` — nada encolheu.
+
+Duas armadilhas medidas nesse ajuste:
+
+1. **O recheio lateral acompanha a LARGURA da janela** (`clamp(24px, 2.4vw, 40px)`). Numa janela de 1152px ele caía para 22px enquanto em 1920px ficava em 32px — por isso "está colado" e "não está colado" podiam ser verdade ao mesmo tempo. O piso do `clamp` é que resolve.
+2. **Em tela baixa o vertical descolava do lateral** (17px contra 40px), e é a assimetria — não o valor — que faz a medalha parecer colada em cima. Em `≤800px` a altura que falta sai do `gap` entre as linhas, não do `padding-block`.
+
+Medido em sete tamanhos (1920×1080/900/840, 1600×900, 1440×820, 1366×768, 1280×800): recheio lateral **36–47px**, vertical **19–34px**, `sobra 0` e zero overflow horizontal em todos.
+
+**Antes de mexer de novo no padding porque "ainda está igual"**, descartar cache do navegador primeiro: o arquivo em disco, o servido pelo container (`docker compose exec frontend grep … /app/src/system.css`) e o que o dev server entrega (`curl localhost:3010/src/system.css`) já bateram os três iguais numa dessas rodadas — a pegadinha do chokidar (ver "Desenvolvimento local") **não** era a causa daquela vez. Pedir Ctrl+Shift+R antes de aumentar de novo.
+
+> Receita de medição: `frontend/dist/harness.html` (gerado de um template com dados fictícios) + `chrome --headless --dump-dom` lendo um JSON no `<title>`. **O harness é uma cópia à mão do JSX** — já aconteceu de eu medir markup velho por ter esquecido de sincronizá-lo depois de mexer no componente.
+
+> Receita de medição: `frontend/dist/harness.html` (gerado de um template com dados fictícios) + `chrome --headless --dump-dom` lendo um JSON no `<title>`. **O harness é uma cópia à mão do JSX** — já aconteceu de eu medir markup velho por ter esquecido de sincronizá-lo depois de mexer no componente.
+
+O confete (`Confete`) sorteia as peças **uma vez** (`useMemo` sem dependência): o placar re-renderiza a cada 60s e a cada evento SSE, e re-sortear faria tudo saltar de lugar. Todas partem do mesmo topo e caem `100vh`; o que as espalha é o `animation-delay` **negativo**. Em `prefers-reduced-motion` o `.tv-cf` some inteiro — parado, vira sujeira fixa na tela.
+
+### Escada do Resgate — agora horizontal (`EscadaFaixa` + `.tv-strip`)
+
+A escada é cumulativa (quem chegou a 15 passou por 5 e 10), o que dá três estados por degrau — e só um deles é notícia:
 
 | Estado | Quando | Tratamento |
 |--------|--------|------------|
-| `is-done` | `chegaram > 0` | Uma linha; marca preenchida; chip "N chegaram" à direita |
-| `is-next` | degrau mais baixo com `chegaram === 0` | **Fronteira** — única linha com fundo, duas alturas e nome próprio: "faltam N · FULANO está mais perto" |
+| `is-done` | `chegaram > 0` | Marca preenchida; "N chegaram" abaixo |
+| `is-next` | degrau mais baixo com `chegaram === 0` | **Fronteira** — única coluna com fundo, aro grosso e nome próprio: "faltam N · FULANO" |
 | `is-ahead` | acima da fronteira | Recua: marca vazada, título em `--muted`, trilho pontilhado |
 
 - `degraus(ladder, board)` deriva os três estados. `board` chega **ordenado por contratos desc**, então `board.find(v => v.contracts < r.at)` é, por construção, quem está mais perto — não reordenar o board sem revisar isso.
 - **Prêmio em R$ não vai ao telão** — decisão do cliente (ago/2026). `campaigns.ladder[].prize` e `ladder_step.prize` existem no banco e aparecem **só** no painel admin (`ShellCampaigns.jsx`). O telão fala em *giros*, e renderiza `campaign.spin_every` na linha "e segue: +1 giro a cada N recuperações" — sem ela a escada parece terminar no último degrau.
-- Um painel único com trilho vertical (`.tv-rung::before`), não cinco cartões: cinco cartões iguais comunicam "cinco coisas equivalentes", que é o oposto de uma escada.
+- O trilho continua existindo, agora **deitado** (`.tv-srung::before`, linha horizontal atrás das marcas): sólido no conquistado, pontilhado no horizonte. É ele que faz a escada ser uma rota e não uma lista — não trocar as marcas por cartões soltos.
+- `grid-auto-flow: column` com `grid-auto-columns: minmax(…, 1fr)` + `overflow-x: auto`: colunas de largura igual, e **rola de lado** quando não couber. Encolher a marca até o número sumir seria trocar a escada por enfeite.
 - `--gd-ink` (`#1C7A4D`) é o único verde que pode carregar **texto** — `--gd1` sobre `--accent-l` dá 2,4:1 e reprova em contraste.
-- `< 1000px`: a escada continua **vertical e rolável** (`max-height: 32vh`); virá-la de lado quebra o trilho. Chips e a linha de "e segue" somem.
+- `< 1000px`: o corpo empilha, o pódio **deita** (`.tv-podio-cards { flex-direction: row }`) e a faixa da escada perde `.tv-srung-sub` e a linha de "e segue".
 
 ### Arquivo de campanhas legadas (Copa GD 2026 na lista de Campanhas)
 
@@ -610,9 +773,9 @@ O `Telao` nasceu só para a TV. Reaproveitá-lo para um placar aberto no desktop
 
 | Prop | Default (TV) | Card arquivado | Por quê |
 |------|--------------|----------------|---------|
-| `modes` | `['teams','individual','today']` | `['teams','individual']` | Não existe "Pontos do Dia" num histórico de meses. Com 1 modo só, o auto-ciclo nem liga |
+| `modes` | `['teams','mensal','digitados']` | `['teams','individual']` | Os modos `individual`/`today` **continuam existindo** só para o card arquivado — ver "Ranking Individual". Com 1 modo só, o auto-ciclo nem liga |
 | `fullscreen` | `true` | herda o clique | `requestFullscreen()` era incondicional: **clicar no card sequestrava a tela**. "Ver o placar" agora abre normal; só "Abrir na TV" vai a tela cheia |
-| `limiteIndividual` | `5` | `Infinity` | `TelaoIndView` tinha `.slice(0,5)` fixo. Cinco linhas é o que se lê a 4 m e a TV rotaciona sozinha; no arquivo, aberto de perto, a lista vem inteira |
+| `limiteIndividual` | `5` | `Infinity` | `TelaoIndView` tinha `.slice(0,5)` fixo. Cinco linhas é o que se lê a 4 m e a TV rotaciona sozinha; no arquivo, aberto de perto, a lista vem inteira. **Só afeta o modo legado** — `mensal`/`digitados` mostram a lista inteira rolando |
 
 - **Troca manual de ranking**: botões `.tl-hd-mode` no cabeçalho. Clicar seta `tlManual` e **desliga a rotação automática** — sem isso a tela pularia no meio da leitura, pior do que não ter botão. Na TV, onde ninguém clica, o comportamento é idêntico ao de antes.
 - **Rolagem**: soltar o limite não bastava — `.tl-body` é `overflow:hidden` e dezenas de linhas vazavam. `.tl-ind-list` rola dentro da coluna com o cabeçalho fixo; `.tl-ind-col-n` mostra o total ao lado do título.
@@ -693,12 +856,109 @@ Como `pendentes()` filtra por **ausência de resultado**, não por status, a cam
 
 Colunas adicionadas: `campaign_results.team`, `campaigns.frozen_diagnostics JSONB` (migrations).
 
+---
+
+## Ranking Individual (mensal + digitados do dia)
+
+> Substituiu, em 12/08/2026, os dois modos que liam a Copa: o "Ranking Individual" (que usava o período da `campaign_settings` e só quem estava em equipe ativa) e o "Pontos do Dia" (que lia `score_events`).
+
+**Não existe reset.** "Zera todo mês" e "zera todo dia" são a **janela da consulta**, não um evento: dia 1º às 00:00 o mês novo já começa vazio porque a janela passou a apontar para outro intervalo. Não há tabela para limpar, cron de virada nem `daily_calculations` — todo o maquinário de `score_events`/`scoring.js` fica fora deste caminho.
+
+### A fonte é o `ranking.php`, não a v3
+
+| Quero | Chamada | Medido em 12/08/2026 |
+|---|---|---|
+| Ranking mensal | `getRankingPeriodo(inicio, fim, 'pagamento')` | **~1,8 s**, 1 requisição |
+| Digitados do dia | `getRankingPeriodo(dia, dia, 'cadastro')` | **~1,6 s**, 1 requisição |
+
+A v3 paginada (`getProposalsV3`, 100/página em série) levou **mais de 9 minutos** para o mesmo mês da empresa inteira. Para agregado por vendedor ela é a ferramenta errada — **não trocar de volta**.
+
+Campos por vendedor: `filter_value` (=corban_id), `qtd_propostas`, `valor_referencia`, `valor_liberado`, `valor_financiado`, `valor_meta` e a **foto de perfil**, escondida em `second_level[nome].image` (é dela que sai o avatar; o fallback são as iniciais).
+
+### Decisões do cliente (12/08/2026)
+
+| Decisão | O que significa |
+|---|---|
+| **Escopo: empresa inteira** | Matriz **e** franquias. `getSellerIdsPorFranquia` não entra aqui — só o filtro de contas não-humanas. São ~64 no mês e ~45 nos digitados, contra 22 se fosse só matriz |
+| **Mensal ordena por R$ pago** | Contratos desempatam. O `valor_meta` e o atingimento aparecem como **apoio**, nunca como ordem |
+| **"Rei das Assistências" saiu** | Era regra da Copa (INDICACAO). O modo virou uma lista só |
+| **Mês fechado congela** | E não se mexe mais — por isso **não há botão de recongelar**, ao contrário do `campaignFreezer` |
+| **Lista rolando na TV** | Todo mundo aparece em algum momento; um top 10 fixo esconderia 80% da lista |
+
+Premissas assumidas, não perguntadas: produtos `['7','13']` (o que o resto do app usa) e **sábado e domingo contam** — o recorte de dia útil (`businessDays.js`) era regra da Copa e não existe no ranking da NewCorban.
+
+### Contas não-humanas — `services/rankingFilters.js`
+
+Extraído do `campaignBoard.js` porque agora tem dois consumidores. **Este filtro não é opcional:** sem ele o pódio dos digitados de 11/08/2026 seria NOVA IA (270 contratos) e Jarvis (268), contra 36 do primeiro humano.
+
+Duas camadas que cobrem coisas diferentes:
+- `getRoboSellerIds()` — flag `robo` do cadastro (38 contas). Pega "NOVA IA", que não casa com padrão de nome nenhum
+- `ranking_exclusions` — padrões (`API%`, `BOT %`, `ROBO%`, `%(Matriz)%`)
+
+**Se as duas falharem, `agregar()` lança** em vez de servir um ranking liderado pela IA numa TV. Se só uma falhar, degrada e marca `cadastro_ok`/`exclusoes_ok` no diagnóstico.
+
+### Endpoints — `routes/rankings.js`
+
+| Rota | Fonte | TTL |
+|---|---|---|
+| `GET /api/rankings/mensal?mes=YYYY-MM` | mês corrente: NewCorban · mês fechado: `monthly_rankings` | 60 s / 10 min |
+| `GET /api/rankings/digitados?date=` | NewCorban | 60 s / 10 min |
+| `GET /api/rankings/meses` | `monthly_ranking_meta` + o mês corrente | 60 s |
+
+- **O congelado vence a API**, mas só para mês que não é o corrente. Mês passado ainda sem foto cai no ao vivo em vez de devolver vazio
+- Mês/data malformados são **400**, não 502 — o erro é de quem pediu
+
+### Congelamento — `services/monthlyFreezer.js`
+
+| Quando | O quê |
+|---|---|
+| Cron `20 0 1 * *` (America/Sao_Paulo) | `congelarMesesPendentes()` — 00:20 para não cair junto do congelamento de campanhas (00:05) |
+| Startup do `server.js` | mesma função — cobre o servidor estar fora do ar na virada |
+
+- **Pendente** = mês encerrado (até 6 para trás) sem linha em `monthly_ranking_meta`. O mês corrente nunca é candidato
+- **Guarda contra leitura ruim:** mês com zero participante na empresa inteira **adia** em vez de gravar zero para sempre. Como a fila filtra por ausência de foto, ele volta na próxima passada
+- **Write-once**: mês já congelado é ignorado. Sem `force`, sem botão
+- `atingimento` é **derivado na leitura**, nunca gravado — se ficasse na tabela, um arredondamento diferente faria o congelado divergir do ao vivo
+- Tabelas: `monthly_rankings` (linhas) e `monthly_ranking_meta` (janela + totais + diagnóstico), em `migrateMonthlyRankings()`
+
+### Frontend
+
+`components/RankingIndividual.jsx` — as mesmas linhas no telão e nas páginas. As cores saem de tokens `--ri-*`: dentro do `.telao` apontam para a paleta escura da TV, fora seguem o tema do app.
+
+**Os componentes velhos continuam de pé.** `TelaoIndView`/`TelaoTodayView` em `ShellRanking.jsx` são o renderizador do **snapshot congelado da Copa GD 2026** no card arquivado (`CampaignBoard.jsx` passa `modes={['teams','individual']}` e `indRankings` no formato `{melhor_vendedor, rei_assistencias}`). Reescrevê-los no lugar quebraria o arquivo em silêncio — por isso `mensal`/`digitados` são modos **novos**, ao lado. O mesmo vale para `fetchIndividualRankings()`, que `POST /api/campaigns/archive-legacy` ainda usa.
+
+**Rolagem contínua (`.ri-scroll.ri-rola`):** a faixa contém a lista **duas vezes** e a animação anda exatamente 50% dela — ao voltar ao início, o que está na tela é idêntico ao instante anterior.
+
+> ⚠️ O espaçamento entre linhas é `margin-bottom` da `.ri-linha`, **e não `gap` do `.ri-track`**. Com `gap`, a faixa de 2N linhas mede `2N·h + (2N−1)·gap`, e metade disso fica meio `gap` mais curta que uma cópia — a rolagem dá um pulo de 3px a cada volta. Medido em headless: com `margin-bottom`, `metadeDaFaixa − umaCopia = 0`.
+
+- Lista curta não rola (`rolarAPartirDe`, 8 no telão, nunca nas páginas) — movimento sem motivo atrapalha a leitura
+- Passar o mouse ou focar **pausa** a rolagem; `prefers-reduced-motion` desliga e devolve a rolagem manual
+- Nome **quebra em vez de truncar** (`overflow-wrap: anywhere`) — nome cortado num ranking é falha
+- `iniciais()` ignora palavras que não começam com letra: vários cadastros são "MOTIVACAO - JULIA KEI…" e saíam como "M-"
+
+**Páginas:** `ShellRankingIndividual.jsx` (mensal + abas de mês) e `ShellRankingToday.jsx` (digitados + navegação por dia). Menu e títulos viraram **"Ranking do Mês"** e **"Digitados do Dia"**.
+
+> As páginas ficam **montadas mesmo escondidas** (é o que dá a troca instantânea). Por isso recebem `ativo` do `Shell.jsx` — sem essa dica, as duas ficariam batendo na NewCorban a cada minuto com ninguém olhando.
+
+### Conferência
+
+`node scripts/verificar-ranking.js [YYYY-MM] [YYYY-MM-DD]` — roda o serviço real contra a API, sem banco (stub devolve os padrões de exclusão da migration) e sem escrever nada. Serve para bater os números com o painel da NC antes de expor na TV.
+
+> O relatório sai por `fs.writeSync(1, …)`, não por `console.log`. No Git Bash (mintty) o Node enxerga o stdout como **pipe**, e a escrita assíncrona se perdia na saída do processo: o script terminava com exit 0, sem erro e **sem tabela nenhuma** — só as linhas de log dos serviços. Rodar com `--trace-exit` fazia o relatório aparecer, porque atrasava a saída o suficiente. Não trocar de volta para `console.log`.
+
+---
+
 ### Testes
 
 `npm test --prefix backend` (runner nativo do Node, sem dependência nova) — `backend/test/`:
 - `responseCache.test.js` — HIT/MISS, expiração, isolamento por query string, `res.locals.cacheTtlMs`, invalidação por prefixo
 - `board.test.js` — agregação do placar (filtros de produto/franquia/robô/mesmo-dia, escada, diagnóstico), paralelismo, TTL por idade do dia, 502 preservado, caminho congelado e seus campos
 - `freezer.test.js` — fila de pendentes, gravação em transação, idempotência, `force`, guardas contra leitura ruim, isolamento de falha entre campanhas
+- `rankingIndividual.test.js` — janela do mês (fevereiro, bissexto, mês futuro), filtro de robô nas duas camadas e a recusa quando as duas falham, ordenação e desempate, procedência/foto ausentes, TTL por idade da janela
+- `monthlyFreezer.test.js` — fila que nunca inclui o mês corrente, gravação em transação, write-once, guarda contra mês vazio, isolamento de falha entre meses, `atingimento` recalculado na leitura
+- `rankingRoutes.test.js` — congelado vence a API, mês sem foto cai no ao vivo, 400 vs 502, isolamento de cache por query string
+- `campaignAccess.test.js` — política pura de quem vê/cria/edita campanha: escopo do franqueado imposto sobre o corpo, escopo vazio recusado, rascunho, campanha da matriz é só leitura, `franquia_ids` fora dos campos editáveis
+- `campaignRoutes.test.js` — a política ligada no HTTP, com tokens JWT de verdade: 403 por id alheio, **cache do placar não fura a permissão**, `franquia_ids` do corpo ignorado no POST e barrado no PUT, congelar é da matriz
 
 Os testes injetam stubs em `require.cache` para `config/db`, `middleware/auth`, `services/externalApi` e `services/franquiaSellers` — não precisam de banco nem de credenciais.
 
@@ -1134,4 +1394,19 @@ VITE_API_URL=http://localhost:3001
 | Ago/11 | Sem jeito de ver a Copa GD 2026 (encerrada) na lista de Campanhas, junto das campanhas novas | Ver seção "Arquivo de campanhas legadas" acima. Resumo: `campaigns.legacy_kind`/`legacy_snapshot` (colunas novas — a primeira já existia sem uso), `POST /api/campaigns/archive-legacy` tira uma foto do ranking de equipes + individuais e grava pra sempre; `GET /:id/board` serve essa foto direto quando `legacy_kind` está setado; `CampaignBoard.jsx` reaproveita o `Telao` de `ShellRanking.jsx` (que virou export nomeado) em vez de montar uma view nova. Botão precisa ser clicado manualmente em produção — não roda no boot. Cobertura: 3 testes em `board.test.js` (snapshot servido sem tocar a NewCorban, legado vence `campaign_results`, snapshot ausente devolve forma vazia em vez de quebrar o telão). |
 | Ago/11 | Reaproveitar o `Telao` no card arquivado expôs 3 premissas fixas de TV | (1) `requestFullscreen()` era incondicional — **clicar no card sequestrava a tela**; virou prop `fullscreen` (default `true`, o card herda o clique). (2) `TelaoIndView` tinha `.slice(0,5)` fixo — o arquivado mostrava só 5 dos 58 colocados; virou prop `limiteIndividual` (default `5` na TV, `Infinity` no arquivo) + `.tl-ind-list` com rolagem, porque `.tl-body` é `overflow:hidden` e a lista longa vazava. (3) Só havia rotação automática de 5 min — inaceitável para quem abre e quer ver o outro ranking; botões `.tl-hd-mode` no cabeçalho, e clicar **desliga** a rotação (`tlManual`) para a tela não pular no meio da leitura. |
 | Ago/11 | Lista de campanhas sem filtro; campanha vencida continuava aparecendo como ativa | Abas `Todas/Ativas/Concluídas/Futuras` com contagem (`faseDaCampanha` em `ShellCampaigns.jsx`). Classifica por **data, não só por `status`**: uma campanha de um dia fica `active` para sempre se ninguém clicar em "Encerrar", mas pela data já acabou. Datas comparadas como string `YYYY-MM-DD` (`toLocaleDateString('en-CA')`) — `new Date('2026-08-10')` é UTC e vira 09/08 no BRT. |
+| Ago/11 | Coluna esquerda do telão da Missão Resgate ocupava metade da altura e deixava um vazio grande | A escada abraça o próprio conteúdo (`flex: 0 1 auto`, decisão anterior para o painel não parecer "faltou carregar") e com 5 degraus sobrava meia coluna. Fix: a esquerda virou **palco escuro** com o pódio **Destaques** (top 3) + confete, e a escada foi **deitada** acima do ranking (`EscadaFaixa`/`.tv-strip`). Cartão portado do `.cc` de `copa_gd_painel_.html`, na variante escura + confete escolhidas pelo cliente. Ver seção "Telão de campanha". Contraria o `DESIGN.md` (seed nunca implementado) — divergência registrada, não resolvida |
+| Ago/11 | Ao portar o cartão do protótipo: nome cortado ao meio e 3º cartão fora da tela | Duas causas medidas no Chrome headless: (1) `flex-shrink` livre comprimia o cartão abaixo da altura do conteúdo e o `overflow:hidden` comia a primeira linha — corrigido com `flex: 1 0 auto` + `.tv-podio-cards { overflow-y: auto }`; (2) com as duas linhas de números empilhadas, os 3 cartões pediam 649px numa coluna de 576 — corrigido fundindo `.tv-cc-meta` em `.tv-cc-figures`. Também: a medalha centrada na base do avatar cobria as iniciais (foi para o lado). Cabe exato em 1920×1080, 1600×900 e 1366×768 — **mexer em espaçamento ou corpo de fonte exige remedir** |
+| Ago/11 | Cliente viu o cartão com dado real (janela com altura ≤860px, onde `.tv-cc-mi` já some por regra): medalha/avatar/nome grudados, selo de giro pequeno perto do "20" | `.tv-cc-top` gap subiu (`12→16-28px`); `.tv-cc-team` ganhou mais margem do nome. `.tv-cc-giros` cresceu bastante (padding, `font-size` de `14-22px` para `19-33px`) — ficou do tamanho do bloco de RECUPERAÇÕES (`.tv-cc-figures` virou `align-items: center` porque `flex-end` desalinhava as bases dos dois). Remedido nos 4 tamanhos-referência (1920×1080, 1600×900, 1366×768 **e 1440×820**, que é o cenário real da captura) — a folga continua zero por construção |
+| Ago/11 | Cartão do pódio "estranho" mesmo depois de refeito — eu estava copiando o protótipo **errado** | Eu vinha portando o `.cc` do `copa_gd_painel_.html`; a referência do cliente era o `buildTop3Card()` do **`sales-arena.html`**, que ele acabou enviando. Diferenças que eu tinha errado: fundo quase preto (não marrom claro), sombra dourada (não preta), dois blobs radiais de brilho, medalha **separada** do avatar, selo de giros **pequeno** (12px, translúcido) e não uma pílula gigante, divisor de 1px entre os dados de apoio, avatar com anel e pulso, valor grande **branco**. Além disso eu tinha inventado dois elementos que não existem na referência: faixa metálica no topo e marca d'água do número. Refeito com os valores do arquivo. Ver seção "Pódio Destaques" |
+| Ago/11 | O redesign "líder grande + 2º/3º em linha" foi **recusado** pelo cliente ("ficou pior… não quero card grande") | Revertido para **três cartões iguais** no arranjo exato da foto de referência. Para caberem, saiu o cabeçalho "CAMPANHA DO DIA / \<nome\>" da coluna — duplicava o nome da barra superior e a frase da campanha duplicava o "+1 giro a cada N" da escada (~145px de altura repetida). Somado: confete dentro do cartão, chip verde da equipe, "Nº LUGAR" acima do nome e valor grande em branco, tudo para bater com a foto. Corte progressivo por altura (≤860 e ≤800) porque abaixo de 1080p é o **piso dos `clamp()`**, não a escala, que estoura a coluna. **Lição:** o cliente fixou uma referência visual — quando ela e a análise divergem, perguntar antes de trocar a estrutura, não depois |
+| Ago/11 | Depois de 3 rodadas de ajuste o cliente disse que o pódio continuava ruim → **redesign** (depois revertido, ver linha acima) | Os ajustes eram remendo: a medição dizia `sobra 0` em todos os tamanhos, ou seja, **zero folga por construção** — qualquer aumento tinha que roubar de outro lugar. Diagnóstico: (1) o pódio repetia as 3 primeiras linhas do ranking que está na mesma tela; (2) o cartão do protótipo carrega 11 dados, foi desenhado para uma barra lateral de 490px lida a 60cm; (3) quatro codificações redundantes de "1º lugar" (medalha + marca d'água + rótulo + dourado). Fix: `CardDestaque` virou `CardLider` + `LinhaPodio`, `.tv-cc` virou só superfície de metal, e a sobra da coluna passou a ser gasta em corpo de fonte (número do líder de 42→86px). Ver seção "Pódio Destaques" |
+| Ago/11 | "ainda está igual": o pedido era a identidade **no topo** do cartão, e só o espaçamento horizontal tinha mudado | O cartão usava `justify-content: center`. Como ele **cresce** por `flex-grow`, a folga virava margem morta simétrica — medido no headless: **~11px acima e ~11px abaixo** do conteúdo, em todos os três cartões. Trocado por `justify-content: space-between`: a mesma folga passa a separar medalha/nome ↔ números ↔ progresso, com a identidade ancorada no topo e a barra no rodapé. Nada encolheu. `gap` voltou a ser só piso (`5-10px`) — subir os dois somava e estourava 768p em 41px. Selo de giros de novo maior (`23-40px`), com recheio vertical menor, porque é a fonte que faz parecer grande e o padding só rouba altura. `.tv-cc-mi-lbl` ganhou `white-space: nowrap` — com o selo maior, "PRÓXIMO GIRO" quebrava em duas linhas a 1080p |
 | Ago/11 | Alteração no frontend não aparecia no Docker local (Windows) — parecia que o código não tinha sido salvo | O `docker-compose.yml` define `CHOKIDAR_USEPOLLING` só no `backend`. Sem evento de filesystem no bind mount, o Vite servia o transform em cache: **o arquivo novo estava no container, mas a tela mostrava o código antigo**. Correção em `docker-compose.override.yml` com polling no `frontend`. Diagnóstico e receita na seção "Desenvolvimento local" — inclui o alerta de que esse override está versionado e provavelmente não deveria. |
+| Ago/12 | Ranking individual e "Pontos do Dia" ainda eram da Copa (encerrada em 31/07): período da `campaign_settings` e só quem estava em equipe ativa | Viraram **Ranking do Mês** (pagos do mês, por R$) e **Digitados do Dia** (digitados, por quantidade), empresa inteira. Ver seção "Ranking Individual". O reset sumiu: a janela da consulta é o mês/dia, então a virada acontece sozinha — sem tabela, sem cron de zeragem. Fonte trocada para `ranking.php` (`getRankingPeriodo`): ~1,8s numa requisição contra **mais de 9 minutos** da v3 paginada para o mesmo mês. `getRoboSellerIds` + `ranking_exclusions` extraídos para `services/rankingFilters.js` — sem eles o pódio dos digitados seria NOVA IA (270) e Jarvis (268) contra 36 do primeiro humano |
+| Ago/12 | Ao reaproveitar a view do ranking individual, o card arquivado da Copa quebraria em silêncio | `TelaoIndView`/`TelaoTodayView` **também** renderizam o snapshot congelado da Copa GD 2026 (`CampaignBoard.jsx` passa `indRankings` no formato `{melhor_vendedor, rei_assistencias}`), e `fetchIndividualRankings()` ainda serve o `POST /archive-legacy`. Por isso `mensal`/`digitados` entraram como modos **novos** ao lado, e nada do caminho legado foi tocado |
+| Ago/12 | A rolagem contínua do telão dava um pulo de 3px a cada volta | A faixa duplica a lista e anda `translateY(-50%)`, mas com `gap` no `.ri-track` a faixa de 2N linhas mede `2N·h + (2N−1)·gap` — metade disso é meio `gap` mais curta que uma cópia. Trocado por `margin-bottom` na `.ri-linha`; medido em headless: `metadeDaFaixa − umaCopia = 0` |
+| Ago/12 | `setInterval` de faxina do cache em `externalApi.js` segurava o processo aberto para sempre | Qualquer script ou teste que só importasse o módulo nunca terminava (e `process.exit(0)` como remendo truncava o stdout redirecionado, deixando relatório vazio). Fix: `.unref()` no timer |
+| Ago/12 | **Ranking do Mês estourava o timeout de 30s do navegador** | Não era o ranking: o cron de pontuação continuava recalculando a Copa (encerrada em 31/07) a cada 5 min, baixando a campanha inteira da v3 em duas chamadas paginadas de 100+ páginas, respondendo `429` e esperando 10/20/30s por página. Como o NewCorban é o mesmo para o app inteiro, o ranking ficava na fila. Medido: `mensal?mes=2026-08` → **304s e falha**, meses congelados → 11–25ms; depois da guarda → **2s**. Fix: `calculateScores` retorna cedo no modo cron quando `end_date < hoje` (force continua reprocessando). **O mesmo estava acontecendo em produção desde 01/08** |
+| Ago/12 | `scripts/verificar-ranking.js` terminava com exit 0, sem erro e **sem relatório nenhum** | No Git Bash (mintty) o Node vê o stdout como pipe e o `console.log` é assíncrono: o processo saía antes de esvaziar o buffer. Rodar com `--trace-exit` fazia o relatório aparecer, atrasando a saída o bastante — sintoma que joga o diagnóstico para o lado errado. Fix: `fs.writeSync(1, …)` |
+| Ago/12 | Qualquer usuário logado via **todas** as campanhas, e só a matriz podia criar | Fase 1 de campanhas por franquia: role `franqueado` + `admin_franquia_scopes` + `campaigns.owner_franquia_id`, política em `services/campaignAccess.js`, `GET /api/franquias`, wizard de criação (`components/CampaignForm.jsx`) e cadastro de donos (`components/FranqueadosConfig.jsx`). Ver seção "Donos de franquia". Duas armadilhas fechadas por teste: escopo vazio viraria campanha da empresa inteira (`franquia_ids = []` = sem filtro no placar) e a checagem do `/board` dentro do handler seria pulada pelo `responseCache` |
+| Ago/12 | Páginas de ranking batiam na NewCorban a cada minuto mesmo escondidas | O `Shell.jsx` mantém todas as páginas montadas (é o que dá a troca instantânea). Passou a mandar `ativo`, e o polling só roda na página visível |

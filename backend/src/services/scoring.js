@@ -124,6 +124,27 @@ async function calculateScores(triggeredBy = null) {
     if (rowCount > 0) console.log(`[Scoring] 🧹 ${rowCount} evento(s) removidos após fim da campanha (${rawEndDate})`);
   }
 
+  // ── Campanha encerrada: o cron não tem o que recalcular ──────────────────
+  //
+  // Os eventos do período já estão gravados e nenhum dia novo entra. Mesmo
+  // assim, a cada 5 minutos o cron baixava a campanha inteira da API v3 — duas
+  // chamadas paginadas de mais de cem páginas cada — que respondiam 429 e
+  // esperavam 10/20/30s por página. O NewCorban é o mesmo para todo o app:
+  // enquanto isso rodava, o Ranking do Mês ficava na fila e estourava o timeout
+  // de 30s do navegador (medido em 12/08/2026: 304s até falhar, contra 11-25ms
+  // dos meses congelados).
+  //
+  // Recalcular o passado não muda um único ponto — a única coisa que a rodada
+  // podia trazer é pagamento confirmado pelo banco depois do fim, e para isso
+  // existe o botão "Recalcular toda a campanha" (que passa por `isForce`).
+  if (!isForce && rawEndDate && rawEndDate < todayStr) {
+    console.log(
+      `[Scoring] Campanha encerrada em ${rawEndDate} — cron não recalcula ` +
+      `(use "Recalcular toda a campanha" no painel para reprocessar)`
+    );
+    return [];
+  }
+
   if (isForce) {
     console.log('[Scoring] Force: recalculando campanha inteira (mudança de equipe/membro)...');
     // Não apaga tudo de uma vez — limpa dia a dia no loop para evitar zeragem do ranking
