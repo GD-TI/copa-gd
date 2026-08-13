@@ -32,6 +32,8 @@ const worldcupRoutes = require('./routes/worldcup');
 const { syncMatchesFromApi } = require('./routes/worldcup');
 const settingsRoutes = require('./routes/settings');
 const campaignRoutes = require('./routes/campaigns');
+const franquiaRoutes = require('./routes/franquias');
+const rankingRoutes = require('./routes/rankings');
 const { router: eventsRouter } = require('./routes/events');
 const { startScheduler } = require('./services/scheduler');
 const { seed } = require('./db/seed');
@@ -99,6 +101,8 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/worldcup', worldcupRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/campaigns', campaignRoutes);
+app.use('/api/franquias', franquiaRoutes);
+app.use('/api/rankings', rankingRoutes);
 app.use('/api/events', eventsRouter);
 
 app.get('/api/health', (req, res) => {
@@ -180,6 +184,11 @@ app.listen(PORT, HOST, async () => {
     // ar — sem isso, um deploy na virada faria a campanha perder a janela do cron.
     require('./services/campaignFreezer').congelarPendentes()
       .catch(e => console.warn('[Server] Congelamento na startup (não crítico):', e.message));
+
+    // Idem para o ranking individual: se o app estiver fora do ar na virada do
+    // mês, a repescagem aqui pega os meses encerrados que ficaram sem foto.
+    require('./services/monthlyFreezer').congelarMesesPendentes()
+      .catch(e => console.warn('[Server] Congelamento mensal na startup (não crítico):', e.message));
 
     // Sincroniza jogos do Brasil na startup (silencioso — não recalcula pontos)
     const footballKey = process.env.FOOTBALL_API_KEY;

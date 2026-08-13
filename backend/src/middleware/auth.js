@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { getManagedGroupIds } = require('../services/adminScopes');
+const { resolverEscopoDeFranquia } = require('../services/franquiaScopes');
 
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -29,6 +30,11 @@ function isConfigAdmin(user) {
   return isMasterAdmin(user) || isTeamAdmin(user);
 }
 
+/** Dono de franquia — administra as campanhas da própria unidade */
+function isFranqueado(user) {
+  return user?.role === 'franqueado';
+}
+
 /** Admin master — acesso total */
 function adminOnly(req, res, next) {
   if (!isMasterAdmin(req.user)) {
@@ -43,6 +49,29 @@ function configAdminOnly(req, res, next) {
     return res.status(403).json({ error: 'Acesso restrito a administradores' });
   }
   next();
+}
+
+/** Quem pode criar campanha: a matriz e os donos de franquia */
+function campaignAdminOnly(req, res, next) {
+  if (!isMasterAdmin(req.user) && !isFranqueado(req.user)) {
+    return res.status(403).json({ error: 'Acesso restrito à matriz e aos donos de franquia' });
+  }
+  next();
+}
+
+/**
+ * Carrega `req.franquiaIds`: null para a matriz (todas), lista para os demais.
+ * Toda rota de campanha passa por aqui — inclusive as de leitura, porque a
+ * visibilidade da lista depende do escopo.
+ */
+async function attachFranquiaScopes(req, res, next) {
+  try {
+    req.franquiaIds = await resolverEscopoDeFranquia(req.user);
+    next();
+  } catch (err) {
+    console.error('[Auth] escopo de franquia:', err.message);
+    res.status(500).json({ error: 'Erro ao carregar permissões de franquia' });
+  }
 }
 
 async function attachManagedGroups(req, res, next) {
@@ -79,10 +108,13 @@ module.exports = {
   authMiddleware,
   adminOnly,
   configAdminOnly,
+  campaignAdminOnly,
   attachManagedGroups,
+  attachFranquiaScopes,
   requireGroupAccess,
   canAccessGroup,
   isMasterAdmin,
   isTeamAdmin,
   isConfigAdmin,
+  isFranqueado,
 };

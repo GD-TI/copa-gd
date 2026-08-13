@@ -3,7 +3,11 @@ const bcrypt = require('bcryptjs');
 const db = require('../config/db');
 const { authMiddleware, adminOnly, configAdminOnly, attachManagedGroups, requireGroupAccess, canAccessGroup, isMasterAdmin } = require('../middleware/auth');
 const { setManagedGroups, getManagedGroupIds } = require('../services/adminScopes');
-const { migrateTeamAdminSupport } = require('../db/migrations');
+const {
+  setManagedFranquias, getManagedFranquiaIds, normalizarFranquiaIds,
+} = require('../services/franquiaScopes');
+const { listarFranquias } = require('../services/franquiaSellers');
+const { migrateTeamAdminSupport, migrateFranquiaOwners } = require('../db/migrations');
 const { findUserByUsername } = require('../services/externalApi');
 const { calculateScores } = require('../services/scoring');
 const { broadcast } = require('./events');
@@ -133,6 +137,143 @@ router.put('/team-admins/:id', adminOnly, async (req, res) => {
     if (err.code === '23505') return res.status(400).json({ error: 'Nome de usuário já existe' });
     console.error(err);
     res.status(500).json({ error: 'Erro ao atualizar sub-admin' });
+  }
+});
+
+// ===== DONOS DE FRANQUIA (master only) =====
+
+/**
+ * Confere as franquias contra o cadastro do NewCorban.
+ *
+ * Degrada de propósito: se o cadastro não puder ser lido, o vínculo é aceito
+ * assim mesmo — travar a criação de acesso por causa de uma API fora do ar seria
+ * pior que aceitar um id que o master digitou errado (e que a tela lista pronto).
+ */
+async function validarFranquias(franquiaIds) {
+  const ids = normalizarFranquiaIds(franquiaIds);
+  if (!ids.length) return { erro: 'Selecione ao menos uma franquia' };
+
+  try {
+    const catalogo = await listarFranquias();
+    const conhecidas = new Set(catalogo.map(f => f.id));
+    const invalidas = ids.filter(id => !conhecidas.has(id));
+    if (invalidas.length) {
+      return {
+        erro: `Franquia(s) inexistente(s) no NewCorban: ${invalidas.join(', ')}. ` +
+              `Disponíveis: ${catalogo.map(f => `${f.id} (${f.nome})`).join(', ')}`,
+      };
+    }
+  } catch (err) {
+    console.warn('[Admin] catálogo de franquias indisponível na validação:', err.message);
+  }
+
+  return { ids };
+}
+
+router.get('/franqueados', adminOnly, async (req, res) => {
+  try {
+    const { rows } = await db.query(`
+      SELECT u.id, u.username, u.display_name, u.active, u.created_at,
+             COALESCE(
+               array_agg(afs.franquia_id ORDER BY afs.franquia_id)
+               FILTER (WHERE afs.franquia_id IS NOT NULL),
+               '{}'
+             ) AS franquia_ids
+      FROM users u
+      LEFT JOIN admin_franquia_scopes afs ON u.id = afs.user_id
+      WHERE u.role = 'franqueado'
+      GROUP BY u.id
+      ORDER BY u.display_name
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('[Admin] listar franqueados:', err.message);
+    res.status(500).json({ error: 'Erro ao listar donos de franquia' });
+  }
+});
+
+router.post('/franqueados', adminOnly, async (req, res) => {
+  const { username, password, display_name, franquia_ids } = req.body;
+
+  if (!username?.trim() || !password) {
+    return res.status(400).json({ error: 'Usuário e senha são obrigatórios' });
+  }
+
+  const { erro, ids } = await validarFranquias(franquia_ids);
+  if (erro) return res.status(400).json({ error: erro });
+
+  try {
+    await migrateFranquiaOwners();
+    const hash = await bcrypt.hash(password, 10);
+    const login = username.trim().toLowerCase();
+    const { rows } = await db.query(
+      `INSERT INTO users (username, password_hash, role, display_name, needs_password_setup)
+       VALUES ($1, $2, 'franqueado', $3, false)
+       RETURNING id, username, role, display_name, active, created_at`,
+      [login, hash, display_name?.trim() || login]
+    );
+    const franquias = await setManagedFranquias(rows[0].id, ids);
+    res.status(201).json({ ...rows[0], franquia_ids: franquias });
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ error: 'Nome de usuário já existe' });
+    if (err.code === '23514') {
+      return res.status(503).json({
+        error: 'Banco não migrado para donos de franquia. Rode o seed novamente ou execute o ALTER TABLE de users_role_check como owner do banco.',
+      });
+    }
+    console.error('[Admin] criar franqueado:', err.message);
+    res.status(500).json({ error: 'Erro ao criar dono de franquia' });
+  }
+});
+
+router.put('/franqueados/:id', adminOnly, async (req, res) => {
+  const { id } = req.params;
+  const { username, password, display_name, active, franquia_ids } = req.body;
+
+  try {
+    const { rows: existing } = await db.query(
+      "SELECT id FROM users WHERE id = $1 AND role = 'franqueado'",
+      [id]
+    );
+    if (!existing.length) return res.status(404).json({ error: 'Dono de franquia não encontrado' });
+
+    // Validação antes de qualquer escrita: nada de trocar a senha e falhar no escopo.
+    let novasFranquias = null;
+    if (franquia_ids !== undefined) {
+      const { erro, ids } = await validarFranquias(franquia_ids);
+      if (erro) return res.status(400).json({ error: erro });
+      novasFranquias = ids;
+    }
+
+    const updates = [];
+    const values = [];
+    let idx = 1;
+
+    if (username) { updates.push(`username = $${idx++}`); values.push(username.trim().toLowerCase()); }
+    if (password) { updates.push(`password_hash = $${idx++}`); values.push(await bcrypt.hash(password, 10)); }
+    if (display_name !== undefined) { updates.push(`display_name = $${idx++}`); values.push(display_name); }
+    if (active !== undefined) { updates.push(`active = $${idx++}`); values.push(active); }
+
+    if (updates.length) {
+      values.push(id);
+      await db.query(
+        `UPDATE users SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx}`,
+        values
+      );
+    }
+
+    if (novasFranquias) await setManagedFranquias(id, novasFranquias);
+
+    const franquias = await getManagedFranquiaIds(id);
+    const { rows } = await db.query(
+      'SELECT id, username, role, display_name, active, created_at FROM users WHERE id = $1',
+      [id]
+    );
+    res.json({ ...rows[0], franquia_ids: franquias });
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ error: 'Nome de usuário já existe' });
+    console.error('[Admin] atualizar franqueado:', err.message);
+    res.status(500).json({ error: 'Erro ao atualizar dono de franquia' });
   }
 });
 

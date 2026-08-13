@@ -7,10 +7,12 @@ const { findUserByUsername } = require('../services/externalApi');
 const { loginRateLimiter } = require('../middleware/rateLimiter');
 
 const { getManagedGroupIds } = require('../services/adminScopes');
+const { getManagedFranquiaIds } = require('../services/franquiaScopes');
 
 async function buildUserResponse(user) {
   let groupInfo = null;
   let managed_group_ids = null;
+  let managed_franquia_ids = null;
 
   if (user.role === 'player') {
     const { rows: groupRows } = await db.query(
@@ -27,6 +29,12 @@ async function buildUserResponse(user) {
     managed_group_ids = await getManagedGroupIds(user.id);
   }
 
+  // Franquias que o dono administra. A tela usa para dizer "Sua franquia: X" no
+  // formulário e para não oferecer a escolha de abrangência, que é só da matriz.
+  if (user.role === 'franqueado') {
+    managed_franquia_ids = await getManagedFranquiaIds(user.id);
+  }
+
   return {
     id: user.id,
     username: user.username,
@@ -37,6 +45,7 @@ async function buildUserResponse(user) {
     corban_username: user.corban_username,
     group: groupInfo,
     managed_group_ids,
+    managed_franquia_ids,
   };
 }
 

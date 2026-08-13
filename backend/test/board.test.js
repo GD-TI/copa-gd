@@ -59,6 +59,10 @@ stub('config/db', {
 stub('middleware/auth', {
   authMiddleware: (req, res, next) => { req.user = { id: 1, role: 'admin' }; next(); },
   adminOnly: (req, res, next) => next(),
+  campaignAdminOnly: (req, res, next) => next(),
+  // Master: escopo null = todas as franquias. A permissão em si é testada em
+  // campaignAccess.test.js e campaignRoutes.test.js; aqui o assunto é o placar.
+  attachFranquiaScopes: (req, res, next) => { req.franquiaIds = null; next(); },
 });
 
 stub('services/externalApi', {

@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import api from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
 import CampaignBoard from './CampaignBoard'
+import CampaignForm from '../components/CampaignForm'
+import { showToast } from '../utils/toast'
 
 const STATUS = {
   draft:  { label: 'Rascunho', color: 'var(--txt3)' },
@@ -32,20 +34,6 @@ function faseDaCampanha(c, hoje) {
   if (c.end_date && c.end_date < hoje) return 'concluidas'
   if (c.start_date && c.start_date > hoje) return 'futuras'
   return 'ativas'
-}
-
-function showToast(msg, ok = true) {
-  const el = document.createElement('div')
-  el.textContent = msg
-  Object.assign(el.style, {
-    position: 'fixed', bottom: 28, right: 28, zIndex: 9999,
-    background: ok ? 'var(--txt)' : '#ef4444', color: ok ? 'var(--surf)' : '#fff',
-    padding: '10px 20px', borderRadius: 10, fontSize: 13,
-    fontWeight: 600, boxShadow: 'var(--sh-lg)',
-    opacity: 1, transition: 'opacity .3s'
-  })
-  document.body.appendChild(el)
-  setTimeout(() => { el.style.opacity = 0; setTimeout(() => el.remove(), 350) }, 2500)
 }
 
 // A Copa GD 2026 (ranking por equipes) já encerrou e não é uma linha de
@@ -84,7 +72,26 @@ function ArchiveLegacyButton({ hasLegacy, onDone }) {
   )
 }
 
-function CampaignRow({ c, isAdmin, onChanged, onOpen }) {
+/** De onde veio a campanha: a matriz mandou, ou a própria franquia criou. */
+function ChipDeOrigem({ c }) {
+  if (c.legacy_kind) return null
+  const daMatriz = !c.owner_franquia_id
+  return (
+    <span style={{
+      fontSize: 10, fontWeight: 700, letterSpacing: .6, textTransform: 'uppercase',
+      padding: '3px 8px', borderRadius: 20, whiteSpace: 'nowrap',
+      background: daMatriz ? 'rgba(37,99,235,.12)' : 'rgba(5,150,105,.12)',
+      color: daMatriz ? '#2563EB' : '#059669',
+    }}>
+      {daMatriz ? 'Matriz' : 'Franquia'}
+    </span>
+  )
+}
+
+function CampaignRow({ c, isMaster, onChanged, onOpen }) {
+  // Quem pode editar vem do servidor (`pode_editar`), e não de uma cópia da
+  // regra aqui na tela: são três papéis e a lógica já é testada no backend.
+  const isAdmin = c.pode_editar
   const [start, setStart] = useState(c.start_date || '')
   const [end, setEnd] = useState(c.end_date || '')
   const [saving, setSaving] = useState(false)
@@ -146,6 +153,7 @@ function CampaignRow({ c, isAdmin, onChanged, onOpen }) {
             <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: st.color }}>
               {st.label}
             </span>
+            <ChipDeOrigem c={c} />
           </div>
           {c.subtitle ? (
             <div style={{ fontSize: 13, color: 'var(--txt2)', marginTop: 4 }}>{c.subtitle}</div>
@@ -207,7 +215,8 @@ function CampaignRow({ c, isAdmin, onChanged, onOpen }) {
             <button className="btn" disabled={saving} onClick={() => save({ status: 'closed' })}>Encerrar</button>
           )}
 
-          {c.status === 'closed' && !isLegacy ? (
+          {/* Congelar é operação única e da matriz — o backend recusa o resto */}
+          {isMaster && c.status === 'closed' && !isLegacy ? (
             <button className="btn" disabled={saving} onClick={recongelar} title="Refaz o placar congelado com os dados de agora">
               🧊 Recongelar
             </button>
@@ -223,11 +232,13 @@ function CampaignRow({ c, isAdmin, onChanged, onOpen }) {
 export default function ShellCampaigns() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
+  const podeCriar = isAdmin || user?.role === 'franqueado'
   const [list, setList] = useState([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [board, setBoard] = useState(null)   // { id, fs }
   const [aba, setAba] = useState('todas')
+  const [criando, setCriando] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -272,8 +283,21 @@ export default function ShellCampaigns() {
         </div>
       ) : null}
 
+      {podeCriar && !loading && !error && !criando ? (
+        <button className="btn btn-gold" onClick={() => setCriando(true)} style={{ marginBottom: 12, marginRight: 8 }}>
+          ➕ Nova campanha
+        </button>
+      ) : null}
+
       {isAdmin && !loading && !error ? (
         <ArchiveLegacyButton hasLegacy={hasLegacy} onDone={load} />
+      ) : null}
+
+      {criando ? (
+        <CampaignForm
+          onCancelar={() => setCriando(false)}
+          onCriada={() => { setCriando(false); load() }}
+        />
       ) : null}
 
       {loading ? (
@@ -293,7 +317,7 @@ export default function ShellCampaigns() {
           <CampaignRow
             key={c.id}
             c={c}
-            isAdmin={isAdmin}
+            isMaster={isAdmin}
             onChanged={load}
             onOpen={(id, fs) => setBoard({ id, fs })}
           />

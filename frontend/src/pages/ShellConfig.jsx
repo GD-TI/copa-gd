@@ -2,20 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import api from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
 import ShellAdminTeams from '../components/ShellAdminTeams'
-
-function showToast(msg, ok = true) {
-  const el = document.createElement('div')
-  el.textContent = msg
-  Object.assign(el.style, {
-    position: 'fixed', bottom: 28, right: 28, zIndex: 9999,
-    background: ok ? 'var(--txt)' : '#ef4444', color: ok ? 'var(--surf)' : '#fff',
-    padding: '10px 20px', borderRadius: 10, fontSize: 13,
-    fontWeight: 600, boxShadow: 'var(--sh-lg)',
-    opacity: 1, transition: 'opacity .3s'
-  })
-  document.body.appendChild(el)
-  setTimeout(() => { el.style.opacity = 0; setTimeout(() => el.remove(), 350) }, 2500)
-}
+import FranqueadosConfig from '../components/FranqueadosConfig'
+import { showToast } from '../utils/toast'
 
 function ini(name = '') {
   const p = name.trim().split(/\s+/)
@@ -737,6 +725,9 @@ export default function ShellConfig() {
 
       {isMaster && (
         <>
+          <div className="sec-label">🏬 Donos de Franquia</div>
+          <FranqueadosConfig />
+
           <div className="sec-label">👤 Sub-admins de Equipe</div>
           <SubAdminsConfig />
         </>

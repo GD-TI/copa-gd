@@ -10,12 +10,21 @@ import ShellCampaigns from '../pages/ShellCampaigns'
 import { applyTheme, writeThemeCookie } from '../utils/theme'
 import '../shell.css'
 
-const PAGE_TITLES = { campanhas: 'Campanhas', ranking: 'Ranking Equipe', rankingind: 'Ranking Individual', rankingtoday: 'Pontos do Dia', config: 'Configuração', meugrupo: 'Meu Grupo' }
+const PAGE_TITLES = { campanhas: 'Campanhas', ranking: 'Ranking Equipe', rankingind: 'Ranking do Mês', rankingtoday: 'Digitados do Dia', config: 'Configuração', meugrupo: 'Meu Grupo' }
+
+const PAPEIS = {
+  admin: 'Admin',
+  team_admin: 'Sub-admin',
+  franqueado: 'Franquia',
+  player: 'Jogador',
+}
 
 export default function Shell() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
-  const [page, setPage] = useState('ranking')
+  // Dono de franquia entra pelas campanhas: "Ranking Equipe" é o telão da Copa,
+  // encerrada, e não tem nada a ver com o dia a dia dele.
+  const [page, setPage] = useState(user?.role === 'franqueado' ? 'campanhas' : 'ranking')
   const [collapsed, setSidebarCollapsed] = useState(false)
   const [mobOpen, setMobOpen] = useState(false)
   const [clock, setClock] = useState('')
@@ -77,11 +86,11 @@ export default function Shell() {
           </div>
           <div className={`sb-item ${page === 'rankingind' ? 'active' : ''}`} onClick={() => navTo('rankingind')}>
             <div className="sb-item-icon">🏅</div>
-            <span className="sb-item-lbl">Ranking Individual</span>
+            <span className="sb-item-lbl">Ranking do Mês</span>
           </div>
           <div className={`sb-item ${page === 'rankingtoday' ? 'active' : ''}`} onClick={() => navTo('rankingtoday')}>
-            <div className="sb-item-icon">⚡</div>
-            <span className="sb-item-lbl">Pontos do Dia</span>
+            <div className="sb-item-icon">⌨️</div>
+            <span className="sb-item-lbl">Digitados do Dia</span>
           </div>
           {user?.role === 'player' && (
             <div className={`sb-item ${page === 'meugrupo' ? 'active' : ''}`} onClick={() => navTo('meugrupo')}>
@@ -115,7 +124,7 @@ export default function Shell() {
                   {user?.display_name || user?.username}
                 </div>
                 <div style={{ fontSize: 9, color: 'var(--txt3)', textTransform: 'uppercase', letterSpacing: 1 }}>
-                  {user?.role === 'admin' ? 'Admin' : user?.role === 'team_admin' ? 'Sub-admin' : 'Jogador'}
+                  {PAPEIS[user?.role] || 'Jogador'}
                 </div>
               </div>
             </div>
@@ -161,11 +170,14 @@ export default function Shell() {
           <div className={`page ${page === 'ranking' ? 'active' : ''}`}>
             <ShellRanking />
           </div>
+          {/* `ativo`: as páginas ficam montadas mesmo escondidas (é o que dá a
+              troca instantânea). Sem esta dica, as duas ficariam batendo na
+              NewCorban a cada minuto com ninguém olhando. */}
           <div className={`page ${page === 'rankingind' ? 'active' : ''}`}>
-            <ShellRankingIndividual />
+            <ShellRankingIndividual ativo={page === 'rankingind'} />
           </div>
           <div className={`page ${page === 'rankingtoday' ? 'active' : ''}`}>
-            <ShellRankingToday />
+            <ShellRankingToday ativo={page === 'rankingtoday'} />
           </div>
           {user?.role === 'player' && (
             <div className={`page ${page === 'meugrupo' ? 'active' : ''}`}>
