@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import api from '../api/client'
 import MembersModal from '../components/MembersModal'
+import { RankingLista, RankingResumo } from '../components/RankingIndividual'
 
 function d10(s) { return s ? String(s).slice(0, 10) : '' }
 
@@ -331,13 +332,53 @@ function TelaoTodayView({ todayActivity }) {
   )
 }
 
+/**
+ * Ranking individual do mês e digitados do dia, com a lista rolando sozinha.
+ *
+ * São modos novos ao lado de `individual`/`today`, e não no lugar deles: os
+ * antigos continuam servindo o snapshot congelado da Copa GD 2026 no card
+ * arquivado, que tem outra forma de dado (`melhor_vendedor`/`rei_assistencias`).
+ */
+function TelaoMensalView({ mensal }) {
+  return (
+    <div className="ri-telao-body">
+      <RankingResumo dados={mensal} unidade="contratos pagos" />
+      <RankingLista
+        dados={mensal}
+        variante="mensal"
+        vazio="Nenhum contrato pago no mês ainda"
+        rolarAPartirDe={8}
+      />
+    </div>
+  )
+}
+
+function TelaoDigitadosView({ digitados }) {
+  return (
+    <div className="ri-telao-body">
+      <RankingResumo dados={digitados} unidade="digitados" />
+      <RankingLista
+        dados={digitados}
+        variante="digitados"
+        vazio="Nenhum contrato digitado hoje ainda"
+        rolarAPartirDe={8}
+      />
+    </div>
+  )
+}
+
 const MODO_LABEL = {
   teams:      'Ranking por Equipe',
+  mensal:     '🏅 Ranking do Mês',
+  digitados:  '⌨️ Digitados do Dia',
   individual: '🏅 Rankings Individuais',
   today:      '⚡ Pontos do Dia',
 }
 
-export function Telao({ groups, campaign, indRankings, todayActivity, onClose, modes = ['teams', 'individual', 'today'], fullscreen = true, limiteIndividual = 5 }) {
+export function Telao({
+  groups, campaign, indRankings, todayActivity, mensal, digitados, onClose,
+  modes = ['teams', 'mensal', 'digitados'], fullscreen = true, limiteIndividual = 5,
+}) {
   const [tlLight, setTlLight] = useState(false)
   const [clock, setClock] = useState('')
   const [dateStr, setDateStr] = useState('')
@@ -517,6 +558,10 @@ export function Telao({ groups, campaign, indRankings, todayActivity, onClose, m
                 </div>
               </div>
             </>
+          ) : tlMode === 'mensal' ? (
+            <TelaoMensalView mensal={mensal} />
+          ) : tlMode === 'digitados' ? (
+            <TelaoDigitadosView digitados={digitados} />
           ) : tlMode === 'individual' ? (
             <TelaoIndView indRankings={indRankings} limite={limiteIndividual} />
           ) : (
@@ -552,8 +597,8 @@ export default function ShellRanking() {
   const [loading, setLoading]         = useState(true)
   const [modalGroup, setModalGroup]   = useState(null)
   const [telaoOpen, setTelaoOpen]     = useState(false)
-  const [indRankings, setIndRankings]     = useState(null)
-  const [todayActivity, setTodayActivity] = useState(null)
+  const [mensal, setMensal]               = useState(null)
+  const [digitados, setDigitados]         = useState(null)
   const [sseConnected, setSseConnected] = useState(false)
   const [lastUpdate, setLastUpdate]     = useState(null)
   const debounceRef = useRef(null)
@@ -572,11 +617,11 @@ export default function ShellRanking() {
 
     // 2. Dados secundários em paralelo (chamam NewCorban — podem demorar sem travar a UI)
     const [r2, r3] = await Promise.allSettled([
-      api.get('/scores/individual-rankings'),
-      api.get('/scores/today-activity'),
+      api.get('/rankings/mensal'),
+      api.get('/rankings/digitados'),
     ])
-    if (r2.status === 'fulfilled') setIndRankings(r2.value.data)
-    if (r3.status === 'fulfilled') setTodayActivity(r3.value.data)
+    if (r2.status === 'fulfilled') setMensal(r2.value.data)
+    if (r3.status === 'fulfilled') setDigitados(r3.value.data)
   }, [])
 
   useEffect(() => {
@@ -618,7 +663,7 @@ export default function ShellRanking() {
       )}
 
       {telaoOpen && (
-        <Telao groups={groups} campaign={campaign} indRankings={indRankings} todayActivity={todayActivity} onClose={() => setTelaoOpen(false)} />
+        <Telao groups={groups} campaign={campaign} mensal={mensal} digitados={digitados} onClose={() => setTelaoOpen(false)} />
       )}
 
       {/* Campaign strip */}

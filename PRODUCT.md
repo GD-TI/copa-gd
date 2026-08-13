@@ -91,7 +91,8 @@ O cliente declarou que ainda está avaliando. Não implementar uma interpretaç�
 ### Fatos de produto ainda em aberto
 
 - **O que exatamente "premiação" registra** — texto livre, valor, ou lista de prêmios por colocação.
-- **Se o ranking contínuo é mensal, trimestral ou móvel.** Confirmado apenas que é "sempre ligado".
+
+**~~Se o ranking contínuo é mensal, trimestral ou móvel.~~ RESPONDIDO em 12/08/2026: mensal.** O cliente definiu: ranking do mês por contratos **pagos**, ordenado por R$, zerando na virada do mês; e um segundo ranking de contratos **digitados**, zerando todo dia. Escopo é a empresa inteira (matriz e franquias), sem robôs. Mês encerrado congela e não muda mais. Implementado — ver "Ranking Individual" no [`CLAUDE.md`](CLAUDE.md).
 
 ## Brand Commitments
 
@@ -103,7 +104,7 @@ O cliente declarou que ainda está avaliando. Não implementar uma interpretaç�
 ## Evidence on Hand
 
 - **Dados reais em produção**, acessíveis hoje: `GET /api/groups/ranking` retorna as 12 equipes da Copa com pontuação final (Holanda 875, Bélgica 835, Colômbia 715…); `GET /api/settings/campaign` retorna a campanha encerrada.
-- **`GET /api/scores/individual-rankings`** já devolve a lista completa de vendedores com `total_valor`, `valor_meta`, `valor_financiado`, `qtd_propostas` e `atingimento`. O frontend atual descarta quase todos esses campos.
+- **`GET /api/rankings/mensal`** e **`GET /api/rankings/digitados`** devolvem a lista completa de consultores da empresa com `contratos`, `valor`, `valor_meta`, `atingimento`, `equipe`, `franquia_nome` e a **foto de perfil** do CDN do NewCorban. Fonte é o `ranking.php` — uma requisição, ~1,8 s para a empresa inteira. (O antigo `GET /api/scores/individual-rankings` virou legado em 12/08/2026: só serve o arquivamento da Copa.)
 - **Referência visual do cliente:** o painel nativo do NewCorban em `grupodigital.newcorban.com.br/?p=ranking` — pódio 3D com avatares, lista com Propostas / Meta / Financiado / Liberado / Referência, alternadores por métrica, modo tela cheia, rolagem automática com controle de velocidade.
 - **Protótipo estático** `copa_gd_painel_.html` na raiz do repositório: painel comercial completo, com dados de demonstração em `localStorage`.
 - **Não há** dados de premiação, histórico de vencedores anteriores, nem qualquer campanha além da Copa GD 2026. Não inventar.

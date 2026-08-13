@@ -1110,3 +1110,191 @@ input[type="text"].field-input {
 .tl-td-badge { font:600 11px/1 var(--tl-font,sans-serif); background:rgba(255,255,255,.1); border-radius:6px; padding:3px 7px; color:rgba(255,255,255,.85); }
 .tl-td-players { display:flex; flex-wrap:wrap; gap:4px; }
 .tl-td-player { font:400 10px/1 var(--tl-font,sans-serif); color:rgba(255,255,255,.5); background:rgba(255,255,255,.05); border-radius:4px; padding:2px 6px; }
+
+/* ── Ranking individual (mensal + digitados do dia) ─────────────────────────
+   Mesmas linhas no telão e nas páginas de consulta. As cores saem de tokens
+   `--ri-*` para o componente não precisar saber onde está: dentro do `.telao`
+   eles apontam para a paleta escura da TV, fora seguem o tema do app. */
+
+:root {
+  --ri-txt: var(--txt); --ri-txt2: var(--txt2); --ri-txt3: var(--txt3);
+  --ri-surf: var(--surf2); --ri-border: var(--border);
+}
+.telao {
+  --ri-txt: var(--tl-txt); --ri-txt2: var(--tl-txt2); --ri-txt3: var(--tl-txt3);
+  --ri-surf: rgba(255,255,255,.05); --ri-border: rgba(255,255,255,.08);
+}
+.telao.tl-light {
+  --ri-surf: rgba(0,0,0,.035); --ri-border: rgba(0,0,0,.08);
+}
+
+.ri-scroll {
+  flex: 1; min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.ri-scroll::-webkit-scrollbar { width: 8px; }
+.ri-scroll::-webkit-scrollbar-thumb { background: var(--ri-border); border-radius: 99px; }
+
+/* Espaçamento por `margin-bottom` da linha, e NÃO por `gap` do track.
+   Com `gap`, a faixa de 2N linhas mede 2N·h + (2N−1)·gap, e metade disso é meio
+   gap mais curto que uma cópia da lista — a rolagem dá um pulo de 3px a cada
+   volta. Com a margem na linha, metade da faixa é exatamente N·(h+margem). */
+.ri-track { display: flex; flex-direction: column; }
+.ri-track > .ri-linha { margin-bottom: 6px; }
+
+/* A faixa contém a lista duas vezes e anda exatamente metade dela: ao voltar
+   ao início, o que está na tela é idêntico ao instante anterior, então a
+   emenda não aparece. `overflow: hidden` aqui de propósito — durante a
+   rolagem automática a barra não serve para nada. */
+.ri-scroll.ri-rola { overflow: hidden; }
+.ri-scroll.ri-rola .ri-track { animation: riRolar linear infinite; }
+@keyframes riRolar {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-50%); }
+}
+/* Ler um nome exige parar: passar o mouse (ou tocar) segura a rolagem. */
+.ri-scroll.ri-rola:hover .ri-track,
+.ri-scroll.ri-rola:focus-within .ri-track { animation-play-state: paused; }
+
+.ri-linha {
+  display: grid; grid-template-columns: 46px 44px 1fr auto;
+  align-items: center; gap: 14px;
+  padding: 10px 16px; border-radius: 10px;
+  background: var(--ri-surf);
+  border: 1px solid transparent;
+}
+.ri-p1 { background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.28); }
+/* O prata precisa de mais peso que o ouro e o bronze: cinza sobre um fundo que
+   já é branco a 5% quase não se lê como pódio. */
+.ri-p2 { background: rgba(186,200,220,.16); border-color: rgba(186,200,220,.34); }
+.ri-p3 { background: rgba(180,83,9,.10);   border-color: rgba(180,83,9,.22); }
+
+.ri-pos {
+  font: 700 20px/1 var(--mono); color: var(--ri-txt3);
+  text-align: center; font-variant-numeric: tabular-nums;
+}
+.ri-p1 .ri-pos { color: var(--gold-mid); }
+.ri-p2 .ri-pos { color: var(--silver); }
+.ri-p3 .ri-pos { color: var(--bronze); }
+
+.ri-foto {
+  width: 44px; height: 44px; border-radius: 50%;
+  object-fit: cover; background: var(--ri-border);
+  border: 1px solid var(--ri-border);
+}
+.ri-iniciais {
+  display: flex; align-items: center; justify-content: center;
+  font: 700 15px/1 var(--font); color: var(--ri-txt2); letter-spacing: .5px;
+}
+
+.ri-id { min-width: 0; }
+/* Quebra em vez de cortar: nome truncado num ranking é falha, não recurso. */
+.ri-nome {
+  font: 600 16px/1.2 var(--font); color: var(--ri-txt);
+  overflow-wrap: anywhere;
+}
+.ri-origem { font: 500 11px/1.2 var(--font); color: var(--ri-txt3); margin-top: 3px; }
+
+.ri-nums { text-align: right; white-space: nowrap; }
+.ri-grande {
+  font: 700 20px/1 var(--mono); color: var(--ri-txt);
+  font-variant-numeric: tabular-nums; letter-spacing: -.3px;
+}
+.ri-unidade {
+  font: 600 10px/1 var(--font); color: var(--ri-txt3);
+  text-transform: uppercase; letter-spacing: 1.5px; margin-left: 7px;
+}
+.ri-apoio { font: 500 11px/1 var(--font); color: var(--ri-txt3); margin-top: 5px; }
+
+.ri-estado {
+  display: flex; align-items: center; justify-content: center;
+  flex: 1; padding: 40px; color: var(--ri-txt3);
+  font: 500 14px/1 var(--font);
+}
+
+.ri-resumo {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font: 500 12px/1 var(--font); color: var(--ri-txt2);
+  padding: 0 4px 10px;
+}
+.ri-resumo-item strong { color: var(--ri-txt); font-weight: 700; }
+.ri-resumo-sep { color: var(--ri-txt3); }
+.ri-selo {
+  font: 700 10px/1 var(--font); text-transform: uppercase; letter-spacing: 1px;
+  padding: 4px 9px; border-radius: 999px;
+  background: var(--ri-border); color: var(--ri-txt2);
+}
+.ri-selo-vivo { background: rgba(5,150,105,.15); color: #059669; }
+.telao .ri-selo-vivo { color: #34D399; }
+
+/* No telão a fonte cresce: a leitura é a 4 metros, não a 60 cm. */
+.telao .ri-linha { grid-template-columns: 62px 58px 1fr auto; padding: 13px 22px; gap: 18px; }
+.telao .ri-foto  { width: 58px; height: 58px; }
+.telao .ri-pos   { font-size: 27px; }
+.telao .ri-nome  { font-size: 21px; }
+.telao .ri-origem { font-size: 13px; }
+.telao .ri-grande { font-size: 27px; }
+.telao .ri-apoio  { font-size: 13px; }
+
+.ri-telao-body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 10px 26px 4px; }
+
+/* Movimento contínuo sem quem pediu é sujeira em tela; parado, a lista rola
+   na mão. Mesmo tratamento que o confete do telão de campanha já recebe. */
+@media (prefers-reduced-motion: reduce) {
+  .ri-scroll.ri-rola { overflow-y: auto; }
+  .ri-scroll.ri-rola .ri-track { animation: none; }
+}
+
+/* ── Páginas de ranking individual (mensal + digitados) ─────────────────── */
+
+.ri-page {
+  display: flex; flex-direction: column;
+  min-height: 0; flex: 1;
+  gap: 4px;
+}
+
+.ri-page-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  flex-wrap: wrap; gap: 14px;
+  padding: 4px 4px 14px;
+}
+.ri-page-titulo h2 { font: 700 22px/1.2 var(--font); color: var(--txt); margin: 0; }
+.ri-page-sub { display: block; font: 500 12px/1.4 var(--font); color: var(--txt3); margin-top: 5px; }
+
+/* Abas de mês. O corrente é o primeiro e ganha etiqueta — sem ela, "Agosto"
+   ao lado de "Julho" não diz qual dos dois ainda está mudando. */
+.ri-meses { display: flex; flex-wrap: wrap; gap: 6px; }
+.ri-mes {
+  display: inline-flex; align-items: center; gap: 7px;
+  font: 600 12px/1 var(--font); color: var(--txt2);
+  background: var(--surf2); border: 1px solid var(--border);
+  border-radius: 999px; padding: 8px 14px; cursor: pointer;
+  transition: all .15s var(--ease);
+}
+.ri-mes:hover { background: var(--hover); color: var(--txt); }
+.ri-mes.is-on { background: var(--gold-mid); border-color: var(--gold-mid); color: #1A1206; }
+.ri-mes-tag {
+  font: 700 9px/1 var(--font); text-transform: uppercase; letter-spacing: 1px;
+  padding: 3px 6px; border-radius: 4px;
+  background: rgba(0,0,0,.12); color: inherit; opacity: .75;
+}
+
+.ri-dia-nav { display: flex; align-items: center; gap: 8px; }
+.ri-dia-btn {
+  width: 32px; height: 32px; border-radius: 8px; cursor: pointer;
+  background: var(--surf2); border: 1px solid var(--border); color: var(--txt2);
+  font: 600 18px/1 var(--font);
+}
+.ri-dia-btn:hover:not(:disabled) { background: var(--hover); color: var(--txt); }
+.ri-dia-btn:disabled { opacity: .35; cursor: default; }
+.ri-dia-atual {
+  font: 600 13px/1 var(--font); color: var(--txt);
+  min-width: 90px; text-align: center; text-transform: capitalize;
+}
+.ri-dia-hoje {
+  font: 600 11px/1 var(--font); color: var(--gold);
+  background: none; border: none; cursor: pointer; padding: 6px 4px;
+}
+.ri-dia-hoje:hover { text-decoration: underline; }
+.ri-dia-hora { font: 500 11px/1 var(--mono); color: var(--txt3); }

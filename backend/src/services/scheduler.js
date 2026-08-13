@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const { calculateScores } = require('./scoring');
 const { congelarPendentes } = require('./campaignFreezer');
+const { congelarMesesPendentes } = require('./monthlyFreezer');
 const { broadcast } = require('../routes/events');
 
 let isRunning = false;
@@ -35,8 +36,19 @@ function startScheduler() {
     timezone: 'America/Sao_Paulo',
   });
 
+  // Foto do ranking individual do mês que acabou. 00:20 do dia 1º: depois do
+  // congelamento de campanhas (00:05), para as duas leituras da NewCorban não
+  // caírem juntas na virada.
+  cron.schedule('20 0 1 * *', async () => {
+    console.log('[Scheduler] 🧊 Congelando ranking individual do mês encerrado...');
+    await congelarMesesPendentes();
+  }, {
+    timezone: 'America/Sao_Paulo',
+  });
+
   console.log('[Scheduler] ⏰ Agendador de pontuações iniciado (a cada 5 min).');
   console.log('[Scheduler] 🧊 Congelamento de campanhas agendado (00:05).');
+  console.log('[Scheduler] 🧊 Congelamento do ranking mensal agendado (dia 1º, 00:20).');
 }
 
 module.exports = { startScheduler };

@@ -267,77 +267,99 @@
 
 .tv-body {
   display: grid;
-  grid-template-columns: clamp(18rem, 26vw, 30rem) 1fr;
+  /* mais larga que antes: os cartões de destaque precisam caber nome inteiro,
+     número grande e a linha de apoio sem quebrar em três andares */
+  grid-template-columns: clamp(20rem, 30vw, 36rem) 1fr;
   flex: 1;
   min-height: 0;
   overflow: hidden;
 }
 
+/* ── Palco do pódio ──────────────────────────────────────────────────────────
+   A coluna inteira vira superfície escura — não três cartões escuros soltos
+   sobre o fundo claro. O cartão de destaque só tem o contraste que tem porque
+   nasceu sobre escuro no protótipo do cliente; posto isolado no verde-lilás do
+   telão, ele lê como remendo. Assim o palco continua o escuro da barra
+   superior, e o ranking fica com todo o lado direito no claro.               */
+
 .tv-left {
+  --palco: #0B0D10;
+  --palco-ink: #FFFFFF;
+  --palco-muted: #98A2B3;                 /* 7,5:1 sobre --palco */
+  --palco-rule: rgba(255,255,255,.11);
+
+  position: relative;
   display: flex;
   flex-direction: column;
-  /* mesma métrica vertical da .tv-right: os dois rótulos de seção precisam
-     nascer na mesma linha, senão a coluna inteira parece torta de longe */
-  padding: 2.4vh clamp(16px, 1.6vw, 32px) 1.6vh;
-  border-right: 1px solid rgba(0,0,0,.08);
+  padding: 2.4vh clamp(16px, 1.6vw, 32px) 1.8vh;
+  background: linear-gradient(168deg, #0C1512 0%, var(--palco) 44%, #120A18 100%);
+  color: var(--palco-ink);
   overflow: hidden;
-  gap: clamp(16px, 2vh, 28px);
+  gap: clamp(14px, 1.75vh, 24px);
 }
 
-/* A identidade não muda o dia inteiro: ela se apresenta e sai da frente.
-   O espaço que este bloco devolveu é o que a escada ganhou. */
-.tv-left-header {
-  padding: clamp(18px, 2.2vh, 28px) clamp(20px, 1.5vw, 30px);
-  background: rgba(255,255,255,.7);
-  border-radius: var(--r-sm);
-  border: 1px solid rgba(0,0,0,.07);
-  backdrop-filter: blur(4px);
-  flex-shrink: 0;
+/* o palco nasce da barra superior; sem este fio o corte fica cru */
+.tv-left::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(77,227,151,.55), rgba(231,69,247,.4), transparent);
+  z-index: 2;
 }
 
-/* Rótulo e nome são a MESMA coisa — ficam colados. A régua separa o que é
-   outra coisa: a frase da campanha. */
-.tv-left-lbl {
-  font-size: clamp(10px, 1.3vh, 13px);
-  font-weight: 700;
-  letter-spacing: 1.8px;
-  color: var(--muted);
-  text-transform: uppercase;
-  margin-bottom: 9px;
+/* ── Confete ─────────────────────────────────────────────────────────────────
+   Todas as peças partem do mesmo topo e caem 100vh; o que as espalha pela
+   coluna é o `animation-delay` negativo sorteado em JS. Sortear o `top` em vez
+   disso deixaria buracos e aglomerados fixos, sempre nos mesmos lugares.     */
+
+.tv-cf {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.tv-cf-p {
+  position: absolute;
+  top: -8vh;
+  display: block;
+  animation-name: confete;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+
+@keyframes confete {
+  from { transform: translate3d(0, 0, 0) rotate(0deg); }
+  to   { transform: translate3d(1.5vw, 100vh, 0) rotate(540deg); }
+}
+
+/* ── Destaques (pódio) ───────────────────────────────────────────────────── */
+
+.tv-podio {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
 }
 
-.tv-left-lbl-dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex-shrink: 0;
-  animation: blink 1.4s ease-in-out infinite;
+/* Rola quando não couber, em vez de espremer os cartões.
+   Com `flex-shrink` livre, uma tela baixa comprimia os cartões abaixo da altura
+   do próprio conteúdo e o `overflow:hidden` do cartão comia o nome pela metade
+   — some a primeira linha, e some justamente o que o pódio existe para dizer. */
+.tv-podio-cards {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(7px, 1vh, 13px);
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
-
-.tv-left-camp {
-  font-size: clamp(22px, 3.2vh, 38px);
-  font-weight: 800;
-  letter-spacing: -.6px;
-  line-height: 1.15;
-}
-
-.tv-left-prize {
-  font-size: clamp(12px, 1.6vh, 17px);
-  color: var(--muted);
-  font-weight: 500;
-  font-style: italic;
-  line-height: 1.55;
-  margin-top: clamp(14px, 1.6vh, 20px);
-  padding-top: clamp(14px, 1.6vh, 20px);
-  border-top: 1px solid rgba(0,0,0,.07);
-}
-
-/* ── Escada do Resgate ───────────────────────────────────────────────────── */
-
-.tv-left-lad { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
 .tv-left-sec {
   display: flex;
@@ -347,9 +369,9 @@
   font-size: clamp(10px, 1.4vh, 13px);
   font-weight: 700;
   letter-spacing: 1.6px;
-  color: var(--muted);
+  color: var(--palco-muted);
   text-transform: uppercase;
-  margin-bottom: clamp(10px, 1.2vh, 16px);
+  margin-bottom: clamp(8px, 1vh, 14px);
   flex-shrink: 0;
 }
 
@@ -357,147 +379,512 @@
    números sem etiqueta lado a lado — a ambiguidade que mais custa a 4 m. */
 .tv-left-sec-u { letter-spacing: .6px; font-weight: 600; opacity: .75; text-transform: none; }
 
-/* Uma superfície, não cinco. Antes cada degrau era um cartão, e cinco cartões
-   iguais dizem "cinco coisas equivalentes" — que é justamente o que a escada
-   não é. Agora a proximidade agrupa e o trilho conecta. */
-.tv-lad-panel {
-  --mark: clamp(32px, 4.4vh, 48px);
-  --rp: clamp(10px, .8vw, 15px);
-  /* abraça os degraus em vez de esticar: um painel meio vazio no telão lê
-     como "faltou carregar". Encolhe e rola só quando a escada for longa. */
-  flex: 0 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  background: rgba(255,255,255,.7);
-  border: 1px solid rgba(0,0,0,.07);
-  border-radius: var(--r-sm);
-  backdrop-filter: blur(4px);
-  padding: clamp(8px, 1vh, 14px) clamp(12px, 1.1vw, 20px);
-}
+/* ── Cartão de destaque ──────────────────────────────────────────────────────
+   O `.cc` do protótipo `copa_gd_painel_.html`, que é a referência que o cliente
+   fixou: metal em gradiente, faixa no topo e marca d'água da colocação vêm de
+   lá. O que muda é a moeda — no protótipo o número grande é R$ referência,
+   aqui é RECUPERAÇÕES, que é o contador que abre giro e por onde o ranking
+   ordena. O R$ desce para a linha de apoio, ao lado do próximo degrau.
 
-.tv-ladder {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  scrollbar-width: thin;
-}
+   Os rótulos usam cor sólida, não o `rgba(…,.5)` do protótipo: aquele alfa
+   entrega ~3,3:1 sobre o metal e some a quatro metros. Aqui o piso é 6:1 nos
+   três cartões.                                                              */
 
-/* gap: 0 de propósito — o trilho precisa ser contínuo. A separação vem do
-   respiro interno de cada degrau, não de um vão que cortaria a linha. */
-.tv-rung {
+/* ── Superfície de metal ─────────────────────────────────────────────────────
+   Só a matéria (gradiente, faixa, borda, brilho), sem layout: o líder e as duas
+   linhas usam o mesmo metal em composições diferentes. Antes `.tv-cc` carregava
+   também display/padding/gap, e por isso os três eram obrigados a ter a mesma
+   forma — que é exatamente o que fazia três cartões iguais parecerem uma lista
+   e não um pódio.                                                             */
+
+/* ── Cartão de destaque ──────────────────────────────────────────────────────
+   Porte de `buildTop3Card()` do `sales-arena.html`, que é a referência que o
+   cliente fixou. Estrutura e valores vêm de lá:
+
+     [medalha] [avatar]  Nº LUGAR / nome / equipe      ← .r1-top
+     REFERÊNCIA / 20                                    ← refBlock
+     PRÓXIMO GIRO │ REFERÊNCIA            [giros]       ← secRow (com divisor)
+     ▓▓▓▓▓▓▓▓▓▓▓░░░░                                    ← progBlock
+
+   O que muda é só a moeda: no original o valor grande é R$ referência; aqui é
+   RECUPERAÇÕES, que é o contador que abre giro e por onde o `board` ordena.
+
+   Os px do original viram `clamp()` com o TETO no valor dele: a 1080p sai
+   igual à referência, e abaixo disso encolhe em vez de estourar a coluna.    */
+
+.tv-cc {
   position: relative;
-  display: grid;
-  grid-template-columns: var(--mark) 1fr auto;
-  align-items: center;
-  gap: clamp(12px, 1.1vw, 20px);
-  padding: clamp(9px, 1.1vh, 15px) var(--rp);
-  border-radius: 10px;
+  flex: 1 0 auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: clamp(8px, 1.15vh, 14px);
+  animation: cardIn .5s cubic-bezier(.22, 1, .36, 1) both;
 }
 
-/* O trilho: transforma cinco itens numa rota só. Sólido no que já foi
-   conquistado, pontilhado no que ainda é horizonte. */
-.tv-rung::before {
+.tv-cc:nth-child(2) { animation-delay: .08s; }
+.tv-cc:nth-child(3) { animation-delay: .16s; }
+
+@keyframes cardIn {
+  from { opacity: 0; transform: translateX(-18px) scale(.97); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ouro — quase preto com brilho dourado por fora, não marrom claro */
+.tv-cc1 {
+  flex-grow: 1.5;
+  padding: clamp(20px, 3.5vh, 40px) clamp(29px, 2.9vw, 47px);
+  border-radius: 16px;
+  background: linear-gradient(145deg, #1C1100 0%, #2E1D00 40%, #1C1100 100%);
+  border: 1.5px solid rgba(255,184,0,.5);
+  box-shadow: 0 8px 36px rgba(200,140,0,.35), 0 0 0 1px rgba(255,184,0,.15);
+}
+
+/* prata — azul frio, para contrastar com os dois tons quentes */
+.tv-cc2 {
+  padding: clamp(16px, 2.7vh, 31px) clamp(24px, 2.5vw, 40px);
+  border-radius: 12px;
+  background: linear-gradient(145deg, #080E1C 0%, #0E1A2E 50%, #080E1C 100%);
+  border: 1.5px solid rgba(148,180,220,.4);
+  box-shadow: 0 4px 22px rgba(100,150,200,.22);
+}
+
+/* bronze */
+.tv-cc3 {
+  padding: clamp(16px, 2.7vh, 31px) clamp(24px, 2.5vw, 40px);
+  border-radius: 12px;
+  background: linear-gradient(145deg, #160900 0%, #241200 50%, #160900 100%);
+  border: 1.5px solid rgba(196,120,60,.45);
+  box-shadow: 0 4px 18px rgba(160,90,30,.25);
+}
+
+/* Os dois blobs radiais do cartão do líder. Dão a profundidade que o gradiente
+   sozinho não dá — sem eles o metal fica chapado. */
+.tv-cc-glow,
+.tv-cc-glow2 {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+.tv-cc-glow {
+  top: -60px; right: -60px;
+  width: 200px; height: 200px;
+  background: radial-gradient(circle, rgba(255,184,0,.25) 0%, transparent 70%);
+}
+.tv-cc-glow2 {
+  bottom: -40px; left: -40px;
+  width: 140px; height: 140px;
+  background: radial-gradient(circle, rgba(200,140,0,.15) 0%, transparent 70%);
+}
+
+/* varredura de brilho — no 1º e, um segundo depois, no 2º */
+.tv-cc1::after,
+.tv-cc2::after {
   content: '';
   position: absolute;
-  left: calc(var(--rp) + var(--mark) / 2 - 1px);
+  top: 0; bottom: 0; left: -100%;
+  width: 60%;
+  pointer-events: none;
+  z-index: 0;
+  animation: ccBrilho 4s ease-in-out infinite;
+}
+.tv-cc1::after { background: linear-gradient(105deg, transparent, rgba(255,220,80,.12), transparent); }
+.tv-cc2::after { width: 50%; animation-delay: 1s; background: linear-gradient(105deg, transparent, rgba(148,180,220,.08), transparent); }
+
+@keyframes ccBrilho { 0%, 70% { left: -100%; } 85%, 100% { left: 150%; } }
+
+/* ── Confete do cartão ───────────────────────────────────────────────────── */
+
+.tv-cc-cf {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.tv-cc-cf-p {
+  position: absolute;
   top: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--gd1);
-  opacity: .4;
+  display: block;
+  opacity: 0;
+  animation-name: ccConfete;
+  animation-timing-function: ease-in;
+  animation-iteration-count: infinite;
+  will-change: transform;
 }
 
-.tv-rung:first-child::before { top: 50%; }
-.tv-rung:last-child::before { bottom: 50%; }
-
-.tv-rung.is-next::before,
-.tv-rung.is-ahead::before {
-  background: repeating-linear-gradient(180deg, var(--border2) 0 5px, transparent 5px 10px);
-  opacity: .9;
+@keyframes ccConfete {
+  0%   { opacity: 0; transform: translateY(-12px) rotate(0deg) translateX(0); }
+  5%   { opacity: 1; }
+  90%  { opacity: .7; }
+  100% { opacity: 0; transform: translateY(var(--fy, 110px)) rotate(var(--fr, 540deg)) translateX(var(--fx, 20px)); }
 }
 
-/* Opaco de propósito: é o que esconde o trilho por trás, sem sombra nenhuma */
-.tv-rung-mark {
-  width: var(--mark);
-  height: var(--mark);
+/* conteúdo sempre acima do confete e dos blobs */
+.tv-cc-top,
+.tv-cc-hero,
+.tv-cc-sub,
+.tv-cc-track { position: relative; z-index: 1; }
+
+/* ── Identidade ──────────────────────────────────────────────────────────── */
+
+.tv-cc-top {
+  display: flex;
+  align-items: center;
+  gap: clamp(9px, 1.3vh, 14px);
+  min-width: 0;
+}
+
+/* Medalha SOLTA, ao lado do avatar — na referência são irmãos separados por
+   gap, não a medalha montada sobre a foto. */
+.tv-cc-medal {
+  flex-shrink: 0;
+  height: auto;
+  filter: drop-shadow(0 4px 12px rgba(255,180,0,.5));
+}
+.tv-cc1 .tv-cc-medal { width: clamp(26px, 4.2vh, 46px); }
+.tv-cc2 .tv-cc-medal,
+.tv-cc3 .tv-cc-medal { width: clamp(22px, 3.5vh, 38px); }
+.tv-cc2 .tv-cc-medal { filter: drop-shadow(0 4px 10px rgba(148,180,220,.5)); }
+.tv-cc3 .tv-cc-medal { filter: drop-shadow(0 4px 8px rgba(200,120,74,.5)); }
+
+.tv-cc-medal-n { font-size: 19px; font-weight: 800; }
+
+/* Iniciais são ativo desenhado, não estado de falha: o placar da campanha lê a
+   NewCorban, que não devolve foto de vendedor. */
+.tv-cc-av {
   border-radius: 50%;
   display: grid;
   place-items: center;
+  font-weight: 900;
+  letter-spacing: -.5px;
+  flex-shrink: 0;
+}
+.tv-cc1 .tv-cc-av {
+  width: clamp(42px, 6.3vh, 68px);
+  height: clamp(42px, 6.3vh, 68px);
+  font-size: clamp(14px, 1.85vh, 20px);
+  background: rgba(255,184,0,.16);
+  color: #FFD98A;
+  border: 2.5px solid rgba(255,184,0,.7);
+  box-shadow: 0 0 18px rgba(255,184,0,.35);
+  animation: avatarPulse 3s ease-in-out infinite;
+}
+@keyframes avatarPulse {
+  0%, 100% { box-shadow: 0 0 18px rgba(255,184,0,.35); }
+  50%      { box-shadow: 0 0 32px rgba(255,184,0,.6); }
+}
+.tv-cc2 .tv-cc-av,
+.tv-cc3 .tv-cc-av {
+  width: clamp(34px, 4.3vh, 46px);
+  height: clamp(34px, 4.3vh, 46px);
+  font-size: clamp(12px, 1.3vh, 14px);
+}
+.tv-cc2 .tv-cc-av { background: rgba(148,180,220,.16); color: #C8DCF0; border: 2px solid rgba(148,180,220,.55); }
+.tv-cc3 .tv-cc-av { background: rgba(196,120,60,.16); color: #F0C49A; border: 2px solid rgba(196,120,60,.55); }
+
+.tv-cc-id { flex: 1; min-width: 0; }
+
+/* "1º LUGAR" acima do nome, como na referência */
+.tv-cc-pos {
+  display: block;
+  margin-bottom: 3px;
+  font-size: clamp(8px, .95vh, 10px);
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+.tv-cc1 .tv-cc-pos { color: rgba(255,184,0,.8); }
+.tv-cc2 .tv-cc-pos { color: rgba(148,180,220,.8); }
+.tv-cc3 .tv-cc-pos { color: rgba(196,120,60,.85); }
+
+/* A referência trunca com reticências; aqui o nome quebra em vez de cortar —
+   a pessoa precisa se reconhecer no placar. */
+.tv-cc-name {
+  margin: 0;
+  color: #fff;
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: -.3px;
+  overflow-wrap: anywhere;
+}
+.tv-cc1 .tv-cc-name { font-size: clamp(14px, 1.9vh, 20px); }
+.tv-cc2 .tv-cc-name,
+.tv-cc3 .tv-cc-name { font-size: clamp(12px, 1.35vh, 15px); font-weight: 700; }
+
+.tv-cc-team {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: rgba(61,184,121,.14);
+  color: #6EE7A8;
+  font-size: clamp(8px, .95vh, 11px);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.tv-cc-team::before {
+  content: '';
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: #4DE397;
+  flex-shrink: 0;
+}
+
+/* ── O valor grande ──────────────────────────────────────────────────────── */
+
+.tv-cc-hero { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+
+.tv-cc-hero-lbl {
+  font-size: clamp(8px, .95vh, 10px);
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+.tv-cc1 .tv-cc-hero-lbl { color: rgba(255,184,0,.45); }
+.tv-cc2 .tv-cc-hero-lbl { color: rgba(148,180,220,.4); }
+.tv-cc3 .tv-cc-hero-lbl { color: rgba(196,120,60,.45); }
+
+/* branco e peso 900, como o "R$ 68.420" da referência */
+.tv-cc-hero-val {
+  color: #fff;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -.6px;
+}
+.tv-cc1 .tv-cc-hero-val { font-size: clamp(20px, 3vh, 34px); }
+.tv-cc2 .tv-cc-hero-val,
+.tv-cc3 .tv-cc-hero-val { font-size: clamp(16px, 2.1vh, 23px); }
+
+/* ── Apoio + selo ────────────────────────────────────────────────────────── */
+
+.tv-cc-sub {
+  display: flex;
+  align-items: center;
+  gap: clamp(9px, 1.5vh, 16px);
+  min-width: 0;
+}
+
+.tv-cc-mi { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+.tv-cc-mi-lbl {
+  font-size: clamp(7px, .85vh, 9px);
+  font-weight: 700;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.tv-cc1 .tv-cc-mi-lbl { color: rgba(255,184,0,.45); }
+.tv-cc2 .tv-cc-mi-lbl { color: rgba(148,180,220,.4); }
+.tv-cc3 .tv-cc-mi-lbl { color: rgba(196,120,60,.45); }
+
+.tv-cc-mi-val {
+  font-size: clamp(10px, 1.2vh, 13px);
+  font-weight: 700;
+  letter-spacing: -.2px;
+  color: rgba(255,255,255,.55);
+  white-space: nowrap;
+}
+
+/* o divisor de 1px entre os dois dados de apoio */
+.tv-cc-sep {
+  width: 1px;
+  height: clamp(18px, 2.6vh, 28px);
+  background: rgba(255,255,255,.1);
+  flex-shrink: 0;
+}
+
+/* Selo discreto, como o "98%" da referência: fundo translúcido, sem borda,
+   texto no tom do metal. A versão grande e chapada que eu tinha feito é o que
+   mais destoava do cartão. */
+.tv-cc-giros {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: rgba(255,255,255,.07);
+  font-size: clamp(9px, 1.1vh, 12px);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.tv-cc1 .tv-cc-giros { color: #FFB800; }
+.tv-cc2 .tv-cc-giros { color: #94B4DC; }
+.tv-cc3 .tv-cc-giros { color: #C8784A; }
+
+/* ── Barra, fechando o cartão ────────────────────────────────────────────── */
+
+.tv-cc-track {
+  border-radius: 99px;
+  background: rgba(255,255,255,.1);
+  overflow: hidden;
+}
+.tv-cc1 .tv-cc-track { height: 5px; }
+.tv-cc2 .tv-cc-track,
+.tv-cc3 .tv-cc-track { height: 4px; }
+
+.tv-cc-fill {
+  height: 100%;
+  border-radius: 99px;
+  transform-origin: left center;
+  transition: transform 1.2s .3s cubic-bezier(.4, 0, .2, 1);
+}
+.tv-cc1 .tv-cc-fill { background: linear-gradient(90deg, #B8860B, #FFB800, #FFD700); }
+.tv-cc2 .tv-cc-fill { background: linear-gradient(90deg, #4A7BA8, #94B4DC, #C8DCF0); }
+.tv-cc3 .tv-cc-fill { background: linear-gradient(90deg, #7C3E10, #C8784A, #E09A6A); }
+
+/* ── Escada do Resgate — faixa horizontal ────────────────────────────────────
+   Deitada acima do ranking, no claro. Os três estados de `degraus()` valem
+   igual; o que muda é o eixo. O trilho vira uma linha atrás das marcas, e a
+   fronteira continua sendo a única coluna com fundo e nome próprio.          */
+
+.tv-strip {
+  --mk: clamp(28px, 3.8vh, 44px);
+  --sp: clamp(6px, .8vh, 10px);
+  flex-shrink: 0;
+  background: rgba(255,255,255,.72);
+  border: 1px solid rgba(0,0,0,.07);
+  border-radius: var(--r-sm);
+  padding: clamp(10px, 1.2vh, 16px) clamp(12px, 1.1vw, 20px) clamp(8px, .9vh, 12px);
+  margin-bottom: clamp(12px, 1.6vh, 22px);
+}
+
+.tv-strip-hd {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: clamp(6px, .8vh, 10px);
+}
+
+.tv-strip-ttl {
+  font-size: clamp(10px, 1.4vh, 13px);
+  font-weight: 700;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* A unidade do número do degrau. Sem ela, "5" e "10 chegaram" são dois
+   números sem etiqueta lado a lado — a ambiguidade que mais custa a 4 m. */
+.tv-strip-u { font-size: clamp(10px, 1.3vh, 13px); font-weight: 600; color: var(--muted); opacity: .75; }
+
+/* Sem esta linha a escada parece terminar no último degrau */
+.tv-strip-step {
+  margin-left: auto;
+  font-size: clamp(10px, 1.35vh, 14px);
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* Colunas de largura igual, e rolagem lateral quando não couberem: encolher a
+   marca até o número sumir seria trocar a escada por enfeite. */
+.tv-strip-rungs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(clamp(6.5rem, 9vw, 11rem), 1fr);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.tv-srung {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 3px;
+  padding: var(--sp) 6px calc(var(--sp) + 2px);
+  border-radius: 10px;
+  text-align: center;
+}
+
+/* o trilho, agora deitado: sólido no conquistado, pontilhado no horizonte */
+.tv-srung::before {
+  content: '';
+  position: absolute;
+  top: calc(var(--sp) + var(--mk) / 2 - 1px);
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--gd1);
+  opacity: .4;
+}
+.tv-srung:first-child::before { left: 50%; }
+.tv-srung:last-child::before { right: 50%; }
+
+.tv-srung.is-next::before,
+.tv-srung.is-ahead::before {
+  background: repeating-linear-gradient(90deg, var(--border2) 0 5px, transparent 5px 10px);
+  opacity: .9;
+}
+
+/* opaco de propósito: é o que esconde o trilho por trás */
+.tv-srung-mark {
+  position: relative;
+  z-index: 1;
+  width: var(--mk);
+  height: var(--mk);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: clamp(12px, 1.75vh, 18px);
   font-weight: 800;
-  font-size: clamp(13px, 1.9vh, 19px);
   background: #fff;
   color: var(--muted);
   border: 2px solid var(--border);
-  position: relative;
-  z-index: 1;
 }
 
-.tv-rung-body { min-width: 0; }
-.tv-rung-ttl { display: block; font-size: clamp(13px, 1.85vh, 19px); font-weight: 700; letter-spacing: -.2px; line-height: 1.2; }
-
-/* Conquistado — vira registro: uma linha só, e o número de gente à direita */
-.tv-rung.is-done .tv-rung-mark {
+.tv-srung.is-done .tv-srung-mark {
   background: linear-gradient(135deg, var(--gd1), var(--gd2));
   border-color: transparent;
   color: #fff;
 }
 
-.tv-rung-who {
-  font-size: clamp(10px, 1.35vh, 14px);
-  font-weight: 700;
-  color: var(--gd-ink);
+/* fronteira — o degrau que a sala está empurrando agora */
+.tv-srung.is-next {
   background: var(--accent-l);
-  border: 1px solid rgba(61,184,121,.28);
-  border-radius: 999px;
-  padding: 4px 12px;
-  white-space: nowrap;
+  outline: 1px solid rgba(61,184,121,.32);
+  outline-offset: -1px;
 }
 
-/* Fronteira — o degrau que a sala está empurrando agora. É a única linha com
-   duas alturas, cor de fundo e um nome próprio: o contraste de ritmo que
-   antes não existia em lugar nenhum da coluna. */
-/* outline, não border: marca a moldura sem empurrar a malha em 1px */
-.tv-rung.is-next { background: var(--accent-l); outline: 1px solid rgba(61,184,121,.32); outline-offset: -1px; }
-
-.tv-rung.is-next .tv-rung-mark {
+.tv-srung.is-next .tv-srung-mark {
   border-color: var(--gd1);
   border-width: 3px;
   color: var(--gd-ink);
 }
 
-.tv-rung-sub {
-  display: block;
+.tv-srung-ttl {
+  margin-top: 2px;
   font-size: clamp(11px, 1.5vh, 15px);
+  font-weight: 700;
+  letter-spacing: -.2px;
+  line-height: 1.15;
+}
+
+/* horizonte recua pelo peso do título, nunca por texto claro demais */
+.tv-srung.is-ahead .tv-srung-ttl { font-weight: 600; color: var(--muted); }
+
+.tv-srung-sub {
+  font-size: clamp(9px, 1.25vh, 13px);
   font-weight: 600;
-  line-height: 1.3;
-  margin-top: 3px;
-  color: var(--gd-ink);
+  line-height: 1.25;
+  color: var(--muted);
+  min-height: 1.25em;
   overflow-wrap: anywhere;
-  /* nome próprio é longo: sem isto sobra "mais perto" órfão na segunda linha */
   text-wrap: balance;
 }
 
-.tv-rung-sub b { font-weight: 800; }
-
-/* Horizonte — recua pela marca vazada e pelo peso do título, nunca por
-   texto claro demais para ser lido a quatro metros. */
-.tv-rung.is-ahead .tv-rung-ttl { font-weight: 600; color: var(--muted); }
-
-.tv-lad-step {
-  margin: 0;
-  padding: clamp(9px, 1.1vh, 14px) var(--rp) clamp(3px, .5vh, 6px);
-  border-top: 1px solid rgba(0,0,0,.07);
-  font-size: clamp(10px, 1.35vh, 14px);
-  font-weight: 600;
-  color: var(--muted);
-  flex-shrink: 0;
-}
+.tv-srung.is-done .tv-srung-sub,
+.tv-srung.is-next .tv-srung-sub { color: var(--gd-ink); }
+.tv-srung-sub b { font-weight: 800; }
 
 /* ── Ranking ─────────────────────────────────────────────────────────────── */
 
@@ -723,21 +1110,61 @@
 
 /* O quadro roda o dia todo ao lado de gente trabalhando */
 @media (prefers-reduced-motion: reduce) {
-  .board *, .tv-rows.ticking, .tv-prog-fill::after, .tv-live-dot, .tv-left-lbl-dot {
+  .board *, .tv-rows.ticking, .tv-prog-fill::after, .tv-live-dot,
+  .tv-cc, .tv-cc1::after {
     animation: none !important;
     transition: none !important;
   }
+  /* Parado, o confete vira sujeira fixa na tela em vez de festa: some. */
+  .tv-cf, .tv-cc-cf { display: none; }
+}
+
+/* Notebook em vez de TV: a coluna encurta, mas a barra superior, a régua de
+   progresso e o rodapé não — a conta sobra toda para o pódio. Some a linha de
+   apoio; o número grande, o nome e a barra até o próximo giro ficam — e o que
+   ela devolve vira respiro nos três, não é engolido de volta pelo padding. */
+/* Notebook em vez de TV: barra superior, régua de progresso e rodapé não
+   encolhem, então a conta sobra toda para o pódio. Sai a frase da campanha, que
+   não muda o dia inteiro; o número do líder, os nomes e os giros ficam. */
+/* Notebook em vez de TV: barra superior, régua de progresso e rodapé não
+   encolhem, então a conta sobra toda para o pódio. Sai a linha de apoio, que
+   a 4 m já não se lia; o nome, o número grande e o selo ficam. */
+/* Notebook em vez de TV: barra superior, régua de progresso e rodapé não
+   encolhem, então a conta sobra toda para o pódio. Some primeiro o que é
+   redundante — o rótulo de colocação repete o número que está dentro da
+   medalha — e depois a linha de apoio, que a 4 m já não se lia. */
+@media (max-height: 860px) {
+  /* o divisor vai junto com os dados que ele separava, senão sobra um risco solto */
+  .tv-cc-pos { display: none; }
+  .tv-podio-cards { gap: 6px; }
+}
+
+@media (max-height: 800px) {
+  .tv-cc-team { display: none; }
+  /* A altura que falta sai do VÃO ENTRE as linhas, não do respiro externo:
+     com padding-block reduzido, o vertical caía para ~17px contra 40px de
+     lateral, e a assimetria é que fazia a medalha parecer colada em cima. */
+  .tv-cc { gap: clamp(4px, .7vh, 9px); }
+  .tv-cc1 { padding-block: clamp(16px, 2.8vh, 30px); }
+  .tv-cc2, .tv-cc3 { padding-block: clamp(14px, 2.3vh, 26px); }
 }
 
 @media (max-width: 1000px) {
   .tv-body { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-  .tv-left { border-right: 0; border-bottom: 1px solid rgba(0,0,0,.08); padding-bottom: 1.2vh; }
-  /* A escada continua vertical e rolável: virá-la de lado quebraria o trilho,
-     que é o que faz ela ser uma rota e não uma lista. Aqui ela só encolhe —
-     some o que é secundário, fica a marca e o degrau. */
-  .tv-lad-panel { max-height: 32vh; }
-  .tv-rung { padding-block: 7px; }
-  .tv-rung-who, .tv-lad-step { display: none; }
+  .tv-left { padding-bottom: 1.4vh; }
+
+  /* Empilhado, o pódio comeria a tela inteira antes do ranking aparecer: os
+     três cartões ficam lado a lado e some o que é enfeite. */
+  .tv-podio-cards { flex-direction: row; align-items: stretch; }
+  .tv-cc { flex: 1 1 0; }
+  /* o padding agora é por metal, então precisa ser sobrescrito nos três */
+  .tv-cc1, .tv-cc2, .tv-cc3 { padding: 10px 12px; }
+  .tv-cc-sub, .tv-cc-glow, .tv-cc-glow2 { display: none; }
+
+  /* A escada já está deitada; aqui ela só encolhe e continua rolando de lado. */
+  .tv-strip-step { display: none; }
+  .tv-srung-sub { display: none; }
+
   .tv-rpbar, .tv-rpct { display: none; }
   .tv-kpis { display: none; }
 }

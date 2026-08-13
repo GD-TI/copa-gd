@@ -1,6 +1,12 @@
 const bcrypt = require('bcryptjs');
 const db = require('../config/db');
-const { migrateTeamAdminSupport, migrateCampaigns, migrateCampaignSettingsName } = require('./migrations');
+const {
+  migrateTeamAdminSupport,
+  migrateFranquiaOwners,
+  migrateCampaigns,
+  migrateCampaignSettingsName,
+  migrateMonthlyRankings,
+} = require('./migrations');
 
 async function seed() {
   try {
@@ -63,6 +69,19 @@ async function seed() {
       await migrateCampaigns();
     } catch (err) {
       console.error('[Seed] Falha ao migrar campanhas:', err.message);
+    }
+
+    // Depois de migrateCampaigns: acrescenta owner_franquia_id na tabela que ela cria.
+    try {
+      await migrateFranquiaOwners();
+    } catch (err) {
+      console.error('[Seed] Falha ao migrar donos de franquia:', err.message);
+    }
+
+    try {
+      await migrateMonthlyRankings();
+    } catch (err) {
+      console.error('[Seed] Falha ao migrar ranking mensal:', err.message);
     }
 
     // Pontos configuráveis por regra

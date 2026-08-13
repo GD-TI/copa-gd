@@ -1,104 +1,102 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import api from '../api/client'
+import { RankingLista, RankingResumo } from '../components/RankingIndividual'
 
-export default function ShellRankingToday() {
-  const [data, setData]                 = useState(null)
-  const [loading, setLoading]           = useState(true)
-  const [sseConnected, setSseConnected] = useState(false)
-  const [lastUpdate, setLastUpdate]     = useState(null)
-  const debounceRef = useRef(null)
+const hojeBR = () => new Date().toLocaleDateString('en-CA')
 
-  const load = useCallback(async () => {
+function rotuloDia(dia) {
+  if (dia === hojeBR()) return 'Hoje'
+  const d = new Date(dia + 'T12:00:00')
+  return isNaN(d) ? dia : d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })
+}
+
+/** Dia útil anterior não interessa aqui — o ranking conta todo dia, igual ao da NC. */
+function somaDias(dia, n) {
+  const d = new Date(dia + 'T12:00:00Z')
+  d.setUTCDate(d.getUTCDate() + n)
+  return d.toISOString().slice(0, 10)
+}
+
+/**
+ * Contratos digitados no dia, por quantidade — empresa inteira, sem robôs.
+ *
+ * Zera todo dia porque a janela da consulta é o dia: à meia-noite a lista já
+ * começa vazia sozinha, sem cron nem tabela para limpar.
+ */
+export default function ShellRankingToday({ ativo = true }) {
+  const [dia, setDia]         = useState(hojeBR())
+  const [dados, setDados]     = useState(null)
+  const [erro, setErro]       = useState(null)
+  const [carregando, setCarregando] = useState(true)
+  const [atualizado, setAtualizado] = useState(null)
+
+  const carregar = useCallback(async (d) => {
+    setCarregando(true)
+    setErro(null)
     try {
-      const r = await api.get('/scores/today-activity')
-      setData(r.data)
-    } catch (e) {}
-    setLoading(false)
-    setLastUpdate(new Date())
+      const r = await api.get(`/rankings/digitados?date=${d}`)
+      setDados(r.data)
+      setAtualizado(new Date())
+    } catch (e) {
+      setDados(null)
+      setErro(e.response?.data?.detail || e.message)
+    }
+    setCarregando(false)
   }, [])
 
-  useEffect(() => {
-    load()
-    const es = new EventSource((import.meta.env.VITE_API_URL || '') + '/api/events/stream')
-    es.addEventListener('scores_updated', () => {
-      clearTimeout(debounceRef.current)
-      debounceRef.current = setTimeout(() => load(), 800)
-    })
-    es.onerror = () => setSseConnected(false)
-    es.onopen  = () => setSseConnected(true)
-    const t = setInterval(load, 300000)
-    return () => { es.close(); clearInterval(t); clearTimeout(debounceRef.current) }
-  }, [load])
+  useEffect(() => { carregar(dia) }, [dia, carregar])
 
-  const groups = data?.groups || []
+  // Só o dia corrente recebe contrato novo.
+  useEffect(() => {
+    if (!ativo || dia !== hojeBR()) return
+    const t = setInterval(() => carregar(dia), 60000)
+    return () => clearInterval(t)
+  }, [ativo, dia, carregar])
+
+  const ehHoje = dia === hojeBR()
 
   return (
-    <>
-      <div className="rank-bar">
-        <span className="rank-count-lbl">
-          {loading ? 'Carregando…' : groups.length === 0 ? 'Nenhuma equipe pontuou hoje ainda' : `${groups.length} equipe${groups.length !== 1 ? 's' : ''} pontuaram hoje`}
-        </span>
-        <div className="rank-bar-live">
-          <span className={`live-dot${sseConnected ? ' live-on' : ''}`} />
-          <span className="live-lbl">{sseConnected ? 'Ao vivo' : 'Reconectando…'}</span>
-          {lastUpdate && (
-            <span className="live-time">
-              {lastUpdate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+    <div className="ri-page">
+      <div className="ri-page-head">
+        <div className="ri-page-titulo">
+          <h2>⌨️ Digitados do Dia</h2>
+          <span className="ri-page-sub">
+            Contratos digitados em {rotuloDia(dia).toLowerCase()} · empresa inteira
+          </span>
+        </div>
+        <div className="ri-dia-nav">
+          <button className="ri-dia-btn" onClick={() => setDia(d => somaDias(d, -1))} title="Dia anterior">‹</button>
+          <span className="ri-dia-atual">{rotuloDia(dia)}</span>
+          <button
+            className="ri-dia-btn"
+            onClick={() => setDia(d => somaDias(d, 1))}
+            disabled={ehHoje}
+            title="Próximo dia"
+          >›</button>
+          {!ehHoje && (
+            <button className="ri-dia-hoje" onClick={() => setDia(hojeBR())}>Voltar para hoje</button>
+          )}
+          {ehHoje && atualizado && (
+            <span className="ri-dia-hora">
+              {atualizado.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
             </span>
           )}
         </div>
       </div>
 
-      {!loading && groups.length === 0 && (
-        <div className="td-empty-state">Nenhuma equipe pontuou hoje ainda. O próximo cálculo roda em até 5 minutos.</div>
-      )}
-
-      <div className="td-grid">
-        {groups.map(g => (
-          <div key={g.id} className="td-card">
-            <div className="td-card-head">
-              {g.photo_url
-                ? <img src={g.photo_url} alt={g.name} className="td-team-photo" />
-                : <div className="td-team-avatar">{g.name.slice(0, 2).toUpperCase()}</div>
-              }
-              <span className="td-team-name">{g.name}</span>
-              <span className="td-today-pts">+{g.today_points} pts hoje</span>
-            </div>
-
-            <div className="td-events">
-              {g.events.map((ev, i) => (
-                <div key={i} className="td-event">
-                  <span className="td-ev-icon">{ev.icon}</span>
-                  <div className="td-ev-body">
-                    <div className="td-ev-top">
-                      <span className="td-ev-label">{ev.label}</span>
-                      {ev.is_double && <span className="td-ev-double">🇧🇷 ×2</span>}
-                      <span className="td-ev-pts">+{ev.points}</span>
-                    </div>
-                    {ev.description && <div className="td-ev-desc">{ev.description}</div>}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {g.top_players?.length > 0 && (
-              <div className="td-players">
-                <div className="td-players-title">Jogadores hoje</div>
-                {g.top_players.map((p, i) => (
-                  <div key={i} className="td-player">
-                    <span className="td-pl-name">{p.name}</span>
-                    <span className="td-pl-stats">
-                      {p.pagos > 0 && `${p.pagos} pago${p.pagos !== 1 ? 's' : ''}`}
-                      {p.pagos > 0 && p.valor > 0 && ' · '}
-                      {p.valor > 0 && `R$ ${p.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </>
+      {erro
+        ? <div className="ri-estado">Não foi possível carregar: {erro}</div>
+        : (
+          <>
+            <RankingResumo dados={carregando ? null : dados} unidade="digitados" />
+            <RankingLista
+              dados={carregando ? null : dados}
+              variante="digitados"
+              vazio={ehHoje ? 'Nenhum contrato digitado hoje ainda' : 'Nenhum contrato digitado neste dia'}
+            />
+          </>
+        )
+      }
+    </div>
   )
 }

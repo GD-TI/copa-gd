@@ -79,9 +79,19 @@ async function carregar() {
   // "NOVA IA" é robô e não casa com API%/BOT%/ROBO%, e entraria no placar
   // disputando com os consultores — exatamente o que a campanha proíbe.
   const robos = new Set();
+  // Procedência de cada consultor. O `equipe.php` já traz equipe e franquia e a
+  // gente descartava — no ranking individual, que roda com a empresa inteira,
+  // são 60+ nomes seguidos e sem isso não dá para saber quem é de onde.
+  const info = new Map();
   for (const u of usuarios) {
     const valor = achatar(u)[campo];
-    porVendedor.set(String(u.id), temValor(valor) ? String(valor).trim() : SEM_FRANQUIA);
+    const franquia = temValor(valor) ? String(valor).trim() : SEM_FRANQUIA;
+    porVendedor.set(String(u.id), franquia);
+    info.set(String(u.id), {
+      equipe: u.equipe_nome || null,
+      franquia,
+      franquia_nome: u.franquia_nome || (franquia === SEM_FRANQUIA ? 'Matriz' : null),
+    });
     if (u.robo === 1 || u.robo === true || String(u.robo) === '1') robos.add(String(u.id));
   }
 
@@ -92,7 +102,7 @@ async function carregar() {
     `${robos.size} conta(s) marcada(s) como robô`
   );
 
-  return { expiresAt: Date.now() + TTL_MS, campo, porVendedor, robos };
+  return { expiresAt: Date.now() + TTL_MS, campo, porVendedor, robos, info };
 }
 
 /** Map<vendedor_id, franquia_id>. Cacheado 15 min, com dedup de chamadas. */
@@ -148,8 +158,64 @@ async function getRoboSellerIds() {
   }
 }
 
+/**
+ * Map<vendedor_id, { equipe, franquia, franquia_nome }>.
+ * Devolve null se o cadastro não puder ser lido — a procedência é enfeite, e o
+ * ranking não pode sumir da TV por causa dela.
+ */
+async function getInfoVendedores() {
+  try {
+    const { info } = await getMapaFranquias();
+    return info || null;
+  } catch (err) {
+    console.warn('[Franquia] cadastro indisponível para procedência:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Catálogo de franquias para as telas: `[{ id, nome, consultores }]`.
+ *
+ * Não existe tabela local de franquias — a lista é derivada do cadastro do
+ * NewCorban, a mesma fonte que o placar usa para filtrar. Assim uma franquia
+ * nova aparece sozinha no formulário, sem cadastro paralelo para desatualizar.
+ *
+ * `consultores` não conta robôs: é o número que o formulário mostra para avisar
+ * que uma franquia sem gente produziria um placar vazio.
+ */
+async function listarFranquias() {
+  const { porVendedor, info, robos } = await getMapaFranquias();
+
+  const porId = new Map();
+  for (const [vendedorId, franquia] of porVendedor.entries()) {
+    if (!porId.has(franquia)) porId.set(franquia, { id: franquia, nome: null, consultores: 0 });
+    const f = porId.get(franquia);
+    if (!f.nome) f.nome = info.get(vendedorId)?.franquia_nome || null;
+    if (!robos?.has(vendedorId)) f.consultores += 1;
+  }
+
+  return [...porId.values()]
+    .map(f => ({
+      ...f,
+      nome: f.nome || (f.id === SEM_FRANQUIA ? 'Matriz' : `Franquia ${f.id}`),
+    }))
+    .sort((a, b) => {
+      if (a.id === SEM_FRANQUIA) return -1;          // matriz sempre primeiro
+      if (b.id === SEM_FRANQUIA) return 1;
+      return a.nome.localeCompare(b.nome, 'pt-BR');
+    });
+}
+
 function invalidarCacheFranquias() {
   _cache = null;
 }
 
-module.exports = { getSellerIdsPorFranquia, getMapaFranquias, getRoboSellerIds, invalidarCacheFranquias };
+module.exports = {
+  TOKEN_MATRIZ: SEM_FRANQUIA,
+  getSellerIdsPorFranquia,
+  getMapaFranquias,
+  getRoboSellerIds,
+  getInfoVendedores,
+  listarFranquias,
+  invalidarCacheFranquias,
+};

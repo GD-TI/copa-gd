@@ -21,12 +21,15 @@ function cacheSet(key, value, ttlMs = CACHE_TTL_MS) {
 }
 
 // Limpeza periódica de entradas expiradas (evita leak de memória — cada dia cria uma nova chave)
-setInterval(() => {
+// .unref(): faxina de cache não é motivo para segurar o processo aberto. Sem
+// isso, qualquer script ou teste que só importe este módulo nunca termina.
+const _limpeza = setInterval(() => {
   const now = Date.now();
   for (const [k, v] of _cache.entries()) {
     if (now > v.expiresAt) _cache.delete(k);
   }
 }, 10 * 60 * 1000);
+if (typeof _limpeza.unref === 'function') _limpeza.unref();
 
 // Se uma chamada para a mesma chave já está em andamento, aguarda ela ao invés de disparar outra
 const _inflight = new Map();
@@ -212,7 +215,21 @@ function encodeFilter(filterObj) {
   return Buffer.from(urlEncoded).toString("base64");
 }
 
-function buildRankingFilter(startDate, endDate) {
+/**
+ * Filtro do ranking.php.
+ *
+ * Os defaults reproduzem exatamente o que `getRanking` mandava quando este
+ * filtro não era parametrizável — inclusive o `tipo: "cadasto"` sem o "r", que
+ * é o que a chamada da TORCIDA_ORGANIZADA envia desde sempre. Quem quiser a
+ * grafia correta passa `tipo: 'cadastro'` (conferido contra a API em 11/08/2026;
+ * as duas respondem).
+ */
+function buildRankingFilter(startDate, endDate, opts = {}) {
+  const {
+    tipo = "cadasto",
+    intervalo = "today",
+    produtos = ['7', '13'],
+  } = opts;
   return {
     first_level: "vendedores",
     second_level: "vendedores",
@@ -224,7 +241,7 @@ function buildRankingFilter(startDate, endDate) {
     not_promotora: [],
     status: [],
     not_status: [],
-    produto: ['7', '13'],
+    produto: produtos,
     not_produto: [],
     convenio: [],
     not_convenio: [],
@@ -248,7 +265,7 @@ function buildRankingFilter(startDate, endDate) {
     onlyDuplicadas: false,
     hideDuplicadas: false,
     hide_repassado: false,
-    data: { tipo: "cadasto", startDate, endDate, intervalo: "today" },
+    data: { tipo, startDate, endDate, intervalo },
   };
 }
 
@@ -332,6 +349,95 @@ async function getRankingByPayment(startDate, endDate, vendedorIds = [], origemI
 
   _inflight.set(cacheKey, promise);
   return promise;
+}
+
+/**
+ * Ranking por período, com o tipo de data escolhido pelo chamador.
+ *
+ * É a mesma chamada que serve o ranking individual do painel da NewCorban, e é
+ * o caminho barato para agregados por vendedor: uma requisição, sem paginação,
+ * ~2s para a empresa inteira. Medido em 11/08/2026 contra a v3 paginada, que
+ * levou mais de 9 minutos para o mesmo mês — por isso o ranking individual não
+ * usa `getProposalsV3`.
+ *
+ *   tipo 'pagamento' → contratos pagos na janela   (ranking mensal)
+ *   tipo 'cadastro'  → contratos digitados na janela (digitados do dia)
+ *
+ * `ttlMs` é do chamador: janela corrente pede frescor, mês encerrado não.
+ */
+async function getRankingPeriodo(startDate, endDate, tipo, opts = {}, _retry = true) {
+  const {
+    produtos = ['7', '13'],
+    origem = [],
+    vendedores = [],
+    ttlMs = 60_000,
+  } = opts;
+
+  const cacheKey = `ranking_periodo:${tipo}:${startDate}:${endDate}:` +
+    `${produtos.join(',')}:${origem.join(',')}:${[...vendedores].sort().join(',')}`;
+
+  const cached = cacheGet(cacheKey);
+  if (cached !== null) return cached;
+  if (_inflight.has(cacheKey)) return _inflight.get(cacheKey);
+
+  const token = await getToken();
+  const filter = {
+    ...buildRankingFilter(startDate, endDate, { tipo, intervalo: 'custom', produtos }),
+    vendedor: vendedores.length > 0 ? vendedores.map(Number) : [],
+    origem,
+  };
+
+  const promise = axios.get(`${SERVER_BASE}/ranking.php`, {
+    params: { action: 'performance', i: encodeFilter(filter) },
+    headers: authHeaders(token),
+    timeout: 90000,
+  }).then(({ data }) => {
+    // 200 com erro de token no corpo — o ranking.php faz isso
+    if (data && typeof data === 'object' && isTokenError(null, data)) {
+      if (!_retry) throw new Error('Token inválido no ranking_periodo');
+      clearToken();
+      return getRankingPeriodo(startDate, endDate, tipo, opts, false);
+    }
+    cacheSet(cacheKey, data, ttlMs);
+    console.log(`[NewCorban] ranking ${tipo}: ${Object.keys(data?.result || {}).length} vendedores (${startDate}→${endDate})`);
+    return data;
+  }).catch(err => {
+    if (isTokenError(err) && _retry) {
+      clearToken();
+      return getRankingPeriodo(startDate, endDate, tipo, opts, false);
+    }
+    throw new Error(`Falha ao buscar ranking ${tipo}: ${err.response?.data?.message || err.message}`);
+  });
+
+  _inflight.set(cacheKey, promise);
+  // .finally() deriva outra promise: sem o .catch() ela rejeita sozinha e vira unhandledRejection
+  promise.finally(() => _inflight.delete(cacheKey)).catch(() => {});
+  return promise;
+}
+
+/**
+ * Achata a resposta do ranking.php numa lista por vendedor.
+ *
+ * A foto vem escondida: o payload repete todos os vendedores dentro de
+ * `second_level` de cada um, e só lá existe `image`. Casa pelo nome (a chave é
+ * a mesma) e cai para o `filter_value` se as chaves divergirem.
+ */
+function normalizarRanking(payload) {
+  return Object.entries(payload?.result || {}).map(([nome, v]) => {
+    const nivel2 = v.second_level || {};
+    const proprio = nivel2[nome]
+      || Object.values(nivel2).find(x => String(x.filter_value) === String(v.filter_value));
+    return {
+      vendedor_id: String(v.filter_value || ''),
+      nome: v.name || nome,
+      contratos: parseInt(v.qtd_propostas || 0, 10) || 0,
+      valor: parseFloat(v.valor_referencia || 0) || 0,
+      valor_meta: parseFloat(v.valor_meta || 0) || 0,
+      valor_liberado: parseFloat(v.valor_liberado || 0) || 0,
+      valor_financiado: parseFloat(v.valor_financiado || 0) || 0,
+      foto: proprio?.image || null,
+    };
+  }).filter(v => v.vendedor_id);
 }
 
 async function getProposals(startDate, endDate, vendedorIds = [], tipo = 'cadastro', _retry = true) {
@@ -530,6 +636,8 @@ module.exports = {
   findUserByUsername,
   getRanking,
   getRankingByPayment,
+  getRankingPeriodo,
+  normalizarRanking,
   getProposals,
   getProposalsV3,
   toBrazilDateStr,

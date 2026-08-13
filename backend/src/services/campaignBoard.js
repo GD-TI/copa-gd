@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const { getProposalsV3, getProposals } = require('./externalApi');
 const { getSellerIdsPorFranquia, getRoboSellerIds } = require('./franquiaSellers');
+const { buildExcluder, carregarExclusoes } = require('./rankingFilters');
 
 /**
  * Cálculo do placar de campanha (giro/escada).
@@ -66,25 +67,6 @@ function ladderFor(count, ladder = [], step = null, spinEvery = null) {
     next_at: nextAt,
     next_prize: nextPrize,
     missing: nextAt === null ? null : nextAt - count,
-  };
-}
-
-/** Contas não-humanas: a IA é a linha de base da campanha, não concorrente. */
-function buildExcluder(rows) {
-  const ids = new Set(rows.filter(r => r.corban_id).map(r => String(r.corban_id)));
-  const patterns = rows
-    .filter(r => r.name_pattern)
-    .map(r => {
-      const rx = String(r.name_pattern)
-        .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        .replace(/%/g, '.*');
-      return new RegExp(`^${rx}$`, 'i');
-    });
-
-  return (vendorId, vendorName) => {
-    if (ids.has(String(vendorId))) return true;
-    const name = String(vendorName || '').trim();
-    return name !== '' && patterns.some(rx => rx.test(name));
   };
 }
 
@@ -157,7 +139,7 @@ async function montarPlacar(campaign, day) {
     // robô e não casa com API%/BOT%/ROBO%. Se o cadastro não puder ser lido,
     // cai de volta nos padrões em vez de deixar o placar vazio.
     getRoboSellerIds(),
-    db.query(`SELECT corban_id, name_pattern FROM ranking_exclusions WHERE active = true`),
+    carregarExclusoes(),
   ]);
 
   // Rejeição relançada na mesma ordem em que era aguardada, para o erro que
@@ -169,7 +151,7 @@ async function montarPlacar(campaign, day) {
   const { proposals, fonte } = propostasRes.value;
   const sellersDaFranquia = sellersRes.value;
   const robos = robosRes.value;
-  const isExcluded = buildExcluder(excRes.value.rows);
+  const isExcluded = buildExcluder(excRes.value);
 
   const byVendor = new Map();
   let excludedContracts = 0;   // contas não-humanas
