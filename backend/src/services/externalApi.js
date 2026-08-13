@@ -310,12 +310,23 @@ async function getRanking(startDate, endDate, _retry = true) {
 // Usado para individual-rankings (melhor_vendedor por valor_referencia pago).
 // Retorna { result: { vendorName: { filter_value: corban_id, valor_referencia, qtd_propostas, ... } } }
 // origemIds: array de IDs de origem (ex: ["14"] para Indicação). Vazio = sem filtro.
-async function getRankingByPayment(startDate, endDate, vendedorIds = [], origemIds = [], _retry = true) {
-  const cacheKey = `ranking_pgto:${startDate}:${endDate}:${[...vendedorIds].sort().join(',')}:${origemIds.join(',')}`;
-  const cached = cacheGet(cacheKey);
-  if (cached !== null) return cached;
-  if (_inflight.has(cacheKey)) return _inflight.get(cacheKey);
-
+/**
+ * O retry de token mora aqui, e não na função pública, DE PROPÓSITO.
+ *
+ * Recursar na função pública devolve a própria promise em andamento: quando o
+ * `.then` roda, a chave ainda está no `_inflight`, então a recursão cai no dedup
+ * e retorna a promise que está justamente esperando por ela. Com o `.catch`
+ * encadeado o ciclo tem comprimento 2 e o V8 não detecta (com `.then` sozinho
+ * ele lançaria `Chaining cycle detected`) — nada lança, o `.finally` nunca roda
+ * e a chave fica presa no `_inflight` PARA SEMPRE. Toda requisição seguinte
+ * daquela janela pendura sem abrir conexão nenhuma.
+ *
+ * Foi o que derrubou "Digitados do Dia" em 13/08/2026: o log tinha 80
+ * re-obtenções de token, e bastou uma cair na chave do dia corrente.
+ *
+ * Esta função nunca consulta o `_inflight` — por isso pode recursar à vontade.
+ */
+async function fetchRankingByPayment(startDate, endDate, vendedorIds, origemIds, cacheKey, _retry = true) {
   const token = await getToken();
   const filter = {
     ...buildRankingFilter(startDate, endDate),
@@ -323,31 +334,44 @@ async function getRankingByPayment(startDate, endDate, vendedorIds = [], origemI
     origem: origemIds,
     data: { tipo: 'pagamento', startDate, endDate, intervalo: 'custom' },
   };
-  const encodedFilter = encodeFilter(filter);
 
-  const promise = axios.get(`${SERVER_BASE}/ranking.php`, {
-    params: { action: 'performance', i: encodedFilter },
-    headers: authHeaders(token),
-    timeout: 30000,
-  }).then(({ data }) => {
+  try {
+    const { data } = await axios.get(`${SERVER_BASE}/ranking.php`, {
+      params: { action: 'performance', i: encodeFilter(filter) },
+      headers: authHeaders(token),
+      timeout: 30000,
+    });
+
     if (data && typeof data === 'object' && isTokenError(null, data)) {
       if (!_retry) throw new Error('Token inválido no ranking_pgto');
       clearToken();
-      return getRankingByPayment(startDate, endDate, vendedorIds, origemIds, false);
+      return fetchRankingByPayment(startDate, endDate, vendedorIds, origemIds, cacheKey, false);
     }
+
     cacheSet(cacheKey, data);
     const origemLabel = origemIds.length ? ` origem=${origemIds.join(',')}` : '';
     console.log(`[NewCorban] ranking pagamento${origemLabel}: ${Object.keys(data?.result || {}).length} vendedores (${startDate}→${endDate})`);
     return data;
-  }).catch(err => {
+  } catch (err) {
     if (isTokenError(err) && _retry) {
       clearToken();
-      return getRankingByPayment(startDate, endDate, vendedorIds, origemIds, false);
+      return fetchRankingByPayment(startDate, endDate, vendedorIds, origemIds, cacheKey, false);
     }
     throw new Error(`Falha ao buscar ranking pagamento: ${err.response?.data?.message || err.message}`);
-  }).finally(() => _inflight.delete(cacheKey));
+  }
+}
+
+async function getRankingByPayment(startDate, endDate, vendedorIds = [], origemIds = []) {
+  const cacheKey = `ranking_pgto:${startDate}:${endDate}:${[...vendedorIds].sort().join(',')}:${origemIds.join(',')}`;
+  const cached = cacheGet(cacheKey);
+  if (cached !== null) return cached;
+  if (_inflight.has(cacheKey)) return _inflight.get(cacheKey);
+
+  const promise = fetchRankingByPayment(startDate, endDate, vendedorIds, origemIds, cacheKey);
 
   _inflight.set(cacheKey, promise);
+  // .finally() deriva outra promise: sem o .catch() ela rejeita sozinha e vira unhandledRejection
+  promise.finally(() => _inflight.delete(cacheKey)).catch(() => {});
   return promise;
 }
 
@@ -365,7 +389,48 @@ async function getRankingByPayment(startDate, endDate, vendedorIds = [], origemI
  *
  * `ttlMs` é do chamador: janela corrente pede frescor, mês encerrado não.
  */
-async function getRankingPeriodo(startDate, endDate, tipo, opts = {}, _retry = true) {
+/**
+ * Executa a chamada. Fora da função pública pelo mesmo motivo de
+ * `fetchRankingByPayment` — ver o comentário longo lá: recursar por cima do
+ * dedup faz a promise esperar por si mesma e prende a chave para sempre.
+ */
+async function fetchRankingPeriodo(startDate, endDate, tipo, opts, cacheKey, _retry = true) {
+  const { produtos, origem, vendedores, ttlMs } = opts;
+
+  const token = await getToken();
+  const filter = {
+    ...buildRankingFilter(startDate, endDate, { tipo, intervalo: 'custom', produtos }),
+    vendedor: vendedores.length > 0 ? vendedores.map(Number) : [],
+    origem,
+  };
+
+  try {
+    const { data } = await axios.get(`${SERVER_BASE}/ranking.php`, {
+      params: { action: 'performance', i: encodeFilter(filter) },
+      headers: authHeaders(token),
+      timeout: 90000,
+    });
+
+    // 200 com erro de token no corpo — o ranking.php faz isso
+    if (data && typeof data === 'object' && isTokenError(null, data)) {
+      if (!_retry) throw new Error('Token inválido no ranking_periodo');
+      clearToken();
+      return fetchRankingPeriodo(startDate, endDate, tipo, opts, cacheKey, false);
+    }
+
+    cacheSet(cacheKey, data, ttlMs);
+    console.log(`[NewCorban] ranking ${tipo}: ${Object.keys(data?.result || {}).length} vendedores (${startDate}→${endDate})`);
+    return data;
+  } catch (err) {
+    if (isTokenError(err) && _retry) {
+      clearToken();
+      return fetchRankingPeriodo(startDate, endDate, tipo, opts, cacheKey, false);
+    }
+    throw new Error(`Falha ao buscar ranking ${tipo}: ${err.response?.data?.message || err.message}`);
+  }
+}
+
+async function getRankingPeriodo(startDate, endDate, tipo, opts = {}) {
   const {
     produtos = ['7', '13'],
     origem = [],
@@ -380,34 +445,9 @@ async function getRankingPeriodo(startDate, endDate, tipo, opts = {}, _retry = t
   if (cached !== null) return cached;
   if (_inflight.has(cacheKey)) return _inflight.get(cacheKey);
 
-  const token = await getToken();
-  const filter = {
-    ...buildRankingFilter(startDate, endDate, { tipo, intervalo: 'custom', produtos }),
-    vendedor: vendedores.length > 0 ? vendedores.map(Number) : [],
-    origem,
-  };
-
-  const promise = axios.get(`${SERVER_BASE}/ranking.php`, {
-    params: { action: 'performance', i: encodeFilter(filter) },
-    headers: authHeaders(token),
-    timeout: 90000,
-  }).then(({ data }) => {
-    // 200 com erro de token no corpo — o ranking.php faz isso
-    if (data && typeof data === 'object' && isTokenError(null, data)) {
-      if (!_retry) throw new Error('Token inválido no ranking_periodo');
-      clearToken();
-      return getRankingPeriodo(startDate, endDate, tipo, opts, false);
-    }
-    cacheSet(cacheKey, data, ttlMs);
-    console.log(`[NewCorban] ranking ${tipo}: ${Object.keys(data?.result || {}).length} vendedores (${startDate}→${endDate})`);
-    return data;
-  }).catch(err => {
-    if (isTokenError(err) && _retry) {
-      clearToken();
-      return getRankingPeriodo(startDate, endDate, tipo, opts, false);
-    }
-    throw new Error(`Falha ao buscar ranking ${tipo}: ${err.response?.data?.message || err.message}`);
-  });
+  const promise = fetchRankingPeriodo(
+    startDate, endDate, tipo, { produtos, origem, vendedores, ttlMs }, cacheKey
+  );
 
   _inflight.set(cacheKey, promise);
   // .finally() deriva outra promise: sem o .catch() ela rejeita sozinha e vira unhandledRejection
