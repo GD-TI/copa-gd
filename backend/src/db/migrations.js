@@ -178,6 +178,24 @@ async function migrateCampaigns() {
   await db.query(`ALTER TABLE campaign_results ADD COLUMN IF NOT EXISTS team VARCHAR(150)`);
   await db.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS frozen_diagnostics JSONB`);
 
+  // Próximo degrau da escada, congelado junto com o resto. `campaignFreezer.js`
+  // já calculava next_at/next_prize/missing na hora de congelar (via
+  // montarPlacar) e os descartava, obrigando `lerCongelado` a recalculá-los a
+  // partir de campaigns.ladder — que é um campo AO VIVO. Editar a escada de uma
+  // campanha encerrada mudava esses três valores no placar histórico enquanto
+  // prize_value/spins (esses sim gravados) ficavam intocados, produzindo uma
+  // combinação sem sentido: prêmio já pago de um jeito, "próximo prêmio" de outro.
+  //
+  // `frozen_date` é o discriminador de compatibilidade: só passa a existir a
+  // partir desta migration, então uma linha antiga (congelada antes dela) tem
+  // `frozen_date IS NULL` e continua caindo no recálculo ao vivo — o snapshot já
+  // gravado não muda de comportamento sozinho. Só um novo congelamento (ou um
+  // "Recongelar") preenche `frozen_date` e passa a valer o valor travado.
+  await db.query(`ALTER TABLE campaign_results ADD COLUMN IF NOT EXISTS next_at INTEGER`);
+  await db.query(`ALTER TABLE campaign_results ADD COLUMN IF NOT EXISTS next_prize NUMERIC`);
+  await db.query(`ALTER TABLE campaign_results ADD COLUMN IF NOT EXISTS missing INTEGER`);
+  await db.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS frozen_date DATE`);
+
   // Contas não-humanas fora do placar (a IA é a linha de base, não concorrente)
   await db.query(`
     CREATE TABLE IF NOT EXISTS ranking_exclusions (

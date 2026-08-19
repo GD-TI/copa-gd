@@ -19,6 +19,7 @@ const router = express.Router();
 // NewCorban) mora em services/campaignBoard.js, compartilhado com o congelador.
 const CACHE_DIA_VIVO = 30_000;
 const CACHE_DIA_ENCERRADO = 10 * 60_000;
+const STATUS_EDITAVEIS = new Set(['draft', 'active', 'closed']);
 
 // Toda rota de campanha precisa do escopo de franquia — inclusive as de leitura,
 // porque é ele que decide o que aparece. Declarado uma vez aqui para nenhuma
@@ -28,6 +29,23 @@ router.use(authMiddleware, attachFranquiaScopes);
 const acessoDe = req => contexto(req.user, req.franquiaIds);
 
 const comDatas = c => ({ ...c, start_date: pgDateStr(c.start_date), end_date: pgDateStr(c.end_date) });
+
+/**
+ * `product_ids = []` é diferente de "o campo não veio": o `COALESCE` do INSERT
+ * só protege contra NULL/undefined, não array vazio. Sem esta guarda, lista
+ * vazia faz `montarPlacar` tratar como "sem filtro" — todos os produtos contam,
+ * o oposto do que o campo deveria significar. Mesma armadilha que
+ * `franquia_ids` já trata de propósito (lá o vazio É a regra: sem filtro);
+ * aqui o significado é o contrário, então a recusa é o comportamento certo.
+ * Só bloqueia quando o campo veio no corpo — omitido continua caindo no
+ * default (`ARRAY['13']`).
+ */
+function erroDeProdutosVazios(body) {
+  if ('product_ids' in body && Array.isArray(body.product_ids) && body.product_ids.length === 0) {
+    return 'Selecione ao menos um produto';
+  }
+  return null;
+}
 
 async function loadCampaign(id) {
   const { rows } = await db.query(`SELECT * FROM campaigns WHERE id = $1`, [id]);
@@ -64,12 +82,15 @@ async function carregarCampanha(req, res, next) {
 router.get('/', async (req, res) => {
   try {
     const { rows } = await db.query(`
-      SELECT id, name, subtitle, start_date, end_date, color, metric,
-             product_ids, require_same_day, franquia_ids, owner_franquia_id,
-             ladder, ladder_step, spin_every,
-             status, legacy_kind, created_at
-      FROM campaigns
-      ORDER BY (status = 'active') DESC, COALESCE(start_date, created_at::date) DESC, id DESC
+      SELECT c.id, c.name, c.subtitle, c.start_date, c.end_date, c.color, c.metric,
+             c.product_ids, c.require_same_day, c.franquia_ids, c.owner_franquia_id,
+             c.ladder, c.ladder_step, c.spin_every,
+             c.status, c.legacy_kind, c.created_at,
+             (c.legacy_kind IS NOT NULL OR EXISTS (
+               SELECT 1 FROM campaign_results cr WHERE cr.campaign_id = c.id
+             )) AS frozen
+      FROM campaigns c
+      ORDER BY (c.status = 'active') DESC, COALESCE(c.start_date, c.created_at::date) DESC, c.id DESC
     `);
 
     const acesso = acessoDe(req);
@@ -223,12 +244,21 @@ router.post('/', campaignAdminOnly, async (req, res) => {
   try {
     const { name } = req.body;
     if (!name || !String(name).trim()) return res.status(400).json({ error: 'Nome é obrigatório' });
+    if (req.body.end_date && req.body.start_date && req.body.end_date < req.body.start_date) {
+      return res.status(400).json({ error: 'A data de término não pode ser antes do início' });
+    }
+    const erroProdutos = erroDeProdutosVazios(req.body);
+    if (erroProdutos) return res.status(400).json({ error: erroProdutos });
 
     const acesso = acessoDe(req);
     // Abrangência decidida aqui, não no corpo: o franqueado recebe o próprio
     // escopo e um pedido de "todas as franquias" vindo dele é simplesmente
     // ignorado. Escopo vazio lança ErroDeEscopo (400) — ver campaignAccess.js.
     const franquiaIds = abrangenciaParaCriacao(acesso, req.body.franquia_ids);
+    // Rascunho continua sendo o padrão. A tela pode criar já ativa sem precisar
+    // de um POST seguido de PUT, evitando campanha salva pela metade se a segunda
+    // requisição falhar.
+    const statusInicial = req.body.status === 'active' ? 'active' : 'draft';
 
     const { rows } = await db.query(
       `INSERT INTO campaigns (name, subtitle, start_date, end_date, color, metric,
@@ -236,7 +266,7 @@ router.post('/', campaignAdminOnly, async (req, res) => {
                               ladder, ladder_step, spin_every, status, created_by)
        VALUES ($1,$2,$3,$4,COALESCE($5,'azul'),COALESCE($6,'contratos'),
                COALESCE($7,ARRAY['13']),COALESCE($8,false),$9,$10,
-               COALESCE($11,'[]')::jsonb,$12::jsonb,$13,'draft',$14)
+               COALESCE($11,'[]')::jsonb,$12::jsonb,$13,$14,$15)
        RETURNING *`,
       [
         String(name).trim(), req.body.subtitle || null,
@@ -246,7 +276,7 @@ router.post('/', campaignAdminOnly, async (req, res) => {
         franquiaIds, donoDaCampanha(acesso),
         req.body.ladder ? JSON.stringify(req.body.ladder) : null,
         req.body.ladder_step ? JSON.stringify(req.body.ladder_step) : null,
-        req.body.spin_every ?? null, req.user.id,
+        req.body.spin_every ?? null, statusInicial, req.user.id,
       ]
     );
     res.status(201).json({ ...comDatas(rows[0]), pode_editar: true });
@@ -262,6 +292,19 @@ router.put('/:id', campaignAdminOnly, carregarCampanha, async (req, res) => {
     if (!podeEditar(req.acesso, req.campaign)) {
       return res.status(403).json({ error: 'Esta campanha é administrada pela matriz' });
     }
+    if ('name' in req.body && !String(req.body.name || '').trim()) {
+      return res.status(400).json({ error: 'Nome é obrigatório' });
+    }
+    if ('status' in req.body && !STATUS_EDITAVEIS.has(req.body.status)) {
+      return res.status(400).json({ error: 'Status inválido' });
+    }
+    const inicio = 'start_date' in req.body ? req.body.start_date : pgDateStr(req.campaign.start_date);
+    const fim = 'end_date' in req.body ? req.body.end_date : pgDateStr(req.campaign.end_date);
+    if (inicio && fim && fim < inicio) {
+      return res.status(400).json({ error: 'A data de término não pode ser antes do início' });
+    }
+    const erroProdutos = erroDeProdutosVazios(req.body);
+    if (erroProdutos) return res.status(400).json({ error: erroProdutos });
 
     const sets = [];
     const values = [];

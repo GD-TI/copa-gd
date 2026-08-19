@@ -194,6 +194,19 @@ test('placar monta o mesmo resultado de sempre (filtros, ordem, escada, diagnós
   });
 });
 
+test('Jarvis e Maia não entram no placar mesmo sem flag de robô', async () => {
+  reset();
+  st.sellers.add('15');
+  st.sellers.add('16');
+  st.propostas.p11 = proposta('p11', '15', 'JARVIS (API)', { valor: 9000, pago: DIA, cadastro: DIA })[1];
+  st.propostas.p12 = proposta('p12', '16', 'MAIA', { valor: 8000, pago: DIA, cadastro: DIA })[1];
+
+  const { status, body } = await placar();
+  assert.equal(status, 200);
+  assert.deepEqual(body.board.map(v => v.vendor_name), ['ANA LIMA', 'BRUNO DIAS', 'CARLA SOUZA']);
+  assert.equal(body.diagnostics.excluded_non_human, 4);
+});
+
 test('propostas e cadastro de consultores vão em paralelo', async () => {
   reset();
   st.atrasoPropostas = 80;

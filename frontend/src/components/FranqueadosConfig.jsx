@@ -10,7 +10,8 @@ import { showToast } from '../utils/toast'
  * com `franquia_id` nulo virar dono da matriz por acidente.
  *
  * O catálogo de franquias vem de `GET /api/franquias`, que lê o cadastro do
- * NewCorban — não existe tabela local, então franquia nova aparece sozinha.
+ * NewCorban — não existe tabela local, então franquia nova aparece sozinha. As
+ * encerradas ficam de fora (`FRANQUIAS_INATIVAS` no backend).
  */
 export default function FranqueadosConfig() {
   const [franquias, setFranquias] = useState([])
@@ -35,11 +36,16 @@ export default function FranqueadosConfig() {
 
   useEffect(() => { load() }, [load])
 
+  // Franquia fora de operação não vem no catálogo, mas dono já vinculado a uma
+  // delas precisa continuar aparecendo com nome e caixa marcável — senão o
+  // vínculo fica invisível e sem como desfazer. Daí o `?incluir=`.
+  const vinculadas = donos.flatMap(d => d.franquia_ids || []).join(',')
+
   useEffect(() => {
-    api.get('/franquias')
+    api.get('/franquias', { params: vinculadas ? { incluir: vinculadas } : {} })
       .then(r => { setFranquias(r.data?.franquias || []); setErroCatalogo('') })
       .catch(e => setErroCatalogo(e.response?.data?.error || 'Não foi possível ler as franquias do NewCorban'))
-  }, [])
+  }, [vinculadas])
 
   const nomeDaFranquia = id => franquias.find(f => f.id === id)?.nome || id
 

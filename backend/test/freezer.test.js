@@ -37,16 +37,18 @@ async function executar(text, params = []) {
     return { rows: [] };
   }
   if (text.includes('INSERT INTO campaign_results')) {
-    const [campaign_id, position, vendor_id, vendor_name, team, contracts, total_value, prize_value, spins] = params;
-    st.resultados.push({ campaign_id, position, vendor_id, vendor_name, team, contracts, total_value, prize_value, spins });
+    const [campaign_id, position, vendor_id, vendor_name, team, contracts, total_value,
+           prize_value, spins, next_at, next_prize, missing] = params;
+    st.resultados.push({ campaign_id, position, vendor_id, vendor_name, team, contracts,
+                          total_value, prize_value, spins, next_at, next_prize, missing });
     return { rows: [] };
   }
   if (text.includes('UPDATE campaigns')) {
-    // Dois UPDATEs diferentes: o do congelamento (grava diagnóstico) e o de
-    // marcarConcluida (só encerra). Tratar como um só escondia o segundo.
+    // Dois UPDATEs diferentes: o do congelamento (grava diagnóstico + frozen_date)
+    // e o de marcarConcluida (só encerra). Tratar como um só escondia o segundo.
     if (text.includes('frozen_diagnostics')) {
-      const c = st.campanhas.find(x => x.id === params[1]);
-      if (c) { c.status = 'closed'; c.frozen_diagnostics = JSON.parse(params[0]); }
+      const c = st.campanhas.find(x => x.id === params[2]);
+      if (c) { c.status = 'closed'; c.frozen_diagnostics = JSON.parse(params[0]); c.frozen_date = params[1]; }
       return { rows: [], rowCount: c ? 1 : 0 };
     }
     const c = st.campanhas.find(x => x.id === params[0]);
@@ -172,6 +174,68 @@ test('o que foi congelado é o que o telão lê de volta', async () => {
     'o placar lido tem que bater com o que foi calculado na hora de congelar'
   );
   assert.deepEqual(lido.totals, r.totals);
+});
+
+test('depois de congelar, editar a escada da campanha NÃO muda o snapshot já lido', async () => {
+  // Bug real: lerCongelado recalculava next_at/next_prize/missing a partir da
+  // escada AO VIVO da campanha. Editar a escada de uma campanha já encerrada
+  // mudava esses três valores no placar histórico, enquanto prize_value/spins
+  // (esses sim gravados) ficavam intocados — uma combinação sem sentido.
+  reset();
+  const r = await congelarCampanha(st.campanhas[0]);
+  const antes = r.board.find(v => v.vendor_id === '10');
+  assert.ok(antes.next_at, 'pré-condição: o vendedor tem um próximo degrau nesta escada');
+
+  // Simula o que um PUT faria numa campanha já fechada
+  st.campanhas[0].ladder = [{ at: 1, prize: 999 }];
+  st.campanhas[0].ladder_step = null;
+  st.campanhas[0].spin_every = 1;
+
+  const lido = await lerCongelado(st.campanhas[0]);
+  const depois = lido.board.find(v => v.vendor_id === '10');
+
+  assert.equal(depois.next_at, antes.next_at, 'next_at travado');
+  assert.equal(depois.next_prize, antes.next_prize, 'next_prize travado');
+  assert.equal(depois.missing, antes.missing, 'missing travado');
+  assert.equal(depois.prize_value, antes.prize_value, 'o já ganho nunca mudou — isso já funcionava');
+  assert.equal(lido.date, DIA, 'a data do snapshot também trava em frozen_date');
+});
+
+test('snapshot congelado antes desta correção (sem frozen_date) continua recalculando ao vivo', async () => {
+  // Compatibilidade: uma campanha já congelada em produção antes desta mudança
+  // não ganha os três campos novos sozinha — só um recongelamento os preenche.
+  // Até lá, o comportamento (imperfeito, mas o de sempre) se mantém: não é a
+  // migration que corrige dado antigo, é o botão "Recongelar".
+  reset();
+  st.resultados = [
+    { campaign_id: 1, position: 1, vendor_id: '10', vendor_name: 'V10', team: 'GARRA',
+      contracts: 6, total_value: 3000, prize_value: 20, spins: 1 },
+  ];
+  // st.campanhas[0].frozen_date propositalmente ausente — imita snapshot antigo
+
+  const antes = (await lerCongelado(st.campanhas[0])).board[0];
+  assert.equal(antes.next_prize, 20, 'pré-condição: vem do degrau {at:10,prize:20} da fixture');
+
+  // Tira o degrau seguinte E o passo extra — sem os dois, não sobra fonte
+  // nenhuma de "próximo prêmio" (fica null), bem diferente do 20 de antes.
+  st.campanhas[0].ladder = [{ at: 100, prize: 1 }];
+  st.campanhas[0].ladder_step = null;
+  const depois = (await lerCongelado(st.campanhas[0])).board[0];
+
+  assert.notEqual(depois.next_prize, antes.next_prize, 'sem frozen_date, ainda recalcula ao vivo — muda só quando recongelar de verdade');
+});
+
+test('snapshot antigo deixa de exibir Jarvis e Maia sem precisar recongelar', async () => {
+  reset();
+  st.resultados = [
+    { campaign_id: 1, position: 1, vendor_id: '1013', vendor_name: 'JARVIS (API)', team: '', contracts: 99, total_value: 999, prize_value: 0, spins: 0 },
+    { campaign_id: 1, position: 2, vendor_id: '4401', vendor_name: 'MAIA', team: '', contracts: 88, total_value: 888, prize_value: 0, spins: 0 },
+    { campaign_id: 1, position: 3, vendor_id: '10', vendor_name: 'ANA LIMA', team: 'GARRA', contracts: 2, total_value: 3000, prize_value: 0, spins: 0 },
+  ];
+
+  const lido = await lerCongelado(st.campanhas[0]);
+  assert.deepEqual(lido.board.map(v => [v.position, v.vendor_name]), [[1, 'ANA LIMA']]);
+  assert.equal(lido.diagnostics.excluded_frozen_non_human, 2);
 });
 
 test('congelar é operação única — segunda passada não mexe', async () => {

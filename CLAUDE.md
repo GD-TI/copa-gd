@@ -120,6 +120,19 @@ Catálogo derivado de `getMapaFranquias()` (cache de 15 min), já recortado pelo
 
 Medido em 12/08/2026: **16 franquias** distintas no cadastro — Matriz (644 consultores), Guarulhos Centro (210), Gabriel Machado (108), Boa Vista (15), entre outras. A lista de 4 franquias que aparece mais abaixo neste documento é de agosto/2026 e **já estava desatualizada** — motivo a mais para o catálogo ser derivado e não cadastrado à mão.
 
+##### Franquias fora de operação — `FRANQUIAS_INATIVAS`
+
+O cadastro guarda unidade encerrada, teste e parceria antiga, e as 16 apareciam no passo de abrangência como se desse para escolher. Levantamento com o cliente em **19/08/2026**: operam hoje só **matriz, Tatuapé (6), Guarulhos Centro (7), Gabriel Machado (24) e Indaiatuba (865)**. As outras 11 (Mauá 1, Vila Prudente 2, Santo Amaro 3, São Caetano 4, Itaquera 5, 13, Boa Vista 20, Vasconcelos 50, Parceiros 317, Vittare 995, 1097) saem do catálogo por uma lista em `services/franquiaSellers.js`.
+
+| Decisão | Por quê |
+|---|---|
+| Lista de **exclusão**, não de inclusão | Com allowlist, a franquia que abrir amanhã ficaria **invisível até alguém editar o código**, e a falha é silenciosa. Com denylist, o catálogo continua derivado: unidade nova aparece sozinha. Coberto por teste |
+| Só o que as telas **oferecem** | `getSellerIdsPorFranquia` fica de fora — campanha antiga apontada para uma escondida continua somando os vendedores dela. Esconder do formulário não pode reescrever placar publicado |
+| `?incluir=6,50` na rota | Traz ids específicos de volta. `CampaignForm` manda a abrangência da campanha em edição e `FranqueadosConfig` manda os vínculos existentes — senão a linha some da tela mas continua no PUT, sem ninguém enxergar nem poder desmarcar |
+| Escopo do franqueado sempre volta | O vínculo é decisão explícita da matriz; escondê-lo deixaria a conta **sem franquia nenhuma** e sem poder criar campanha. Vale o mesmo no `validarFranquias` do `PUT /api/admin/franqueados/:id`, que recebe `manter` com os vínculos atuais |
+
+Para esconder outra franquia, acrescente o id na lista; para trazer de volta, remova a linha. É a única fonte — não há tabela nem variável de ambiente paralela.
+
 #### O que a Fase 1 **não** faz
 
 | Limite | Consequência hoje |
@@ -816,13 +829,51 @@ O `Telao` nasceu só para a TV. Reaproveitá-lo para um placar aberto no desktop
 - **Rolagem**: soltar o limite não bastava — `.tl-body` é `overflow:hidden` e dezenas de linhas vazavam. `.tl-ind-list` rola dentro da coluna com o cabeçalho fixo; `.tl-ind-col-n` mostra o total ao lado do título.
 - Título do cabeçalho usa `campaign?.name` (o placar arquivado mostra "Copa GD 2026"), com fallback `'RANKING GD'`.
 
-### Abas de fase em `ShellCampaigns.jsx`
+### Gestão de campanhas — lista, estados e formulário
 
-`Todas · Ativas · Concluídas · Futuras`, com contagem por aba (`.camp-tabs`/`.camp-tab` em `shell.css`).
+`ShellCampaigns.jsx` é a central de operação. A página mostra resumo, busca e
+abas `Todas · Em andamento · Agendadas · Encerradas · Rascunhos` (a última só
+para quem pode criar). Cada card sempre exibe período, abrangência, regra,
+produtos e premiação; “Ver placar”, “Abrir na TV” e “Editar” são ações
+separadas. O arquivo da Copa ficou como ação administrativa secundária.
 
-`faseDaCampanha(c, hoje)` classifica por **data, não só por `status`**: uma campanha de um dia fica `status='active'` para sempre se ninguém clicar em "Encerrar" — pela data ela já acabou, e é em Concluídas que a pessoa procura. Ordem: `closed` → concluídas; `end_date < hoje` → concluídas; `start_date > hoje` → futuras; senão ativas.
+O estado visível é **derivado de status + data**, nesta ordem:
 
-Datas são comparadas como **string `YYYY-MM-DD`**, nunca via `new Date()`: `new Date('2026-08-10')` é UTC e vira 09/08 21h no BRT, mordendo um dia. `hoje` vem de `toLocaleDateString('en-CA')`, que já emite `YYYY-MM-DD` no fuso local.
+| Estado na tela | Regra |
+|---|---|
+| Arquivo histórico | `legacy_kind` |
+| Rascunho | `status = 'draft'` |
+| Encerrada | `status = 'closed'` ou `end_date < hoje` |
+| Agendada | `start_date > hoje` |
+| Em andamento | demais campanhas ativas |
+
+Isso elimina a combinação antiga “badge Ativa dentro da aba Concluídas”.
+Datas são comparadas como string `YYYY-MM-DD`, nunca com `new Date('YYYY-MM-DD')`
+(UTC morde um dia no BRT). A listagem também devolve `frozen`, calculado por
+`EXISTS campaign_results` ou `legacy_kind`, para sinalizar “Resultado salvo”
+sem baixar o placar.
+
+`CampaignForm.jsx` serve **criação e edição completa** em quatro etapas:
+Identidade/período, Participantes/regras, Premiação e Revisão. A matriz edita
+abrangência; o franqueado apenas vê o próprio escopo, e o backend continua
+removendo `franquia_ids` do PUT dele. Na criação há duas saídas atômicas:
+`status='draft'` (padrão) ou `status='active'` (“Criar e ativar”); outros
+valores enviados ao POST caem para rascunho. O PUT e o POST recusam nome vazio,
+status inválido, período invertido e **`product_ids` vazio** — lista vazia é
+lida como "sem filtro" em `montarPlacar` (`if (products.size && ...)`), então
+sem essa recusa uma campanha com zero produtos selecionados contaria **todos**
+os produtos, o oposto do que o campo deveria significar. Mesma armadilha que
+`franquia_ids` já tratava de propósito (lá o vazio É a regra — sem filtro —
+então não se aplica); campo omitido continua caindo no default (`ARRAY['13']`).
+Só alcançável via API direta: a UI sempre exige pelo menos um produto marcado.
+
+Catálogo de produtos usado nas campanhas: **`7` = FGTS** e
+**`13` = Crédito do Trabalhador (CLT)**. A API continua recebendo os
+identificadores como texto em `product_ids`; os nomes são rótulos da interface.
+
+Ações destrutivas/operacionais (ativar, encerrar, recongelar e arquivar Copa)
+usam diálogo acessível. O `CampaignBoard` mostra “Resultado congelado” no lugar
+de “Ao vivo” quando `data.frozen`, e KPIs não aparecem zerados durante loading.
 
 ### Endpoint `GET /api/campaigns/:id/board` — latência
 
@@ -883,13 +934,17 @@ Como `pendentes()` filtra por **ausência de resultado**, não por status, a cam
 - `force` (o botão) ignora as duas guardas
 - Pagamento confirmado pelo banco **depois** da meia-noite não entra sozinho — é para isso que existe o Recongelar
 
-**Forma da resposta congelada.** `lerCongelado` reaplica `ladderFor(contracts, …)` para devolver `next_at`, `next_prize` e `missing`, e lê `diagnostics` de `campaigns.frozen_diagnostics`.
+**Forma da resposta congelada.** `next_at`, `next_prize` e `missing` são calculados uma vez, na hora de congelar (`montarPlacar` já os devolve via `ladderFor`), e gravados em `campaign_results` junto com `prize_value`/`spins`. `lerCongelado` os lê de volta — não recalcula. `diagnostics` vem de `campaigns.frozen_diagnostics`.
 
 > **BUG HISTÓRICO (corrigido antes de estrear):** o ramo congelado devolvia só as colunas da tabela — sem `next_at`/`missing`/`diagnostics`. O telão lê `item.missing === null` para decidir o texto, e `undefined === null` é falso: teria renderizado **"faltam undefined para o próximo giro"**. Como nada escrevia em `campaign_results`, esse caminho nunca tinha executado.
 
+> **BUG HISTÓRICO (corrigido):** antes, `lerCongelado` recalculava `next_at`/`next_prize`/`missing` chamando `ladderFor` com a escada **ao vivo** da campanha (`campaigns.ladder`), não uma cópia congelada. Editar a escada de uma campanha **já encerrada** — a UI sempre deixou isso disponível, "Editar configuração" não checa status — mudava esses três valores no placar histórico na hora, enquanto `prize_value`/`spins` (esses sim gravados) ficavam intocados: o telão passava a mostrar "já ganhou R$110 · próximo prêmio R$20" com um R$20 que não tinha relação nenhuma com a campanha real. Reproduzido e corrigido em 17/08/2026.
+>
+> **Correção:** `next_at`/`next_prize`/`missing` passaram a ser gravados em `campaign_results` no momento do congelamento, junto com `prize_value`/`spins` — deixaram de ser recalculados na leitura. `campaigns.frozen_date` é o discriminador de compatibilidade: presente = confia no que foi gravado (comportamento novo); ausente = ainda recalcula ao vivo, exatamente como antes (snapshot congelado antes desta correção — só um **Recongelar** o traz para o regime novo). A intenção não é bloquear a edição de campanha encerrada: **corrigir a escada e clicar em Recongelar** continua sendo o jeito certo de emendar um resultado calculado com a configuração errada — o que estava quebrado era o snapshot já fechado se mover sozinho, sem esse clique. `CampaignForm.jsx` mostra um aviso ao editar campanha `closed`, lembrando que só o Recongelar aplica a mudança ao placar.
+
 `?date=` em campanha encerrada **ignora o snapshot** e reconstrói: o congelado responde pelo dia da campanha, não por uma data arbitrária.
 
-Colunas adicionadas: `campaign_results.team`, `campaigns.frozen_diagnostics JSONB` (migrations).
+Colunas adicionadas: `campaign_results.team`, `campaigns.frozen_diagnostics JSONB`, `campaign_results.next_at/next_prize/missing`, `campaigns.frozen_date DATE` (migrations).
 
 ---
 
@@ -930,6 +985,17 @@ Extraído do `campaignBoard.js` porque agora tem dois consumidores. **Este filtr
 Duas camadas que cobrem coisas diferentes:
 - `getRoboSellerIds()` — flag `robo` do cadastro (38 contas). Pega "NOVA IA", que não casa com padrão de nome nenhum
 - `ranking_exclusions` — padrões (`API%`, `BOT %`, `ROBO%`, `%(Matriz)%`)
+
+Há ainda uma **barreira estrutural dentro de `buildExcluder`**, aplicada mesmo
+se o cadastro vier sem `robo=true` e mesmo se o banco estiver com a lista antiga:
+IDs conhecidos do Jarvis (`1013`) e NOVA IA (`24693`), mais nomes contendo as
+palavras isoladas `Jarvis`, `Maia`, `IA`, `API`, `BOT`, `ROBO` ou `ROBÔ`.
+“MARIANA” não casa com `IA`, porque a expressão exige a palavra inteira. Essa
+barreira vale para os dois consumidores: campanhas e rankings mensal/digitados.
+Padrões do banco continuam sendo uma camada adicional, não a única proteção.
+`lerCongelado()` reaplica a mesma barreira ao snapshot na leitura e reordena as
+posições; assim, histórico gravado antes da correção perde Jarvis/Maia da tela
+sem precisar alterar ou recongelar os dados brutos.
 
 **Se as duas falharem, `agregar()` lança** em vez de servir um ranking liderado pela IA numa TV. Se só uma falhar, degrada e marca `cadastro_ok`/`exclusoes_ok` no diagnóstico.
 
@@ -1003,6 +1069,7 @@ O botão do telão morava só no "Ranking Equipe". Removida aquela página (13/0
 - `rankingIndividual.test.js` — janela do mês (fevereiro, bissexto, mês futuro), filtro de robô nas duas camadas e a recusa quando as duas falham, ordenação e desempate, procedência/foto ausentes, TTL por idade da janela
 - `monthlyFreezer.test.js` — fila que nunca inclui o mês corrente, gravação em transação, write-once, guarda contra mês vazio, isolamento de falha entre meses, `atingimento` recalculado na leitura
 - `rankingRoutes.test.js` — congelado vence a API, mês sem foto cai no ao vivo, 400 vs 502, isolamento de cache por query string
+- `franquiaCatalogo.test.js` — o catálogo esconde as franquias fora de operação, `manter` devolve a que já tem vínculo, franquia nova aparece sozinha, e o filtro do placar (`getSellerIdsPorFranquia`) continua enxergando as escondidas
 - `campaignAccess.test.js` — política pura de quem vê/cria/edita campanha: escopo do franqueado imposto sobre o corpo, escopo vazio recusado, rascunho, campanha da matriz é só leitura, `franquia_ids` fora dos campos editáveis
 - `campaignRoutes.test.js` — a política ligada no HTTP, com tokens JWT de verdade: 403 por id alheio, **cache do placar não fura a permissão**, `franquia_ids` do corpo ignorado no POST e barrado no PUT, congelar é da matriz
 - `externalApiRetry.test.js` — o retry de token do `ranking.php` (ver abaixo). Stuba só o `axios`; **falha por estouro de prazo** se a regressão voltar, porque é essa a forma do bug: ele não lança, emudece
@@ -1459,3 +1526,6 @@ VITE_API_URL=http://localhost:3001
 | Ago/12 | Páginas de ranking batiam na NewCorban a cada minuto mesmo escondidas | O `Shell.jsx` mantém todas as páginas montadas (é o que dá a troca instantânea). Passou a mandar `ativo`, e o polling só roda na página visível |
 | Ago/13 | **"Digitados do Dia" dava timeout no navegador; "Ranking do Mês" parecia são** | Não era lentidão da NewCorban — a API respondia em 0,8s (digitados) e 1,2s (mensal) medida de dentro da VPS. O processo é que **pendurava para sempre**: o `ranking.php` responde 200 com erro de token no corpo, e o retry de `getRankingPeriodo`/`getRankingByPayment` recursava na **função pública**, caindo no dedup do `_inflight` e recebendo de volta a promise que estava esperando por ele. Promise dependendo de si mesma; ciclo de comprimento 2, que o V8 não detecta — nada lançava, o `.finally` nunca rodava e a **chave ficava presa no `_inflight` para sempre**. Medido em produção: `digitados?date=hoje` **240s sem responder** e **zero conexões abertas para o NewCorban**, contra 1,0s no dia anterior e 7ms num mês congelado. O gatilho era abundante: 80 re-obtenções de token no log. **Por que só o Digitados parecia quebrado:** ele abre sempre em *hoje*, a chave travada; o Ranking do Mês disfarçava porque as abas de meses fechados vêm de `monthly_rankings` (banco) — o mês corrente estava travado igual. Fix: retry movido para `fetchRankingPeriodo`/`fetchRankingByPayment`, que não consultam o `_inflight`. Ver "Retry de token" na seção de APIs Externas. Coberto por `externalApiRetry.test.js`, que **falha por estouro de prazo** contra a versão anterior |
 | Ago/13 | "Ranking Equipe" ainda no menu: era o placar da Copa GD 2026, encerrada em 31/07, e já estava no card arquivado dentro de Campanhas | Página removida do `Shell.jsx` (item do menu, título e mount) e o componente `ShellRanking` apagado — **`ShellRanking.jsx` deixou de ser página** e guarda só o `Telao` e suas views, que o card arquivado importa. Todo mundo passa a entrar por **Campanhas** (antes só o franqueado). Três consequências que não podiam ficar em silêncio: (1) **o botão 📺 Telão vivia só ali** — sem ele, remover a página levaria junto a TV do escritório, então virou `components/TelaoRankings.jsx` e apareceu nas páginas de mês e digitados; (2) o `Telao` era montado com equipes sempre, e a régua de Meta Coletiva mais o ticker mostrariam "0 / —" e uma tira em branco no telão do mês — passaram a depender de `groups.length > 0` (`temEquipes`), o que **não muda o card arquivado**, que tem equipes; (3) a página era montada **sem `ativo`**, então todo usuário logado mantinha um `EventSource` aberto e chamava `/groups/ranking` + os dois rankings a cada 5 min olhando outra tela — isso acabou junto. Ficaram órfãos e **não foram apagados**: `components/MembersModal.jsx` (breakdown de pontos por membro, sem nenhum importador agora) e o modo `today`/`TelaoTodayView` do telão, que já estava morto antes porque ninguém buscava `todayActivity` |
+| Ago/17 | Editar a escada de uma campanha **encerrada e já congelada** mudava o "próximo prêmio" do placar histórico na hora, sem tocar no que já tinha sido pago | `lerCongelado` recalculava `next_at`/`next_prize`/`missing` chamando `ladderFor` com `campaigns.ladder` **ao vivo** — e a UI sempre deixou "Editar configuração" disponível para campanha `closed`, sem aviso nenhum. Reproduzido ao vivo: editar a escada da Missão Resgate (já congelada) fez `next_prize` de CAMILLA LIMA cair de R$50 para R$20 na hora, com `prize_value` (R$110, já pago) intocado — a tela passava a mostrar dois números sem relação um com o outro. Fix: `next_at`/`next_prize`/`missing` passam a ser gravados em `campaign_results` no momento do congelamento (já vinham prontos de `montarPlacar`) e lidos de volta, não recalculados. `campaigns.frozen_date` é o discriminador de compatibilidade — snapshot congelado antes desta correção continua recalculando ao vivo até alguém clicar **Recongelar**, que é como sempre foi o jeito certo de corrigir uma escada errada. Ver "Congelamento do placar" |
+| Ago/19 | O passo de abrangência oferecia as **16 franquias** do cadastro, sendo que só 5 operam — a lista trazia unidade encerrada (Mauá, com os usuários desativados desde 2024), teste sem nome ("Franquia 1097", 2 consultores) e parceria antiga | `FRANQUIAS_INATIVAS` em `services/franquiaSellers.js` tira 11 ids do catálogo. Denylist e não allowlist, para a unidade que abrir amanhã continuar aparecendo sozinha — o catálogo é derivado de propósito. `getSellerIdsPorFranquia` **não** foi tocado: campanha antiga apontada para uma escondida continua somando os vendedores dela. `?incluir=` devolve ids específicos, para que abrangência de campanha em edição e vínculo de dono de franquia não virem filtro invisível. Ver "Franquias fora de operação" |
+| Ago/17 | `product_ids: []` na criação/edição de campanha contava **todos os produtos** em vez de nenhum | `if (products.size && ...)` em `montarPlacar` trata lista vazia como "sem filtro" — confirmado ao vivo: uma campanha de teste com `product_ids: []` deixou passar 919 contratos de todos os produtos no dia. Só alcançável via API direta (a UI sempre exige ≥1 produto). Fix: POST e PUT recusam `product_ids` vazio com 400, mesmo padrão que `franquia_ids` já aplicava (lá o vazio É a regra — aqui não) |

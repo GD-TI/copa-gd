@@ -25,7 +25,7 @@ stub('config/db', {
   query: async (sql, params = []) => {
     st.queries.push({ sql, params });
 
-    if (/FROM campaigns\s+ORDER BY/is.test(sql)) return { rows: st.campanhas };
+    if (/FROM campaigns(?:\s+\w+)?\s+ORDER BY/is.test(sql)) return { rows: st.campanhas };
 
     if (/SELECT \* FROM campaigns WHERE id/i.test(sql)) {
       const c = st.campanhas.find(x => String(x.id) === String(params[0]));
@@ -34,7 +34,7 @@ stub('config/db', {
 
     if (/^INSERT INTO campaigns/i.test(sql.trim())) {
       const row = {
-        id: 99, name: params[0], status: 'draft',
+        id: 99, name: params[0], status: params[13],
         franquia_ids: params[8], owner_franquia_id: params[9],
       };
       st.inserida = { params, row };
@@ -158,6 +158,12 @@ test('a lista já diz o que cada um pode editar', async () => {
   assert.equal(body.find(c => c.id === 30).pode_editar, false, 'a da matriz');
 });
 
+test('a listagem consulta se existe resultado congelado', async () => {
+  await chamar('matriz', '/api/campaigns');
+  const consulta = st.queries.find(q => /FROM campaigns(?:\s+\w+)?\s+ORDER BY/is.test(q.sql));
+  assert.match(consulta.sql, /EXISTS\s*\(\s*SELECT 1 FROM campaign_results/i);
+});
+
 test('consultor não vê rascunho nem campanha de outra franquia', async () => {
   const { body } = await chamar('consultor', '/api/campaigns');
   assert.deepEqual(ids(body), [10, 30, 40]);
@@ -241,6 +247,47 @@ test('nome é obrigatório', async () => {
   assert.equal(status, 400);
 });
 
+test('campanha pode nascer ativa em uma única gravação', async () => {
+  const { status, body } = await chamar('tatuape', '/api/campaigns', {
+    method: 'POST', body: { name: 'Valendo agora', status: 'active' },
+  });
+  assert.equal(status, 201);
+  assert.equal(body.status, 'active');
+  assert.equal(st.inserida.params[13], 'active');
+});
+
+test('status desconhecido na criação não escapa do padrão rascunho', async () => {
+  const { body } = await chamar('matriz', '/api/campaigns', {
+    method: 'POST', body: { name: 'Segura', status: 'closed' },
+  });
+  assert.equal(body.status, 'draft');
+});
+
+test('criação recusa período invertido', async () => {
+  const { status, body } = await chamar('matriz', '/api/campaigns', {
+    method: 'POST',
+    body: { name: 'Datas ruins', start_date: '2026-08-20', end_date: '2026-08-19' },
+  });
+  assert.equal(status, 400);
+  assert.match(body.error, /término/i);
+});
+
+test('product_ids vazio é recusado na criação — vazio viraria "sem filtro de produto"', async () => {
+  const { status, body } = await chamar('tatuape', '/api/campaigns', {
+    method: 'POST', body: { name: 'Sem produto', product_ids: [] },
+  });
+  assert.equal(status, 400);
+  assert.match(body.error, /produto/i);
+  assert.equal(st.inserida, null);
+});
+
+test('product_ids omitido continua usando o default — não é a mesma coisa que vazio', async () => {
+  const { status } = await chamar('matriz', '/api/campaigns', {
+    method: 'POST', body: { name: 'Sem mencionar produto' },
+  });
+  assert.equal(status, 201);
+});
+
 // ── Edição ──────────────────────────────────────────────────────────────────
 
 test('franqueado edita a própria campanha', async () => {
@@ -282,6 +329,46 @@ test('PUT sem nenhum campo conhecido é 400', async () => {
     method: 'PUT', body: { franquia_ids: ['7'] },   // único campo, e ele é bloqueado
   });
   assert.equal(status, 400);
+});
+
+test('edição completa aceita identidade, regras e premiação', async () => {
+  const { status } = await chamar('matriz', '/api/campaigns/10', {
+    method: 'PUT',
+    body: {
+      name: 'Campanha revisada',
+      subtitle: 'Nova chamada',
+      product_ids: ['13'],
+      require_same_day: true,
+      ladder: [{ at: 5, prize: 20 }],
+      ladder_step: { every: 5, prize: 10 },
+      spin_every: 5,
+    },
+  });
+  assert.equal(status, 200);
+  assert.match(st.atualizada.sql, /name = \$1/);
+  assert.match(st.atualizada.sql, /ladder = \$\d+::jsonb/);
+  assert.match(st.atualizada.sql, /spin_every = \$\d+/);
+});
+
+test('product_ids vazio é recusado na edição', async () => {
+  const { status, body } = await chamar('matriz', '/api/campaigns/10', {
+    method: 'PUT', body: { product_ids: [] },
+  });
+  assert.equal(status, 400);
+  assert.match(body.error, /produto/i);
+  assert.equal(st.atualizada, null);
+});
+
+test('edição recusa status inválido e período invertido', async () => {
+  const statusRuim = await chamar('matriz', '/api/campaigns/10', {
+    method: 'PUT', body: { status: 'paused' },
+  });
+  assert.equal(statusRuim.status, 400);
+
+  const datasRuins = await chamar('matriz', '/api/campaigns/10', {
+    method: 'PUT', body: { start_date: '2026-08-20', end_date: '2026-08-10' },
+  });
+  assert.equal(datasRuins.status, 400);
 });
 
 test('franqueado não congela placar — congelar é da matriz', async () => {

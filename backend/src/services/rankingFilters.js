@@ -9,6 +9,20 @@ const db = require('../config/db');
  * dia e o Jarvis 268, contra 36 do primeiro consultor humano.
  */
 
+// Barreira estrutural, independente do cadastro e do banco. Algumas contas de
+// IA chegam sem `robo=true` e bancos antigos não recebem novos padrões só por já
+// terem linhas em ranking_exclusions. Estes IDs são conhecidos no NewCorban; os
+// padrões cobrem novas contas nomeadas como IA, API, bot, Jarvis ou Maia.
+const IDS_NAO_HUMANOS = new Set(['1013', '24693']);
+const NOMES_NAO_HUMANOS = [
+  /\bjarvis\b/i,
+  /\bmaia\b/i,
+  /\b(?:nova\s+)?ia\b/i,
+  /\bapi\b/i,
+  /\bbot\b/i,
+  /(?:^|\W)rob[oô](?:\W|$)/i,
+];
+
 /** Contas não-humanas: a IA é a linha de base da campanha, não concorrente. */
 function buildExcluder(rows) {
   const ids = new Set(rows.filter(r => r.corban_id).map(r => String(r.corban_id)));
@@ -22,9 +36,12 @@ function buildExcluder(rows) {
     });
 
   return (vendorId, vendorName) => {
-    if (ids.has(String(vendorId))) return true;
+    if (IDS_NAO_HUMANOS.has(String(vendorId)) || ids.has(String(vendorId))) return true;
     const name = String(vendorName || '').trim();
-    return name !== '' && patterns.some(rx => rx.test(name));
+    return name !== '' && (
+      NOMES_NAO_HUMANOS.some(rx => rx.test(name)) ||
+      patterns.some(rx => rx.test(name))
+    );
   };
 }
 
@@ -35,4 +52,9 @@ async function carregarExclusoes() {
   return rows;
 }
 
-module.exports = { buildExcluder, carregarExclusoes };
+module.exports = {
+  buildExcluder,
+  carregarExclusoes,
+  IDS_NAO_HUMANOS,
+  NOMES_NAO_HUMANOS,
+};

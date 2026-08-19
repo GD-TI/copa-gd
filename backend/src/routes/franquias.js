@@ -11,6 +11,9 @@ const router = express.Router();
  * donos de franquia. A matriz recebe todas; o franqueado, só as suas — assim a
  * tela não precisa saber a regra, ela só desenha o que chegou.
  *
+ * Filtra as franquias encerradas do cadastro do NewCorban; `?incluir=6,50`
+ * traz ids específicos de volta (ver comentário no handler).
+ *
  * **Sem `responseCache` de propósito:** a chave dele é a URL, e esta resposta
  * muda por usuário — dois papéis diferentes na mesma URL serviriam a lista um do
  * outro. O custo real (o cadastro do NewCorban) já é cacheado 15 min dentro de
@@ -18,8 +21,15 @@ const router = express.Router();
  */
 router.get('/', authMiddleware, attachFranquiaScopes, async (req, res) => {
   try {
-    const todas = await listarFranquias();
     const escopo = req.franquiaIds;                    // null = todas (matriz)
+
+    // Franquia fora de operação não é oferecida (`FRANQUIAS_INATIVAS`), com duas
+    // exceções que valem mais que a lista: a que o master vinculou ao dono, e a
+    // que uma campanha já criada usa — pedida em `?incluir=`. Sem elas o dono
+    // ficaria sem franquia nenhuma, e a edição de campanha antiga esconderia um
+    // filtro que continuaria sendo enviado no PUT, sem ninguém poder desmarcar.
+    const incluir = String(req.query.incluir || '').split(',').map(s => s.trim()).filter(Boolean);
+    const todas = await listarFranquias({ manter: [...(escopo || []), ...incluir] });
     const franquias = escopo === null
       ? todas
       : todas.filter(f => escopo.includes(f.id));

@@ -149,17 +149,20 @@ router.put('/team-admins/:id', adminOnly, async (req, res) => {
  * assim mesmo — travar a criação de acesso por causa de uma API fora do ar seria
  * pior que aceitar um id que o master digitou errado (e que a tela lista pronto).
  */
-async function validarFranquias(franquiaIds) {
+async function validarFranquias(franquiaIds, { manter = [] } = {}) {
   const ids = normalizarFranquiaIds(franquiaIds);
   if (!ids.length) return { erro: 'Selecione ao menos uma franquia' };
 
   try {
-    const catalogo = await listarFranquias();
+    // `manter` = o vínculo que este dono já tem. Uma franquia que saiu de
+    // operação depois do cadastro não pode invalidar o próprio registro dela:
+    // sem isso, editar só o nome de exibição do dono seria recusado.
+    const catalogo = await listarFranquias({ manter });
     const conhecidas = new Set(catalogo.map(f => f.id));
     const invalidas = ids.filter(id => !conhecidas.has(id));
     if (invalidas.length) {
       return {
-        erro: `Franquia(s) inexistente(s) no NewCorban: ${invalidas.join(', ')}. ` +
+        erro: `Franquia(s) indisponível(is) no catálogo: ${invalidas.join(', ')}. ` +
               `Disponíveis: ${catalogo.map(f => `${f.id} (${f.nome})`).join(', ')}`,
       };
     }
@@ -240,7 +243,8 @@ router.put('/franqueados/:id', adminOnly, async (req, res) => {
     // Validação antes de qualquer escrita: nada de trocar a senha e falhar no escopo.
     let novasFranquias = null;
     if (franquia_ids !== undefined) {
-      const { erro, ids } = await validarFranquias(franquia_ids);
+      const atuais = await getManagedFranquiaIds(id);
+      const { erro, ids } = await validarFranquias(franquia_ids, { manter: atuais });
       if (erro) return res.status(400).json({ error: erro });
       novasFranquias = ids;
     }

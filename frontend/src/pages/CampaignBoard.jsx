@@ -500,9 +500,15 @@ export default function CampaignBoard({ campaignId, onClose, fullscreen = false 
   const comGiro = board.filter(v => Number(v.spins) > 0).length
   const pctTime = board.length ? (comGiro / board.length) : 0
 
-  const dataLabel = data?.date
-    ? new Date(`${data.date}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })
+  const dataDoPlacar = data?.date || campaign?.start_date
+  const dataLabel = dataDoPlacar
+    ? new Date(`${String(dataDoPlacar).slice(0, 10)}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })
     : ''
+  const statusPlacar = data?.legacy
+    ? { label: 'Arquivo', classe: 'is-archive' }
+    : data?.frozen
+      ? { label: 'Resultado congelado', classe: 'is-frozen' }
+      : { label: 'Ao vivo', classe: 'is-live' }
 
   const vazio = !loading && !error && board.length === 0
 
@@ -521,15 +527,18 @@ export default function CampaignBoard({ campaignId, onClose, fullscreen = false 
             <span className="tv-back-txt">Voltar</span>
           </button>
         ) : null}
-        <span className="tv-live-badge">
+        <span className={`tv-live-badge ${statusPlacar.classe}`}>
           <span className="tv-live-dot" />
-          <span className="tv-live-txt">Ao vivo</span>
+          <span className="tv-live-txt">{statusPlacar.label}</span>
         </span>
         <span className="tv-tb-name">{campaign?.name || 'Ranking GD'}</span>
         <span className="tv-tb-period">
-          {dataLabel} · {now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+          {dataLabel}
+          {!data?.frozen && !data?.legacy
+            ? ` · ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+            : ''}
         </span>
-        <div className="tv-kpis">
+        {!loading && !error ? <div className="tv-kpis">
           <div className="tv-kpi">
             <div className="tv-kv grn">{data?.totals?.contracts ?? 0}</div>
             <div className="tv-kl">Recuperações</div>
@@ -542,16 +551,16 @@ export default function CampaignBoard({ campaignId, onClose, fullscreen = false 
             <div className="tv-kv wht">{board.length}</div>
             <div className="tv-kl">Consultores</div>
           </div>
-        </div>
+        </div> : null}
       </div>
 
-      <div className="tv-prog-row">
+      {!loading && !error ? <div className="tv-prog-row">
         <span className="tv-prog-lbl">Time na roleta</span>
         <div className="tv-prog-track">
           <div className="tv-prog-fill" style={{ transform: `scaleX(${pctTime})` }} />
         </div>
         <span className="tv-prog-pct">{comGiro}/{board.length || 0}</span>
-      </div>
+      </div> : null}
 
       {loading ? (
         <div className="tv-state"><h2>Carregando o placar…</h2></div>

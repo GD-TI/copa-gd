@@ -150,6 +150,22 @@ test('robô do cadastro e padrão de nome saem os dois', async () => {
   assert.equal(r.diagnostics.nao_humanos, 3);
 });
 
+test('Jarvis, Maia e qualquer conta nomeada como IA saem mesmo sem flag ou banco', async () => {
+  st.resultado = payload([
+    { nome: 'Jarvis (API)', id: 1013, qtd: 268, valor: 690524 },
+    { nome: 'MAIA',         id: 4401, qtd: 190, valor: 410000 },
+    { nome: 'NOVA IA',      id: 24693, qtd: 270, valor: 25868 },
+    { nome: 'IA VENDAS',    id: 4402, qtd: 80,  valor: 90000 },
+    { nome: 'MARIANA LIMA', id: 4403, qtd: 36,  valor: 47399 },
+  ]);
+  st.robos = new Set();
+  st.exclusoes = [];
+
+  const r = await digitadosDoDia('2026-08-11');
+  assert.deepEqual(r.board.map(v => v.nome), ['MARIANA LIMA']);
+  assert.equal(r.diagnostics.nao_humanos, 4);
+});
+
 test('exclusão por corban_id também vale', async () => {
   st.resultado = payload([
     { nome: 'ALGUEM', id: 99, qtd: 10, valor: 100 },

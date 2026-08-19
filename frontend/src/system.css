@@ -143,6 +143,20 @@
   background: #EF4444;
   animation: blink 1.4s ease-in-out infinite;
 }
+.tv-live-badge.is-frozen .tv-live-dot,
+.tv-live-badge.is-archive .tv-live-dot {
+  animation: none;
+  background: #94B4DC;
+}
+.tv-live-badge.is-frozen {
+  border-color: rgba(148,180,220,.28);
+  background: rgba(148,180,220,.1);
+}
+.tv-live-badge.is-archive {
+  border-color: rgba(245,158,11,.3);
+  background: rgba(245,158,11,.1);
+}
+.tv-live-badge.is-archive .tv-live-dot { background: #F59E0B; }
 
 @keyframes blink { 0%, 100% { opacity: 1 } 50% { opacity: .25 } }
 

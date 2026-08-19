@@ -29,6 +29,38 @@ const CAMPOS_CANDIDATOS = [
  */
 const SEM_FRANQUIA = 'matriz';
 
+/**
+ * Franquias que existem no cadastro mas não estão em operação.
+ *
+ * O catálogo é derivado do NewCorban de propósito — franquia nova aparece
+ * sozinha, sem registro paralelo para desatualizar. Só que o cadastro guarda
+ * unidade encerrada, teste e parceria antiga, e todas apareciam no passo de
+ * abrangência do formulário como se ainda desse para escolher. Levantamento com
+ * o cliente em 19/08/2026: operam hoje a matriz, Tatuapé (6), Guarulhos Centro
+ * (7), Gabriel Machado (24) e Indaiatuba (865).
+ *
+ * É lista de EXCLUSÃO, não de inclusão: a franquia que abrir amanhã continua
+ * aparecendo sozinha, que é o motivo de o catálogo ser derivado. Para esconder
+ * outra, acrescente o id aqui; para trazer uma de volta, remova a linha.
+ *
+ * Só muda o que as telas OFERECEM. `getSellerIdsPorFranquia` fica de fora de
+ * propósito: campanha antiga apontada para uma destas continua somando os
+ * vendedores dela — esconder do formulário não pode reescrever placar publicado.
+ */
+const FRANQUIAS_INATIVAS = new Map([
+  ['1',    'Mauá — 10 usuários, todos desativados desde 2024'],
+  ['2',    'Vila Prudente'],
+  ['3',    'Santo Amaro'],
+  ['4',    'São Caetano'],
+  ['5',    'Itaquera'],
+  ['13',   'sem nome no cadastro'],
+  ['20',   'Boa Vista'],
+  ['50',   'Vasconcelos'],
+  ['317',  'Parceiros'],
+  ['995',  'Vittare'],
+  ['1097', 'sem nome no cadastro'],
+]);
+
 const TTL_MS = 15 * 60 * 1000;   // cadastro de consultor não muda no meio do dia
 
 let _cache = null;   // { expiresAt, campo, porVendedor: Map<string, string> }
@@ -180,11 +212,17 @@ async function getInfoVendedores() {
  * NewCorban, a mesma fonte que o placar usa para filtrar. Assim uma franquia
  * nova aparece sozinha no formulário, sem cadastro paralelo para desatualizar.
  *
+ * As de `FRANQUIAS_INATIVAS` ficam de fora. `manter` traz de volta ids
+ * específicos — o vínculo de um dono de franquia e a abrangência de uma campanha
+ * já criada valem mais que a lista: escondê-los deixaria a conta sem franquia
+ * nenhuma, ou a campanha com um filtro que ninguém enxerga para desmarcar.
+ *
  * `consultores` não conta robôs: é o número que o formulário mostra para avisar
  * que uma franquia sem gente produziria um placar vazio.
  */
-async function listarFranquias() {
+async function listarFranquias({ manter = [] } = {}) {
   const { porVendedor, info, robos } = await getMapaFranquias();
+  const preservar = new Set((manter || []).map(f => String(f).trim()).filter(Boolean));
 
   const porId = new Map();
   for (const [vendedorId, franquia] of porVendedor.entries()) {
@@ -195,6 +233,7 @@ async function listarFranquias() {
   }
 
   return [...porId.values()]
+    .filter(f => !FRANQUIAS_INATIVAS.has(f.id) || preservar.has(f.id))
     .map(f => ({
       ...f,
       nome: f.nome || (f.id === SEM_FRANQUIA ? 'Matriz' : `Franquia ${f.id}`),
@@ -212,6 +251,7 @@ function invalidarCacheFranquias() {
 
 module.exports = {
   TOKEN_MATRIZ: SEM_FRANQUIA,
+  FRANQUIAS_INATIVAS,
   getSellerIdsPorFranquia,
   getMapaFranquias,
   getRoboSellerIds,

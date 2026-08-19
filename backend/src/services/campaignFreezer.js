@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const { montarPlacar, todayBR, pgDateStr, diaDoPlacar } = require('./campaignBoard');
+const { buildExcluder, carregarExclusoes } = require('./rankingFilters');
 const { invalidateResponseCache } = require('../middleware/responseCache');
 
 /**
@@ -55,20 +56,31 @@ async function congelarCampanha(campaign, { force = false } = {}) {
     await client.query(`DELETE FROM campaign_results WHERE campaign_id = $1`, [campaign.id]);
 
     for (const v of board) {
+      // next_at/next_prize/missing vêm prontos de `montarPlacar` (via `ladderFor`)
+      // — gravados aqui para o snapshot não depender mais da escada AO VIVO da
+      // campanha na hora de exibir. Ver a migration para o motivo.
       await client.query(
         `INSERT INTO campaign_results
-           (campaign_id, position, vendor_id, vendor_name, team, contracts, total_value, prize_value, spins)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+           (campaign_id, position, vendor_id, vendor_name, team, contracts, total_value,
+            prize_value, spins, next_at, next_prize, missing)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
         [campaign.id, v.position, v.vendor_id, v.vendor_name, v.team || null,
-         v.contracts, v.total_value, v.prize_value, v.spins]
+         v.contracts, v.total_value, v.prize_value, v.spins,
+         v.next_at ?? null, v.next_prize ?? null, v.missing ?? null]
       );
     }
 
+    // `frozen_date` grava o mesmo `day` usado para montar o placar — é o
+    // discriminador que diz "este snapshot já traz next_at/next_prize/missing
+    // travados" (ver migration). Sem ele, `lerCongelado` não teria como saber
+    // se uma linha antiga simplesmente tem os três campos vazios por acaso
+    // (vendedor que já bateu o último degrau) ou por ainda não ter sido
+    // recongelada desde que passaram a ser gravados.
     await client.query(
       `UPDATE campaigns
-          SET status = 'closed', frozen_diagnostics = $1::jsonb, updated_at = NOW()
-        WHERE id = $2`,
-      [JSON.stringify(diagnostics), campaign.id]
+          SET status = 'closed', frozen_diagnostics = $1::jsonb, frozen_date = $2, updated_at = NOW()
+        WHERE id = $3`,
+      [JSON.stringify(diagnostics), day, campaign.id]
     );
     await client.query('COMMIT');
   } catch (err) {
@@ -158,14 +170,32 @@ async function congelarPendentes() {
 /** Lê o placar congelado. Devolve null quando a campanha ainda não tem snapshot. */
 async function lerCongelado(campaign) {
   const { rows } = await db.query(
-    `SELECT position, vendor_id, vendor_name, team, contracts, total_value, prize_value, spins
+    `SELECT position, vendor_id, vendor_name, team, contracts, total_value, prize_value, spins,
+            next_at, next_prize, missing
      FROM campaign_results WHERE campaign_id = $1 ORDER BY position`,
     [campaign.id]
   );
   if (!rows.length) return null;
 
-  const board = rows.map(r => ({
-    position: Number(r.position),
+  // Snapshots antigos também obedecem à barreira atual de contas não-humanas.
+  // Não exige recongelar nem altera o histórico bruto; apenas impede que uma IA
+  // continue visível porque foi gravada antes de o filtro conhecê-la.
+  const exclusoes = await carregarExclusoes().catch(() => []);
+  const isExcluded = buildExcluder(exclusoes);
+  const humanos = rows.filter(r => !isExcluded(r.vendor_id, r.vendor_name));
+  const removidos = rows.length - humanos.length;
+
+  // `frozen_date` é o discriminador: só existe a partir de quando o congelamento
+  // passou a gravar next_at/next_prize/missing junto com o resto (ver migration).
+  // Sem ele, um snapshot anterior a essa mudança tem os três campos NULL — e não
+  // dá para distinguir "vendedor que já bateu o último degrau" (também NULL,
+  // legitimamente) de "esta linha nunca gravou o valor". `frozen_date` resolve
+  // essa ambiguidade: presente = confia no que foi gravado; ausente = recalcula
+  // ao vivo, exatamente como sempre funcionou para esse snapshot mais antigo.
+  const travado = Boolean(campaign.frozen_date);
+
+  const board = humanos.map((r, index) => ({
+    position: index + 1,
     vendor_id: r.vendor_id,
     vendor_name: r.vendor_name,
     team: r.team || '',
@@ -173,23 +203,29 @@ async function lerCongelado(campaign) {
     total_value: Number(r.total_value),
     prize_value: Number(r.prize_value),
     spins: Number(r.spins),
-    // next_at/next_prize/missing derivam de contracts + config da campanha. Sem
-    // recalcular, o telão renderiza "faltam undefined para o próximo giro".
-    ...derivarProximoDegrau(r, campaign),
+    ...(travado
+      ? { next_at: r.next_at, next_prize: r.next_prize === null ? null : Number(r.next_prize), missing: r.missing }
+      // next_at/next_prize/missing derivam de contracts + config da campanha. Sem
+      // recalcular, o telão renderiza "faltam undefined para o próximo giro".
+      : derivarProximoDegrau(r, campaign)),
   }));
 
   return {
-    date: pgDateStr(campaign.end_date) || pgDateStr(campaign.start_date),
+    date: travado ? pgDateStr(campaign.frozen_date) : (pgDateStr(campaign.end_date) || pgDateStr(campaign.start_date)),
     board,
     totals: {
       contracts: board.reduce((s, v) => s + v.contracts, 0),
       value: board.reduce((s, v) => s + v.total_value, 0),
       participants: board.length,
     },
-    diagnostics: campaign.frozen_diagnostics || null,
+    diagnostics: {
+      ...(campaign.frozen_diagnostics || {}),
+      excluded_frozen_non_human: removidos,
+    },
   };
 }
 
+/** Compatibilidade: snapshot congelado antes de next_at/next_prize/missing existirem. */
 function derivarProximoDegrau(row, campaign) {
   const { ladderFor } = require('./campaignBoard');
   const { next_at, next_prize, missing } = ladderFor(
