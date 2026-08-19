@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Ranking GD">
+  <title>Ranking GD</title>
+  <!--
+    Favicon do app. Desenhado para 16px, que é o tamanho em que ele realmente
+    aparece: silhueta cheia, sem traço fino nem detalhe interno, e fundo próprio
+    em vez de transparência — a aba do navegador pode ser clara ou escura, e um
+    troféu recortado sumiria em uma das duas.
+
+    Ouro sobre verde escuro dá 5,7:1 de contraste. O verde da marca (#3DB879)
+    ficaria em 1,4:1 com o mesmo ouro: no tamanho de aba, o troféu viraria uma
+    mancha só. Daí o fundo ser o verde-tinta (o token gd-ink) escurecido, e não o
+    verde claro da interface.
+  -->
+  <defs>
+    <linearGradient id="fundo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1C7A4D"/>
+      <stop offset="1" stop-color="#0C4229"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFDC7A"/>
+      <stop offset="0.45" stop-color="#FFB800"/>
+      <stop offset="1" stop-color="#E08A00"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="14" fill="url(#fundo)"/>
+
+  <g fill="url(#metal)">
+    <!-- alças: traço grosso de propósito, é o que sobrevive à redução -->
+    <path d="M21.5 17.5 C12 17.5 11 29.5 21.5 31" fill="none" stroke="url(#metal)"
+          stroke-width="4.5" stroke-linecap="round"/>
+    <path d="M42.5 17.5 C52 17.5 53 29.5 42.5 31" fill="none" stroke="url(#metal)"
+          stroke-width="4.5" stroke-linecap="round"/>
+
+    <rect x="19.4" y="10.8" width="25.2" height="4.8" rx="1.7"/>
+    <path d="M21.6 15.6 H42.4 V22.2 C42.4 30.6 38.1 36.2 32 36.2 C25.9 36.2 21.6 30.6 21.6 22.2 Z"/>
+    <rect x="29" y="36" width="6" height="6.2"/>
+    <path d="M25 42 H39 L40.9 46.2 H23.1 Z"/>
+    <rect x="19.4" y="46" width="25.2" height="6.4" rx="2.6"/>
+  </g>
+</svg>
