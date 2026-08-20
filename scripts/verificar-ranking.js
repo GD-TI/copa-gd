@@ -84,7 +84,11 @@ function tabela(titulo, dados, coluna) {
     coluna.padEnd(16) + 'CONTRATOS   META          ATING  ORIGEM'
   );
   for (const v of board) {
-    const destaque = coluna === 'R$ PAGO' ? brl(v.valor) : `${v.contratos} digitados`;
+    // Os dois rankings ordenam por R$ (o dos digitados desde 20/08/2026), então
+    // é o R$ que vai na coluna de destaque nos dois. A contagem fica na coluna
+    // CONTRATOS ao lado — destacar um número que não ordena a lista faz a
+    // tabela parecer fora de ordem, que é o oposto do que este script serve.
+    const destaque = brl(v.valor);
     const origem = [v.equipe, v.franquia_nome].filter(Boolean).join(' · ') || '—';
     escrever(
       `${String(v.position).padStart(3)}. ` +
@@ -112,7 +116,7 @@ function tabela(titulo, dados, coluna) {
   const digitados = await digitadosDoDia(dia);
   tabela(
     `DIGITADOS DO DIA — ${dia}${digitados.ao_vivo ? '  [hoje, ao vivo]' : ''}`,
-    digitados, 'DIGITADOS'
+    digitados, 'R$ DIGITADO'
   );
 })().catch(err => {
   // Sem process.exit(0) no caminho feliz: com stdout redirecionado ele corta a
