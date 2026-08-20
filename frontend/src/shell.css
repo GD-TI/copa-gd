@@ -1617,10 +1617,6 @@ input[type="text"].field-input {
   font: 700 20px/1 var(--mono); color: var(--ri-txt);
   font-variant-numeric: tabular-nums; letter-spacing: -.3px;
 }
-.ri-unidade {
-  font: 600 10px/1 var(--font); color: var(--ri-txt3);
-  text-transform: uppercase; letter-spacing: 1.5px; margin-left: 7px;
-}
 .ri-apoio { font: 500 11px/1 var(--font); color: var(--ri-txt3); margin-top: 5px; }
 
 .ri-estado {

@@ -3,9 +3,13 @@ import { useState } from 'react'
 /**
  * Linhas do ranking individual — as mesmas no telão e nas páginas de consulta.
  *
- * Duas variantes, que diferem só em qual número é o grande:
+ * Duas variantes, que diferem no que entra no apoio:
  *   mensal    → R$ pago no mês (ordem do ranking), contratos e meta no apoio
- *   digitados → contratos digitados no dia, R$ no apoio
+ *   digitados → R$ digitado no dia (ordem do ranking), contagem no apoio
+ *
+ * Nas duas o número grande é o R$, porque nas duas é ele que ordena a lista —
+ * até 20/08/2026 os digitados ordenavam por quantidade e mostravam a contagem
+ * em destaque. Número grande fora da ordem faz a lista parecer desordenada.
  *
  * Estes componentes NÃO substituem `TelaoIndView`/`TelaoTodayView` do
  * `ShellRanking.jsx`: aqueles continuam servindo o snapshot congelado da Copa
@@ -44,9 +48,7 @@ function Linha({ item, variante }) {
   const podio = item.position <= 3 ? ` ri-p${item.position}` : ''
   const origem = [item.equipe, item.franquia_nome].filter(Boolean).join(' · ')
 
-  const grande = variante === 'mensal'
-    ? `R$ ${brl(item.valor)}`
-    : `${item.contratos}`
+  const grande = `R$ ${brl(item.valor)}`
 
   // Meta em R$, não o % de atingimento: a meta da NewCorban é derivada do
   // contrato, então o percentual sai sempre entre 200% e 500% e não informa
@@ -56,7 +58,7 @@ function Linha({ item, variante }) {
         `${item.contratos} contrato${item.contratos === 1 ? '' : 's'}`,
         item.valor_meta > 0 ? `meta R$ ${brl(item.valor_meta)}` : null,
       ].filter(Boolean).join(' · ')
-    : `R$ ${brlCurto(item.valor)}`
+    : `${item.contratos} digitado${item.contratos === 1 ? '' : 's'}`
 
   return (
     <div className={`ri-linha${podio}`}>
@@ -67,10 +69,7 @@ function Linha({ item, variante }) {
         {origem && <div className="ri-origem">{origem}</div>}
       </div>
       <div className="ri-nums">
-        <div className="ri-grande">
-          {grande}
-          {variante === 'digitados' && <span className="ri-unidade">digitados</span>}
-        </div>
+        <div className="ri-grande">{grande}</div>
         <div className="ri-apoio">{apoio}</div>
       </div>
     </div>

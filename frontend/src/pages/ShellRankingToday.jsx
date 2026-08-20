@@ -19,7 +19,8 @@ function somaDias(dia, n) {
 }
 
 /**
- * Contratos digitados no dia, por quantidade — empresa inteira, sem robôs.
+ * Contratos digitados no dia, por valor de referência — empresa inteira, sem
+ * robôs. A quantidade continua na tela, como apoio e como desempate.
  *
  * Zera todo dia porque a janela da consulta é o dia: à meia-noite a lista já
  * começa vazia sozinha, sem cron nem tabela para limpar.
@@ -67,7 +68,7 @@ export default function ShellRankingToday({ ativo = true }) {
         <div className="ri-page-titulo">
           <h2>⌨️ Digitados do Dia</h2>
           <span className="ri-page-sub">
-            Contratos digitados em {rotuloDia(dia).toLowerCase()} · empresa inteira
+            Contratos digitados em {rotuloDia(dia).toLowerCase()} · por valor de referência · empresa inteira
           </span>
         </div>
         <div className="ri-dia-nav">

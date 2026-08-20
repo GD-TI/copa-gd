@@ -222,15 +222,21 @@ test('mensal ordena por R$ pago, com contratos no desempate', async () => {
   assert.equal(r.board[2].nome, 'WASHINGTON');
 });
 
-test('digitados ordena por quantidade, com R$ no desempate', async () => {
+test('digitados ordena por R$ de referência, com quantidade no desempate', async () => {
   st.resultado = payload([
-    { nome: 'BEATRIZ',   id: 1, qtd: 26, valor: 18850 },
+    { nome: 'BEATRIZ',    id: 1, qtd: 26, valor: 18850 },
     { nome: 'WASHINGTON', id: 2, qtd: 36, valor: 47399 },
-    { nome: 'EMPATE_MENOR', id: 3, qtd: 26, valor: 900 },
+    // Digitou MAIS linhas que o WASHINGTON e mesmo assim fica atrás: quem manda
+    // é o valor. Era o líder quando a ordem era por quantidade (até 20/08/2026).
+    { nome: 'MUITA_LINHA_POUCO_VALOR', id: 3, qtd: 40, valor: 900 },
+    { nome: 'EMPATE_MENOS_LINHAS',     id: 4, qtd: 12, valor: 18850 },
   ]);
 
   const r = await digitadosDoDia('2026-08-11');
-  assert.deepEqual(r.board.map(v => v.nome), ['WASHINGTON', 'BEATRIZ', 'EMPATE_MENOR']);
+  assert.deepEqual(
+    r.board.map(v => v.nome),
+    ['WASHINGTON', 'BEATRIZ', 'EMPATE_MENOS_LINHAS', 'MUITA_LINHA_POUCO_VALOR']
+  );
 });
 
 test('linha sem movimento não vira participante', async () => {

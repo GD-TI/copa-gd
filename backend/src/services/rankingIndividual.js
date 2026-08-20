@@ -191,9 +191,15 @@ async function rankingMensal(mes = mesAtual()) {
 }
 
 /**
- * Contratos **digitados** no dia, ordenado por quantidade — é a métrica que a
- * própria palavra "digitados" nomeia, e o valor entra só como desempate.
+ * Contratos **digitados** no dia, ordenado por **valor de referência**
+ * (decisão do cliente, 20/08/2026) — a quantidade entra só como desempate.
  * Conta tudo que foi digitado, pago ou não.
+ *
+ * Ordenava por quantidade antes, porque é o que a palavra "digitados" nomeia;
+ * o que o cliente quer ver no topo é quem digitou mais dinheiro, não quem
+ * digitou mais linhas. A tela acompanha: o número grande da variante
+ * `digitados` passou a ser o R$, com a contagem no apoio — número grande fora
+ * da ordem do ranking faz a lista parecer desordenada.
  */
 async function digitadosDoDia(dia = hojeBR()) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dia || '')) {
@@ -206,7 +212,7 @@ async function digitadosDoDia(dia = hojeBR()) {
     fim: dia,
     tipo: 'cadastro',
     ttlMs: aoVivo ? TTL_JANELA_VIVA : TTL_JANELA_FECHADA,
-    ordenarPor: 'contratos',
+    ordenarPor: 'valor',
   });
 
   return { dia, ao_vivo: aoVivo, ...agregado };
